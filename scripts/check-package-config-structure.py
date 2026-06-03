@@ -336,14 +336,16 @@ def check_header_impl_lists_have_no_duplicates() -> None:
         Path("cmake/ConfluxHeaderInterface.cmake"),
         Path("cmake/ConfluxInterfaceMode.cmake"),
     ]
-    interface_mode = read("cmake/ConfluxInterfaceMode.cmake")
+    registry = read("cmake/ConfluxComponentRegistry.cmake")
     defined_impls = set(
         re.findall(
-            r"\bconflux_define_header_impl_component\(\s*(conflux_header_impl_[A-Za-z0-9_]+)",
-            interface_mode,
+            r'"(conflux_header_impl_[A-Za-z0-9_]+)\|header_impl_[A-Za-z0-9_]+\|',
+            registry,
         ),
     )
     defined_impls.add("conflux_header_impl")
+    if not defined_impls - {"conflux_header_impl"}:
+        fail("component registry must declare header implementation components")
     call_pattern = re.compile(
         r"\b(conflux_header_public_component(?:_by_export)?|conflux_add_header_example_from_id)\((.*?)\)",
         re.DOTALL,
@@ -1790,6 +1792,20 @@ def generated_header_support_exports() -> set[str]:
             match.group("body"),
         )
     }
+    impl_match = re.search(
+        r"set\(CONFLUX_HEADER_IMPL_DECLARATIONS(?P<body>.*?)\)",
+        registry,
+        re.DOTALL,
+    )
+    if impl_match is None:
+        fail("missing CONFLUX_HEADER_IMPL_DECLARATIONS")
+    exports.update(
+        export
+        for _target, export in re.findall(
+            r'"([^"|]+)\|([^"|]+)\|',
+            impl_match.group("body"),
+        )
+    )
     if not {"headers", "header_impl"}.issubset(exports):
         fail("generated header support declarations must include headers and header_impl")
     return exports

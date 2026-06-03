@@ -77,27 +77,37 @@ set(CONFLUX_INSTALLED_SURFACE_ALIAS_DECLARATIONS
     "template_watch|TEMPLATES_WATCH|VISIBLE"
     "pg|DB|VISIBLE")
 
+set(CONFLUX_HEADER_IMPL_DECLARATIONS
+    "conflux_header_impl_core|header_impl_core|^conflux\.(types|utils)($|[.:])"
+    "conflux_header_impl_json|header_impl_json|^conflux\.json($|[.:])"
+    "conflux_header_impl_runtime|header_impl_runtime|^conflux\.(uring($|[.:])|work($|[.:])|net\.io_buffer($|[.:])|net\.cancel($|[.:]))"
+    "conflux_header_impl_file_io_sync|header_impl_file_io_sync|^conflux\.file_io_sync$"
+    "conflux_header_impl_file_map|header_impl_file_map|^conflux\.file_map$"
+    "conflux_header_impl_file_io|header_impl_file_io|^conflux\.file_io($|[.:])"
+    "conflux_header_impl_socket_io|header_impl_socket_io|^conflux\.socket_io($|[.:])"
+    "conflux_header_impl_dns|header_impl_dns|^conflux\.net\.dns($|[.:])"
+    "conflux_header_impl_process|header_impl_process|^conflux\.process($|[.:])"
+    "conflux_header_impl_crypto|header_impl_crypto|^conflux\.crypto($|[.:])"
+    "conflux_header_impl_http_core|header_impl_http_core|^conflux\.(http($|:problem)|net\.(app($|[.:])|config($|[.:])|http\.types|http\.request|http\.server_types|http\.json|http1|http_parse_helpers|response($|[.:])|router($|[.:])))"
+    "conflux_header_impl_http_server|header_impl_http_server|^conflux\.net\.http_server($|[.:])"
+    "conflux_header_impl_http_static|header_impl_http_static|^conflux\.net\.(router_static|http\.static_async)($|[.:])"
+    "conflux_header_impl_http_client|header_impl_http_client|^conflux\.net\.(async_client|client)($|[.:])"
+    "conflux_header_impl_http_proxy|header_impl_http_proxy|^conflux\.net\.proxy($|[.:])"
+    "conflux_header_impl_templates|header_impl_templates|^conflux\.templates($|[.:])"
+    "conflux_header_impl_pg|header_impl_pg|^conflux\.pg($|[.:])"
+    "conflux_header_impl_smtp|header_impl_smtp|^conflux\.net\.smtp($|[.:])")
+
 set(CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS
     "conflux_headers|headers"
-    "conflux_header_impl|header_impl"
-    "conflux_header_impl_core|header_impl_core"
-    "conflux_header_impl_json|header_impl_json"
-    "conflux_header_impl_runtime|header_impl_runtime"
-    "conflux_header_impl_file_io_sync|header_impl_file_io_sync"
-    "conflux_header_impl_file_map|header_impl_file_map"
-    "conflux_header_impl_file_io|header_impl_file_io"
-    "conflux_header_impl_socket_io|header_impl_socket_io"
-    "conflux_header_impl_dns|header_impl_dns"
-    "conflux_header_impl_process|header_impl_process"
-    "conflux_header_impl_crypto|header_impl_crypto"
-    "conflux_header_impl_http_core|header_impl_http_core"
-    "conflux_header_impl_http_server|header_impl_http_server"
-    "conflux_header_impl_http_static|header_impl_http_static"
-    "conflux_header_impl_http_client|header_impl_http_client"
-    "conflux_header_impl_http_proxy|header_impl_http_proxy"
-    "conflux_header_impl_templates|header_impl_templates"
-    "conflux_header_impl_pg|header_impl_pg"
-    "conflux_header_impl_smtp|header_impl_smtp")
+    "conflux_header_impl|header_impl")
+
+foreach(_entry IN LISTS CONFLUX_HEADER_IMPL_DECLARATIONS)
+    string(REPLACE "|" ";" _parts "${_entry}")
+    list(GET _parts 0 _target)
+    list(GET _parts 1 _export_name)
+    list(APPEND CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS
+        "${_target}|${_export_name}")
+endforeach()
 
 set(CONFLUX_PUBLIC_COMPONENT_DECLARATIONS)
 set(CONFLUX_EXPLICIT_COMPONENT_DECLARATIONS)
