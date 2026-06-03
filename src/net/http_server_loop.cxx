@@ -224,11 +224,7 @@ void Ring::queue_deferred_wait(
 	in_flight_read_bufs[ud] = std::move(buf);
 }
 
-// Must be called from the std::thread that will run run_loop() (SINGLE_ISSUER).
-// `wq_fd`: when non-zero, sets IORING_SETUP_ATTACH_WQ so this ring shares
-// the parent ring's kernel io-wq. Pass ring[0].ring.ring_fd for rings 1..N.
-void Ring::init(
-	std::uint16_t port,
+void Ring::init_uring_queue(
 	unsigned entries,
 	std::uint32_t uring_flags,
 	std::uint32_t wq_fd,
@@ -275,16 +271,25 @@ void Ring::init(
 			stripped_setup_flags_ = (conflux::uring::SetupFlags{stripped_setup_flags_} | *stripped).raw();
 		}
 	}
+}
+
+void Ring::detect_ring_capabilities() {
 	caps = detect_caps(conflux::uring::RingRef{ring});
 	use_recv_bundle =
 		use_recv_bundle && !use_recv_incremental_buf && caps.recvsend_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
+}
+
+void Ring::init_client_task_ring() {
 	client_task_ring_.emplace(
 		SocketRawRing{ring},
 		client_ct_,
 		UserDataFn{[](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
 			return pack(Op::ClientRing, gen, static_cast<int>(slot));
 		}});
+}
 
+void Ring::open_listen_socket(
+	std::uint16_t port) {
 	listen_fd = ::socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 	if (listen_fd < 0) {
 		throw std::system_error{errno, std::system_category(), "socket"};
@@ -308,21 +313,21 @@ void Ring::init(
 	if (::listen(listen_fd, SOMAXCONN) < 0) {
 		throw std::system_error{errno, std::system_category(), "listen"};
 	}
+}
 
-	// Read back actual port (port=0 → OS-assigned). Signal before io_uring
-	// setup so callers can discover the port while rings initialise.
-	{
-		sockaddr_in6 local{};
-		socklen_t llen = sizeof(local);
-		if (getsockname(listen_fd, reinterpret_cast<sockaddr *>(&local), &llen) == 0) {
-			bound_port = ntohs(local.sin6_port);
-		}
-		if (port_signal != nullptr) {
-			port_signal->store(bound_port, std::memory_order_release);
-			port_signal->notify_all();
-		}
+void Ring::publish_bound_port() {
+	sockaddr_in6 local{};
+	socklen_t llen = sizeof(local);
+	if (getsockname(listen_fd, reinterpret_cast<sockaddr *>(&local), &llen) == 0) {
+		bound_port = ntohs(local.sin6_port);
 	}
+	if (port_signal != nullptr) {
+		port_signal->store(bound_port, std::memory_order_release);
+		port_signal->notify_all();
+	}
+}
 
+void Ring::install_listen_direct_fd() {
 	direct_fds_ = std::make_unique<DirectFdTable>(conflux::uring::RingRef{ring}, MAX_FILES);
 	if (direct_fds_->registered() && direct_fds_->install(static_cast<std::uint32_t>(listen_fd), listen_fd)) {
 		listen_fixed = true;
@@ -335,13 +340,9 @@ void Ring::init(
 		}
 	}
 	accepted_sockets_direct = direct_accept_enabled_ && listen_fixed && caps.accept_direct_supported;
+}
 
-	// file_io pools: constructed here so register_buffers_sparse runs before
-	// buf_ring setup (both touch io_uring internal state; ordering is
-	// defensive — buf_ring uses a separate bgid). Install conflux::file_io::FileReader only
-	// when both streaming paths have usable resources; otherwise serve_static
-	// falls back to the mmap path instead of selecting an async response that
-	// cannot deliver its body.
+void Ring::init_file_io_pools() {
 	if (file_io_slabs > 0 && file_io_pipe_pairs > 0) {
 		auto const total_buf_slots =
 			static_cast<unsigned>(file_io_slabs + (send_fixed_buffers_enabled ? send_buffer_slabs : std::size_t{0}));
@@ -375,7 +376,10 @@ void Ring::init(
 			}
 		}
 	}
+}
 
+void Ring::init_recv_buffer_ring(
+	unsigned entries) {
 	buf_ring_ = std::make_unique<BufferRing>(
 		conflux::uring::RingRef{ring},
 		BufferRingOptions{
@@ -388,9 +392,32 @@ void Ring::init(
 											   BufferRingMode::classic_one_cqe_per_buffer,
 		},
 		caps);
+}
 
+void Ring::reserve_ring_tables(
+	unsigned entries) {
 	fd_table.reserve(FD_TABLE_RESERVE);
 	recvs.reserve(entries);
+}
+
+// Must be called from the std::thread that will run run_loop() (SINGLE_ISSUER).
+// `wq_fd`: when non-zero, sets IORING_SETUP_ATTACH_WQ so this ring shares
+// the parent ring's kernel io-wq. Pass ring[0].ring.ring_fd for rings 1..N.
+void Ring::init(
+	std::uint16_t port,
+	unsigned entries,
+	std::uint32_t uring_flags,
+	std::uint32_t wq_fd,
+	bool no_mmap) {
+	init_uring_queue(entries, uring_flags, wq_fd, no_mmap);
+	detect_ring_capabilities();
+	init_client_task_ring();
+	open_listen_socket(port);
+	publish_bound_port();
+	install_listen_direct_fd();
+	init_file_io_pools();
+	init_recv_buffer_ring(entries);
+	reserve_ring_tables(entries);
 }
 
 Conn &Ring::conn_for(

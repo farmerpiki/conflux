@@ -613,6 +613,15 @@ struct Ring {
 		std::uint32_t uring_flags,
 		std::uint32_t wq_fd = 0,
 		bool no_mmap = false);
+	void init_uring_queue(unsigned entries, std::uint32_t uring_flags, std::uint32_t wq_fd, bool no_mmap);
+	void detect_ring_capabilities();
+	void init_client_task_ring();
+	void open_listen_socket(std::uint16_t port);
+	void publish_bound_port();
+	void install_listen_direct_fd();
+	void init_file_io_pools();
+	void init_recv_buffer_ring(unsigned entries);
+	void reserve_ring_tables(unsigned entries);
 	Conn &conn_for(int fd);
 	void conn_erase(int fd, std::uint32_t gen);
 	// Acquire a raw SQE without implicit submission. Returns null when the ring
