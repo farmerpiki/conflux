@@ -985,6 +985,30 @@ TmplValue Environment::Impl::apply_fallback_path_method(
 	}
 	return val;
 }
+TmplValue slice_template_string(
+	std::string_view value,
+	std::optional<TmplValue> const &start_value,
+	std::optional<TmplValue> const &end_value) {
+	std::int64_t start = 0;
+	std::int64_t end = static_cast<std::int64_t>(value.size());
+	if (start_value && start_value->is_int()) {
+		start = start_value->as<std::int64_t>();
+		if (start < 0) {
+			start = std::max<std::int64_t>(0, static_cast<std::int64_t>(value.size()) + start);
+		}
+	}
+	if (end_value && end_value->is_int()) {
+		end = end_value->as<std::int64_t>();
+		if (end < 0) {
+			end = std::max<std::int64_t>(0, static_cast<std::int64_t>(value.size()) + end);
+		}
+	}
+	start = std::clamp<std::int64_t>(start, 0, static_cast<std::int64_t>(value.size()));
+	end = std::clamp<std::int64_t>(end, 0, static_cast<std::int64_t>(value.size()));
+	return TmplValue{std::string{value.substr(
+		static_cast<std::size_t>(start),
+		static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))}};
+}
 TmplValue Environment::Impl::eval_path(
 	std::vector<CompiledPathSegment> const &path,
 	TmplValue const &context) const {
@@ -1036,33 +1060,10 @@ TmplValue Environment::Impl::eval_path(
 			}
 		case CompiledPathSegmentKind::slice:
 			if (cur->is_string()) {
-				auto str = std::string(cur->as<std::string_view>());
-				std::int64_t start = 0;
-				std::int64_t end = static_cast<std::int64_t>(str.size());
-				if (seg.start) {
-					auto sv = eval_expr(*seg.start, context);
-					if (sv.is_int()) {
-						start = sv.as<std::int64_t>();
-						if (start < 0) {
-							start = std::max<std::int64_t>(0, static_cast<std::int64_t>(str.size()) + start);
-						}
-					}
-				}
-				if (seg.end) {
-					auto ev = eval_expr(*seg.end, context);
-					if (ev.is_int()) {
-						end = ev.as<std::int64_t>();
-						if (end < 0) {
-							end = std::max<std::int64_t>(0, static_cast<std::int64_t>(str.size()) + end);
-						}
-					}
-				}
-				start = std::clamp<std::int64_t>(start, 0, static_cast<std::int64_t>(str.size()));
-				end = std::clamp<std::int64_t>(end, 0, static_cast<std::int64_t>(str.size()));
-				set_owned(
-					TmplValue{str.substr(
-						static_cast<std::size_t>(start),
-						static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))});
+				set_owned(slice_template_string(
+					cur->as<std::string_view>(),
+					seg.start ? std::optional{eval_expr(*seg.start, context)} : std::nullopt,
+					seg.end ? std::optional{eval_expr(*seg.end, context)} : std::nullopt));
 			} else {
 				return {};
 			}
@@ -1381,35 +1382,12 @@ TmplValue Environment::Impl::eval_legacy_base(
 				auto idx_str = trim(std::string_view{remaining}.substr(1, close - 1));
 				if (auto colon = idx_str.find(':'); colon != std::string::npos) {
 					if (cur->is_string()) {
-						auto s = std::string(cur->as<std::string_view>());
 						auto start_s = trim(idx_str.substr(0, colon));
 						auto end_s = trim(idx_str.substr(colon + 1));
-						std::int64_t start = 0;
-						std::int64_t end = static_cast<std::int64_t>(s.size());
-						if (!start_s.empty()) {
-							auto sv = eval_expr(std::string{start_s}, context);
-							if (sv.is_int()) {
-								start = sv.as<std::int64_t>();
-								if (start < 0) {
-									start = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + start);
-								}
-							}
-						}
-						if (!end_s.empty()) {
-							auto ev = eval_expr(std::string{end_s}, context);
-							if (ev.is_int()) {
-								end = ev.as<std::int64_t>();
-								if (end < 0) {
-									end = std::max<std::int64_t>(0, static_cast<std::int64_t>(s.size()) + end);
-								}
-							}
-						}
-						start = std::clamp<std::int64_t>(start, 0, static_cast<std::int64_t>(s.size()));
-						end = std::clamp<std::int64_t>(end, 0, static_cast<std::int64_t>(s.size()));
-						set_owned(
-							TmplValue{s.substr(
-								static_cast<std::size_t>(start),
-								static_cast<std::size_t>(std::max<std::int64_t>(0, end - start)))});
+						set_owned(slice_template_string(
+							cur->as<std::string_view>(),
+							start_s.empty() ? std::nullopt : std::optional{eval_expr(std::string{start_s}, context)},
+							end_s.empty() ? std::nullopt : std::optional{eval_expr(std::string{end_s}, context)}));
 					} else {
 						return {};
 					}
