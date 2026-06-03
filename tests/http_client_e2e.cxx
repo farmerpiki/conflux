@@ -1,4 +1,9 @@
+#include <arpa/inet.h>
 #include <catch2/catch_test_macros.hpp>
+#include <cstring>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 import std;
 import conflux.net.config;
@@ -288,6 +293,58 @@ TEST_CASE(
 	auto response = client.blocking_send(chttp::ClientRequest::get("http://127.0.0.1:9/"));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::connect);
+}
+
+TEST_CASE(
+	"http client: chunked response without trailers is decoded correctly") {
+	std::uint16_t port = 0;
+	int const lfd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	REQUIRE(lfd >= 0);
+	int yes = 1;
+	::setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+	sockaddr_in sa{};
+	sa.sin_family = AF_INET;
+	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	sa.sin_port = 0;
+	REQUIRE(::bind(lfd, reinterpret_cast<sockaddr *>(&sa), sizeof(sa)) == 0);
+	socklen_t salen = sizeof(sa);
+	REQUIRE(::getsockname(lfd, reinterpret_cast<sockaddr *>(&sa), &salen) == 0);
+	port = ntohs(sa.sin_port);
+	REQUIRE(::listen(lfd, 1) == 0);
+
+	auto srv = std::thread([lfd] {
+		int const c = ::accept(lfd, nullptr, nullptr);
+		if (c < 0) {
+			return;
+		}
+		char buf[4096];
+		while (::recv(c, buf, sizeof(buf), 0) > 0) {
+			if (std::strstr(buf, "\r\n\r\n")) {
+				break;
+			}
+		}
+		std::string_view const resp =
+			"HTTP/1.1 200 OK\r\n"
+			"Content-Type: text/plain\r\n"
+			"Transfer-Encoding: chunked\r\n"
+			"Connection: close\r\n"
+			"\r\n"
+			"5\r\nhello\r\n"
+			"6\r\n world\r\n"
+			"0\r\n"
+			"\r\n";
+		::send(c, resp.data(), resp.size(), MSG_NOSIGNAL);
+		::close(c);
+	});
+
+	auto result = HttpClient{}.blocking_send(chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/", port)));
+
+	srv.join();
+	::close(lfd);
+
+	REQUIRE(result.has_value());
+	CHECK(result->head.status == 200);
+	CHECK(result->body == "hello world");
 }
 
 TEST_CASE(
