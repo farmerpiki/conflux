@@ -99,6 +99,20 @@ def documented_support_components() -> set[str]:
     return components
 
 
+def declared_cmake_targets() -> set[str]:
+    targets: set[str] = set()
+    paths = [ROOT / "CMakeLists.txt", *sorted((ROOT / "cmake").rglob("*.cmake"))]
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        targets.update(
+            re.findall(
+                r"\b(?:add_library|add_executable|add_custom_target|conflux_add_module_library)\(\s*([A-Za-z0-9_]+)",
+                text,
+            )
+        )
+    return targets
+
+
 def main() -> int:
     failures: list[str] = []
     cmake_components = public_components()
@@ -109,6 +123,7 @@ def main() -> int:
     doc_components = documented_components()
     doc_rows = documented_public_rows()
     doc_support_components = documented_support_components()
+    cmake_targets = declared_cmake_targets()
 
     for component in sorted(cmake_documented_components.keys() & cmake_support_components.keys()):
         failures.append(f"CMake component `{component}` is declared as both public and support")
@@ -121,6 +136,8 @@ def main() -> int:
                 f"component registry target `{target}` is declared by both `{owner}` and `{component}`"
             )
         all_targets[target] = component
+        if target not in cmake_targets:
+            failures.append(f"component registry target `{target}` is not declared by CMake")
 
     for component, (target, tier) in sorted(cmake_components.items()):
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", component):
