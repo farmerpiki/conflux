@@ -18,6 +18,11 @@ rm -rf "$bootstrap_source" "$bootstrap_build"
 mkdir -p "$work_root"
 cp -a "$stage_dir/source" "$bootstrap_source"
 
+if [[ -e "$bootstrap_source/.git" ]]; then
+    printf 'check-release-offline-bootstrap: staged source must not contain .git\n' >&2
+    exit 1
+fi
+
 cmake -S "$bootstrap_source" -B "$bootstrap_build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCONFLUX_FEATURE_SET="$feature_set" \

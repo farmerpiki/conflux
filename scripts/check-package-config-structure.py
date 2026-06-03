@@ -2722,6 +2722,7 @@ def check_release_artifact_staging_contract() -> None:
         "check-release-offline-bootstrap": "release artifact checks must include an offline bootstrap entrypoint",
         "stage-release-artifacts.sh": "offline bootstrap check must stage the release artifact it validates",
         'cp -a "$stage_dir/source" "$bootstrap_source"': "offline bootstrap check must build from the staged source tree",
+        '[[ -e "$bootstrap_source/.git" ]]': "offline bootstrap check must reject staged git metadata",
         "CONFLUX_RELEASE_OFFLINE_SKU": "offline bootstrap check must allow selecting the release SKU under test",
         '--release-sku "$release_sku"': "offline bootstrap check must pass the selected release SKU to staging",
         'feature_set="$(python3 "$source_root/scripts/release-sku-field.py"': "offline bootstrap check must derive the feature set from the SKU manifest",
