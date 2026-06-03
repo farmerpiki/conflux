@@ -123,7 +123,7 @@ public:
 					todos_.push_back(todo);
 				}
 				(void)events->send_event("todo.created", std::format("{}", todo.id));
-				return http::created(todo).header("Location", std::format("/todos/{}", todo.id));
+				return http::created(todo).location(std::format("/todos/{}", todo.id));
 			});
 	}
 

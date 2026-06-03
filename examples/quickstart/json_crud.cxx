@@ -77,7 +77,7 @@ int main() {
 			std::lock_guard lock{store->mu};
 			auto todo = Todo{.id = store->next_id++, .title = body->title};
 			store->todos.push_back(todo);
-			return http::created(todo).header("Location", std::format("/todos/{}", todo.id));
+			return http::created(todo).location(std::format("/todos/{}", todo.id));
 		});
 
 	return http::exit_code(std::move(app).run({.port = 9110}));
