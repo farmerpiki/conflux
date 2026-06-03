@@ -33,6 +33,14 @@ struct Token {
 	TokenType type;
 	std::string content;
 };
+struct ParseState {
+	std::vector<Token> const &tokens;
+	std::size_t pos = 0;
+	[[nodiscard]] Token const &cur() const { return tokens[pos]; }
+	[[nodiscard]] bool done() const { return pos >= tokens.size(); }
+	void advance() { ++pos; }
+};
+using ParseNodesFn = std::function<NodeList(std::vector<std::string> const &, int)>;
 static std::vector<Token> tokenize(
 	std::string const &source) {
 	std::vector<Token> tokens;
@@ -237,6 +245,76 @@ static FromImportNode parse_from_import_tag(
 		.alias = std::move(alias),
 	};
 }
+static NodePtr parse_block_node(
+	std::string const &tag,
+	ParseState &state,
+	ParseNodesFn const &parse_nodes,
+	Template &tmpl,
+	int depth) {
+	auto block_name = std::string{trim(tag.substr(6))};
+	state.advance();
+	auto body = parse_nodes({"endblock"}, depth + 1);
+	state.advance();
+	tmpl.blocks[block_name] = body;
+	return std::make_shared<Node>(BlockNode{block_name, body});
+}
+static NodePtr parse_for_node(
+	std::string const &tag,
+	ParseState &state,
+	ParseNodesFn const &parse_nodes,
+	int depth) {
+	auto parsed = parse_for_tag(tag);
+	state.advance();
+	auto body = parse_nodes({"endfor"}, depth + 1);
+	state.advance();
+	return std::make_shared<Node>(ForNode{parsed.vars, parsed.iter_expr, compile_expr(parsed.iter_expr), body});
+}
+static NodePtr parse_if_node(
+	std::string const &tag,
+	ParseState &state,
+	ParseNodesFn const &parse_nodes,
+	int depth) {
+	IfNode if_node;
+	auto cond = std::string{trim(tag.substr(3))};
+	state.advance();
+	auto body = parse_nodes({"elif", "else", "endif"}, depth + 1);
+	if_node.branches.push_back({cond, compile_expr(cond), body});
+
+	while (!state.done()) {
+		auto &t = state.cur().content;
+		if (t == "endif") {
+			state.advance();
+			break;
+		}
+		if (starts_with(t, "elif ")) {
+			auto c = std::string{trim(t.substr(5))};
+			state.advance();
+			auto b = parse_nodes({"elif", "else", "endif"}, depth + 1);
+			if_node.branches.push_back({c, compile_expr(c), b});
+		} else if (t == "else") {
+			state.advance();
+			auto b = parse_nodes({"endif"}, depth + 1);
+			if_node.branches.push_back({"", {}, b});
+			state.advance();
+			break;
+		} else {
+			break;
+		}
+	}
+	return std::make_shared<Node>(Node{if_node});
+}
+static NodePtr parse_macro_node(
+	std::string const &tag,
+	ParseState &state,
+	ParseNodesFn const &parse_nodes,
+	int depth) {
+	auto parsed = parse_macro_tag(tag);
+	state.advance();
+	auto body = parse_nodes({"endmacro"}, depth + 1);
+	state.advance();
+	return std::make_shared<Node>(
+		MacroNode{parsed.name, parsed.params, parsed.defaults, compile_expr_list(parsed.defaults), body});
+}
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
@@ -247,16 +325,9 @@ Template Environment::Impl::parse(
 	auto tokens = tokenize(source);
 	Template tmpl;
 	tmpl.name = name;
-	struct ParseState {
-		std::vector<Token> const &tokens;
-		std::size_t pos = 0;
-		[[nodiscard]] Token const &cur() const { return tokens[pos]; }
-		[[nodiscard]] bool done() const { return pos >= tokens.size(); }
-		void advance() { ++pos; }
-	};
 	ParseState state{tokens};
 
-	std::function<NodeList(std::vector<std::string> const &, int)> parse_nodes;
+	ParseNodesFn parse_nodes;
 	parse_nodes = [&](std::vector<std::string> const &end_tags, int depth) -> NodeList {
 		if (depth > kMaxTemplateDepth) {
 			throw std::runtime_error{"template parse recursion depth exceeded"};
@@ -302,53 +373,11 @@ Template Environment::Impl::parse(
 				nodes.push_back(std::make_shared<Node>(Node{ExtendsNode{tmpl.extends_name}}));
 				state.advance();
 			} else if (starts_with(tag, "block ")) {
-				auto block_name = std::string{trim(tag.substr(6))};
-				state.advance();
-				auto body = parse_nodes({"endblock"}, depth + 1);
-				state.advance();
-				tmpl.blocks[block_name] = body;
-				nodes.push_back(
-					std::make_shared<Node>(Node{
-						BlockNode{block_name, body}
-                }));
+				nodes.push_back(parse_block_node(tag, state, parse_nodes, tmpl, depth));
 			} else if (starts_with(tag, "for ")) {
-				auto parsed = parse_for_tag(tag);
-				state.advance();
-				auto body = parse_nodes({"endfor"}, depth + 1);
-				state.advance();
-				nodes.push_back(
-					std::make_shared<Node>(Node{
-						ForNode{parsed.vars, parsed.iter_expr, compile_expr(parsed.iter_expr), body}
-                }));
+				nodes.push_back(parse_for_node(tag, state, parse_nodes, depth));
 			} else if (starts_with(tag, "if ")) {
-				IfNode if_node;
-				auto cond = std::string{trim(tag.substr(3))};
-				state.advance();
-				auto body = parse_nodes({"elif", "else", "endif"}, depth + 1);
-				if_node.branches.push_back({cond, compile_expr(cond), body});
-
-				while (!state.done()) {
-					auto &t = state.cur().content;
-					if (t == "endif") {
-						state.advance();
-						break;
-					}
-					if (starts_with(t, "elif ")) {
-						auto c = std::string{trim(t.substr(5))};
-						state.advance();
-						auto b = parse_nodes({"elif", "else", "endif"}, depth + 1);
-						if_node.branches.push_back({c, compile_expr(c), b});
-					} else if (t == "else") {
-						state.advance();
-						auto b = parse_nodes({"endif"}, depth + 1);
-						if_node.branches.push_back({"", {}, b});
-						state.advance();
-						break;
-					} else {
-						break;
-					}
-				}
-				nodes.push_back(std::make_shared<Node>(Node{if_node}));
+				nodes.push_back(parse_if_node(tag, state, parse_nodes, depth));
 			} else if (starts_with(tag, "set ")) {
 				auto parsed = parse_set_tag(tag);
 				nodes.push_back(
@@ -361,19 +390,7 @@ Template Environment::Impl::parse(
 				nodes.push_back(std::make_shared<Node>(Node{IncludeNode{inc_name}}));
 				state.advance();
 			} else if (starts_with(tag, "macro ")) {
-				auto parsed = parse_macro_tag(tag);
-				state.advance();
-				auto body = parse_nodes({"endmacro"}, depth + 1);
-				state.advance();
-				nodes.push_back(
-					std::make_shared<Node>(Node{
-						MacroNode{
-								  parsed.name,
-								  parsed.params,
-								  parsed.defaults,
-								  compile_expr_list(parsed.defaults),
-								  body}
-                }));
+				nodes.push_back(parse_macro_node(tag, state, parse_nodes, depth));
 			} else if (starts_with(tag, "from ")) {
 				nodes.push_back(std::make_shared<Node>(Node{parse_from_import_tag(tag)}));
 				state.advance();
