@@ -387,6 +387,9 @@ struct Environment::Impl {
 	TmplValue apply_template_startswith_method(TmplValue const &val, EvalArg eval_arg) const;
 	template<class EvalArg>
 	TmplValue apply_template_split_method(TmplValue const &val, std::size_t arg_count, EvalArg eval_arg) const;
+	template<class EvalArg>
+	TmplValue
+	apply_template_method(std::string const &name, TmplValue const &val, std::size_t arg_count, EvalArg eval_arg) const;
 	TmplValue apply_method(
 		std::string const &name,
 		TmplValue const &val,

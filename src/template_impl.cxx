@@ -887,18 +887,16 @@ TmplValue Environment::Impl::apply_template_split_method(
 	return arr;
 }
 
-TmplValue Environment::Impl::apply_method(
+template<class EvalArg>
+TmplValue Environment::Impl::apply_template_method(
 	std::string const &name,
 	TmplValue const &val,
-	std::vector<CompiledExprPtr> const &args,
-	TmplValue const &context) const {
-	auto eval_arg = [&](std::size_t idx) -> TmplValue {
-		return idx < args.size() && args[idx] ? eval_expr(*args[idx], context) : TmplValue{};
-	};
+	std::size_t arg_count,
+	EvalArg eval_arg) const {
 	if (name == "get" && val.is_object()) {
-		return apply_template_get_method(val, args.size(), eval_arg);
+		return apply_template_get_method(val, arg_count, eval_arg);
 	}
-	if (name == "replace" && args.size() >= 2) {
+	if (name == "replace" && arg_count >= 2) {
 		return apply_template_replace_method(val, eval_arg);
 	}
 	if (name == "title") {
@@ -919,11 +917,11 @@ TmplValue Environment::Impl::apply_method(
 	if (name == "strip") {
 		return TmplValue{trim(value_to_string(val))};
 	}
-	if (name == "startswith" && !args.empty()) {
+	if (name == "startswith" && arg_count != 0) {
 		return apply_template_startswith_method(val, eval_arg);
 	}
 	if (name == "split") {
-		return apply_template_split_method(val, args.size(), eval_arg);
+		return apply_template_split_method(val, arg_count, eval_arg);
 	}
 	if (name == "keys" && val.is_object()) {
 		return tmpl_object_keys(val.as_object());
@@ -936,6 +934,16 @@ TmplValue Environment::Impl::apply_method(
 	}
 	return val;
 }
+TmplValue Environment::Impl::apply_method(
+	std::string const &name,
+	TmplValue const &val,
+	std::vector<CompiledExprPtr> const &args,
+	TmplValue const &context) const {
+	auto eval_arg = [&](std::size_t idx) -> TmplValue {
+		return idx < args.size() && args[idx] ? eval_expr(*args[idx], context) : TmplValue{};
+	};
+	return apply_template_method(name, val, args.size(), eval_arg);
+}
 TmplValue Environment::Impl::apply_fallback_path_method(
 	std::string const &name,
 	TmplValue const &val,
@@ -944,46 +952,7 @@ TmplValue Environment::Impl::apply_fallback_path_method(
 	auto eval_arg = [&](std::size_t idx) -> TmplValue {
 		return idx < args.size() ? eval_expr(args[idx], context) : TmplValue{};
 	};
-	if (name == "get" && val.is_object()) {
-		return apply_template_get_method(val, args.size(), eval_arg);
-	}
-	if (name == "replace" && args.size() >= 2) {
-		return apply_template_replace_method(val, eval_arg);
-	}
-	if (name == "title") {
-		return apply_template_title_method(val);
-	}
-	if (name == "upper") {
-		return apply_template_upper_method(val);
-	}
-	if (name == "lower") {
-		return apply_template_lower_method(val);
-	}
-	if (name == "capitalize") {
-		return TmplValue{str_capitalize(value_to_string(val))};
-	}
-	if (name == "strftime") {
-		return TmplValue{value_to_string(val)};
-	}
-	if (name == "strip") {
-		return TmplValue{trim(value_to_string(val))};
-	}
-	if (name == "startswith" && !args.empty()) {
-		return apply_template_startswith_method(val, eval_arg);
-	}
-	if (name == "split") {
-		return apply_template_split_method(val, args.size(), eval_arg);
-	}
-	if (name == "keys" && val.is_object()) {
-		return tmpl_object_keys(val.as_object());
-	}
-	if (name == "values" && val.is_object()) {
-		return tmpl_object_values(val.as_object());
-	}
-	if (name == "items" && val.is_object()) {
-		return tmpl_object_items(val.as_object());
-	}
-	return val;
+	return apply_template_method(name, val, args.size(), eval_arg);
 }
 TmplValue slice_template_string(
 	std::string_view value,
