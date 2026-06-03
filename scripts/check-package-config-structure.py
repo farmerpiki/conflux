@@ -171,6 +171,14 @@ def package_smoke_summary_keys(text: str) -> set[str]:
     return set(re.findall(r'"([A-Za-z0-9_]+)=', match.group("body")))
 
 
+def package_smoke_cache_variables(text: str) -> set[str]:
+    return set(re.findall(r"\b(?:set|option)\((CONFLUX_PACKAGE_SMOKE_[A-Z0-9_]+)\b", text))
+
+
+def package_smoke_runner_cache_variables(text: str) -> set[str]:
+    return set(re.findall(r"-D(CONFLUX_PACKAGE_SMOKE_[A-Z0-9_]+)=", text))
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -1751,6 +1759,8 @@ def check_package_smoke_project_contract() -> None:
         *sorted(Path("cmake/package-smoke").glob("*.cmake")),
     ]
     text = "\n".join(read(str(path)) for path in paths)
+    project = read("cmake/package-smoke/CMakeLists.txt")
+    runner = read("scripts/run-package-config-smoke.sh")
     required_markers = {
         "find_package(conflux REQUIRED COMPONENTS": "package smoke project must consume find_package(conflux COMPONENTS ...)",
         "CONFLUX_PACKAGE_SMOKE_COMPONENTS must name at least one component": "package smoke project must reject empty component lists",
@@ -1826,9 +1836,21 @@ def check_package_smoke_project_contract() -> None:
     append_set_delta_errors(
         missing,
         expected_summary_keys,
-        package_smoke_summary_keys(read("cmake/package-smoke/CMakeLists.txt")),
+        package_smoke_summary_keys(project),
         "package smoke summary missing keys: ",
         "package smoke summary contains unexpected keys: ",
+    )
+    runner_cache_variables = package_smoke_runner_cache_variables(runner)
+    project_only_cache_variables = {
+        "CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS",
+        "CONFLUX_PACKAGE_SMOKE_FAST_COMPILE",
+    }
+    append_set_delta_errors(
+        missing,
+        runner_cache_variables,
+        package_smoke_cache_variables(project) - project_only_cache_variables,
+        "package smoke project missing runner cache variables: ",
+        "package smoke project declares cache variables not set by runner: ",
     )
     if missing:
         fail("\n".join(missing))
