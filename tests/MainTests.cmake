@@ -11,6 +11,7 @@ target_sources(conflux_tests
         http_router_e2e.cxx
         http_lifecycle_e2e.cxx
         http_client_e2e.cxx
+        http_realtime_e2e.cxx
         http_e2e_middleware.cxx
         http_e2e_observability.cxx
         http3_test.cxx
