@@ -5,8 +5,6 @@ export import conflux.extended;
 #if CONFLUX_SURFACE_HAS_URING
 export import conflux.uring;
 export import conflux.uring.completion;
-export import conflux.uring.fd;
-export import conflux.uring.sqe;
 export import conflux.uring.flow;
 export import conflux.uring.handle;
 #endif
@@ -17,11 +15,6 @@ export import conflux.uring.timeout;
 
 #if CONFLUX_SURFACE_HAS_FILE_IO
 export import conflux.file_io;
-export import conflux.file_io.buffers;
-export import conflux.file_io.driver;
-export import conflux.file_io.iopoll;
-export import conflux.file_io.pipe_pool;
-export import conflux.file_io.reader;
 #endif
 
 #if CONFLUX_SURFACE_HAS_SOCKET_IO
