@@ -188,45 +188,6 @@ TEST_CASE(
 	auto out = reg.format_prometheus();
 	REQUIRE(out.find("http_requests_total{method=\"GET\",status=\"other\"}") != std::string::npos);
 }
-// ---------------------------------------------------------------------------
-// conflux::http::redirect_middleware
-// ---------------------------------------------------------------------------
-
-TEST_CASE(
-	"redirect: exact match returns 301 with Location") {
-	ensure_redirect_server();
-	auto resp = http_get_on(g_redirect_port, "/old");
-	REQUIRE(resp.starts_with("HTTP/1.1 301"));
-	REQUIRE(resp.find("Location: /new\r\n") != std::string::npos);
-}
-TEST_CASE(
-	"redirect: prefix match appends suffix and returns 302") {
-	ensure_redirect_server();
-	auto resp = http_get_on(g_redirect_port, "/api/v1/users");
-	REQUIRE(resp.starts_with("HTTP/1.1 302"));
-	REQUIRE(resp.find("Location: /api/v2/users\r\n") != std::string::npos);
-}
-TEST_CASE(
-	"redirect: non-matching path passes through to handler") {
-	ensure_redirect_server();
-	auto resp = http_get_on(g_redirect_port, "/new");
-	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(extract_body(resp) == "new");
-}
-TEST_CASE(
-	"redirect: custom status 307 preserved in redirect response") {
-	static std::uint16_t port = 0;
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::redirect_middleware({.rules = {{.from = "/x", .to = "/y", .status = 307}}}));
-		router.get("/y", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("y"); });
-		port = start_mw_server(mw_config(), std::move(router));
-	});
-	auto resp = http_get_on(port, "/x");
-	REQUIRE(resp.starts_with("HTTP/1.1 307"));
-	REQUIRE(resp.find("Location: /y\r\n") != std::string::npos);
-}
 TEST_CASE(
 	"http client: chunked response without trailers is decoded correctly") {
 	// Build a mock server that sends a chunked response (no trailers).

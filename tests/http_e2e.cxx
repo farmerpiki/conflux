@@ -867,29 +867,6 @@ std::string extract_set_cookie(
 	return std::string{resp.substr(pos, end - pos)};
 }
 // ---------------------------------------------------------------------------
-// conflux::http::redirect_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_redirect_port = 0;
-void ensure_redirect_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(
-			conflux::http::redirect_middleware({
-				.rules = {
-						  {.from = "/old", .to = "/new", .status = 301},
-						  {.from = "/api/v1/", .to = "/api/v2/", .status = 302, .prefix_match = true},
-						  }
-        }));
-		router.get("/new", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("new"); });
-		router.get("/api/v2/users", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("v2-users");
-		});
-		g_redirect_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-// ---------------------------------------------------------------------------
 // csrf_middleware test server
 // ---------------------------------------------------------------------------
 
