@@ -186,6 +186,24 @@ struct StaticSelectedSidecar {
 	std::string_view content_encoding;
 };
 
+struct StaticResolvedTarget {
+	std::string file_param;
+	std::string full_path;
+	std::string rel_path;
+	struct ::stat stat{};
+};
+
+struct StaticTargetResult {
+	std::optional<StaticResolvedTarget> target;
+	std::optional<conflux::http::Response> response;
+};
+
+struct StaticRangeSelection {
+	std::size_t start{};
+	std::size_t end{};
+	bool is_range_request{};
+};
+
 [[nodiscard]] bool parse_static_range_size(
 	std::string_view text,
 	std::size_t &out) noexcept {
@@ -445,6 +463,28 @@ void add_static_file_headers(
 	return resp;
 }
 
+[[nodiscard]] StaticRangeSelection select_static_range(
+	http_detail::StaticRequest const &request,
+	std::string_view content_encoding,
+	std::size_t file_size,
+	std::optional<conflux::http::Response> &early_response) {
+	StaticRangeSelection selection{.start = 0, .end = file_size - 1};
+	if (!content_encoding.empty()) {
+		return selection;
+	}
+	auto const range = parse_static_range_request(request.range, file_size);
+	if (range.unsatisfiable) {
+		early_response = make_static_range_not_satisfiable_response(file_size);
+		return selection;
+	}
+	if (range.range_request) {
+		selection.start = range.start;
+		selection.end = range.end;
+		selection.is_range_request = true;
+	}
+	return selection;
+}
+
 [[nodiscard]] conflux::http::Response make_static_mapped_response(
 	conflux::file_map::MappedFileLease lease,
 	std::string_view mime,
@@ -608,6 +648,75 @@ void add_static_file_headers(
 	return conflux::http::Response::html(std::move(html));
 }
 
+[[nodiscard]] StaticTargetResult resolve_static_target(
+	std::string const &rd,
+	int root_fd,
+	conflux::http::StaticOptions const &static_options,
+	std::string_view file_param_view) {
+	StaticResolvedTarget target{
+		.file_param = std::string{file_param_view},
+	};
+	target.full_path = rd + target.file_param;
+	std::string_view rel_path = std::string_view{target.file_param};
+	if (rel_path.starts_with('/')) {
+		rel_path.remove_prefix(1);
+	}
+	target.rel_path = std::string{rel_path};
+
+	conflux::file_io_sync::UniqueFd probe_fd{
+		target.rel_path.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
+								  contained_static_open(root_fd, target.rel_path.c_str(), O_PATH | O_CLOEXEC)};
+	if (!probe_fd) {
+		return StaticTargetResult{.response = conflux::http::Response::not_found(target.file_param)};
+	}
+	if (::fstat(probe_fd.fd(), &target.stat) != 0) {
+		return StaticTargetResult{.response = conflux::http::Response::not_found(target.file_param)};
+	}
+	probe_fd.reset();
+
+	if (S_ISDIR(target.stat.st_mode)) {
+		auto index_rel = target.rel_path.empty() ? std::string{"index.html"} : target.rel_path + "/index.html";
+		conflux::file_io_sync::UniqueFd idx_fd{contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC)};
+		if (idx_fd) {
+			if (::fstat(idx_fd.fd(), &target.stat) != 0 || !S_ISREG(target.stat.st_mode)) {
+				return StaticTargetResult{.response = conflux::http::Response::not_found(target.file_param)};
+			}
+			idx_fd.reset();
+			target.full_path = rd + "/" + index_rel;
+			target.file_param += "/index.html";
+			target.rel_path = std::move(index_rel);
+		} else if (static_options.directory_listing) {
+			auto listing = render_static_directory_listing(root_fd, target.rel_path, target.file_param);
+			if (!listing) {
+				return StaticTargetResult{.response = static_forbidden()};
+			}
+			return StaticTargetResult{.response = std::move(*listing)};
+		} else {
+			return StaticTargetResult{.response = static_forbidden()};
+		}
+	}
+
+	return StaticTargetResult{.target = std::move(target)};
+}
+
+void select_static_variant(
+	StaticResolvedTarget &target,
+	std::string &content_encoding,
+	int root_fd,
+	bool precompressed,
+	std::string_view accept_encoding) {
+	if (!precompressed) {
+		return;
+	}
+	if (auto sidecar =
+			select_static_precompressed_sidecar(root_fd, target.full_path, target.rel_path, accept_encoding)) {
+		target.full_path = std::move(sidecar->full_path);
+		target.stat = sidecar->stat;
+		content_encoding = sidecar->content_encoding;
+		target.rel_path = std::move(sidecar->rel_path);
+	}
+}
+
 } // namespace
 
 namespace conflux::http {
@@ -626,6 +735,50 @@ conflux::work::root::Task<void> do_delete_static_file(
 	std::shared_ptr<std::string> fp,
 	http_detail::StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task);
+
+[[nodiscard]] std::optional<conflux::http::Response> try_static_async_file_response(
+	int root_fd,
+	std::string const &rel_path,
+	std::string_view mime,
+	std::string_view etag,
+	std::string_view last_modified,
+	std::string_view content_encoding,
+	std::string_view cache_control,
+	StaticRangeSelection range,
+	std::size_t file_size) {
+	if (auto *fr = conflux::file_io::current_file_reader(); fr != nullptr && content_encoding.empty()) {
+		auto dr = std::make_shared<conflux::http::DeferredResponse>();
+		auto base = make_static_file_response(
+			range.is_range_request ? kHttpPartialContent : kHttpOk,
+			range.is_range_request ? "Partial Content" : "OK",
+			mime,
+			etag,
+			last_modified,
+			content_encoding,
+			cache_control);
+		if (range.is_range_request) {
+			base.headers["Content-Range"] = static_content_range(range.start, range.end, file_size);
+		}
+		auto const send_off = range.is_range_request ? range.start : std::size_t{0};
+		auto const send_sz = range.is_range_request ? (range.end - range.start + 1) : file_size;
+		do_serve_static_file(
+			dr,
+			std::move(base),
+			send_off,
+			send_sz,
+			file_size,
+			fr->async_openat2(
+				root_fd,
+				std::string{rel_path},
+				open_how{
+					.flags = static_cast<__u64>(O_RDONLY | O_CLOEXEC),
+					.mode = 0,
+					.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS}))
+			.detach();
+		return conflux::http::Response::deferred(std::move(dr));
+	}
+	return std::nullopt;
+}
 
 conflux::http::Response handle_static_get_request(
 	std::string const &rd,
@@ -810,77 +963,30 @@ conflux::http::Response handle_static_get(
 	http_detail::StaticRequest const &r,
 	http_detail::StaticCacheStore &static_cache) {
 	try {
-		std::string file_param{r.file_param};
-		auto full_path = rd + file_param;
-		std::string_view rel_path = std::string_view{file_param};
-		if (rel_path.starts_with('/')) {
-			rel_path.remove_prefix(1);
+		auto resolved = resolve_static_target(rd, root_fd, static_options, r.file_param);
+		if (resolved.response) {
+			return std::move(*resolved.response);
 		}
-		std::string rel_str{rel_path};
-
-		struct ::stat st{};
-		conflux::file_io_sync::UniqueFd probe_fd{
-			rel_str.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
-							  contained_static_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC)};
-		if (!probe_fd) {
-			return conflux::http::Response::not_found(file_param);
-		}
-		if (::fstat(probe_fd.fd(), &st) != 0) {
-			return conflux::http::Response::not_found(file_param);
-		}
-		probe_fd.reset();
-
-		if (S_ISDIR(st.st_mode)) {
-			auto index_rel = rel_str.empty() ? std::string{"index.html"} : rel_str + "/index.html";
-			conflux::file_io_sync::UniqueFd idx_fd{
-				contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC)};
-			if (idx_fd) {
-				if (::fstat(idx_fd.fd(), &st) != 0 || !S_ISREG(st.st_mode)) {
-					return conflux::http::Response::not_found(file_param);
-				}
-				idx_fd.reset();
-				full_path = rd + "/" + index_rel;
-				file_param += "/index.html";
-				rel_str = index_rel;
-			} else if (static_options.directory_listing) {
-				auto listing = render_static_directory_listing(root_fd, rel_str, file_param);
-				if (!listing) {
-					return static_forbidden();
-				}
-				return std::move(*listing);
-			} else {
-				return static_forbidden();
-			}
-		}
+		auto target = std::move(*resolved.target);
 
 		std::string content_encoding;
-		if (static_options.precompressed) {
-			if (auto sidecar = select_static_precompressed_sidecar(root_fd, full_path, rel_str, r.accept_encoding)) {
-				full_path = std::move(sidecar->full_path);
-				st = sidecar->stat;
-				content_encoding = sidecar->content_encoding;
-				rel_str = std::move(sidecar->rel_path);
-			}
-		}
-		if (!S_ISREG(st.st_mode)) {
+		select_static_variant(target, content_encoding, root_fd, static_options.precompressed, r.accept_encoding);
+		if (!S_ISREG(target.stat.st_mode)) {
 			return static_forbidden();
 		}
 
-		// Build ETag from size + mtime.
-		auto etag = static_file_etag(st.st_size, st.st_mtime);
+		auto etag = static_file_etag(target.stat.st_size, target.stat.st_mtime);
 
-		auto last_modified = static_last_modified(st.st_mtime);
+		auto last_modified = static_last_modified(target.stat.st_mtime);
 
-		if (auto not_modified = static_conditional_not_modified(r, etag, st.st_mtime)) {
+		if (auto not_modified = static_conditional_not_modified(r, etag, target.stat.st_mtime)) {
 			return std::move(*not_modified);
 		}
 
-		// Use original file_param, not a selected .gz/.br sidecar path.
-		auto const mime = static_mime_type(file_param);
+		auto const mime = static_mime_type(target.file_param);
 
-		auto file_size = static_cast<std::size_t>(st.st_size);
+		auto file_size = static_cast<std::size_t>(target.stat.st_size);
 
-		// HEAD: return headers only (no body, but correct Content-Length).
 		if (r.method == "HEAD") {
 			auto resp = make_static_file_response(
 				kHttpOk,
@@ -895,7 +1001,6 @@ conflux::http::Response handle_static_get(
 			return resp;
 		}
 
-		// Zero-size file: skip mmap, return empty body directly.
 		if (file_size == 0) {
 			return make_static_file_response(
 				kHttpOk,
@@ -907,84 +1012,50 @@ conflux::http::Response handle_static_get(
 				static_options.cache_control);
 		}
 
-		std::size_t range_start = 0;
-		std::size_t range_end = file_size - 1;
-		bool is_range_request = false;
-		if (content_encoding.empty()) {
-			auto const range = parse_static_range_request(r.range, file_size);
-			if (range.unsatisfiable) {
-				return make_static_range_not_satisfiable_response(file_size);
-			}
-			if (range.range_request) {
-				range_start = range.start;
-				range_end = range.end;
-				is_range_request = true;
-			}
+		std::optional<conflux::http::Response> range_response;
+		auto const range = select_static_range(r, content_encoding, file_size, range_response);
+		if (range_response) {
+			return std::move(*range_response);
 		}
 
 		if (auto cached = try_serve_static_cached_file(
 				static_options,
 				static_cache,
-				full_path,
+				target.full_path,
 				content_encoding,
-				st,
+				target.stat,
 				root_fd,
-				rel_str,
-				file_param,
+				target.rel_path,
+				target.file_param,
 				mime,
 				etag,
 				last_modified,
-				range_start,
-				range_end,
+				range.start,
+				range.end,
 				file_size,
-				is_range_request)) {
+				range.is_range_request)) {
 			return std::move(*cached);
 		}
 
-		// Async uring path: when a conflux::file_io::FileReader is installed for this
-		// std::thread (i.e. we are running on a ring std::thread, not offloaded to
-		// a WorkPool) and no compressed std::variant was picked, open the
-		// file via IORING_OP_OPENAT and return a deferred response that
-		// carries a StreamedFile once the open CQE fires. Otherwise
-		// fall back to the synchronous mmap path below.
-		if (auto *fr = conflux::file_io::current_file_reader(); fr != nullptr && content_encoding.empty()) {
-			auto dr = std::make_shared<conflux::http::DeferredResponse>();
-			auto base = make_static_file_response(
-				is_range_request ? kHttpPartialContent : kHttpOk,
-				is_range_request ? "Partial Content" : "OK",
+		if (auto async_response = try_static_async_file_response(
+				root_fd,
+				target.rel_path,
 				mime,
 				etag,
 				last_modified,
 				content_encoding,
-				static_options.cache_control);
-			if (is_range_request) {
-				base.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
-			}
-			auto const send_off = is_range_request ? range_start : std::size_t{0};
-			auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
-			do_serve_static_file(
-				dr,
-				std::move(base),
-				send_off,
-				send_sz,
-				file_size,
-				fr->async_openat2(
-					root_fd,
-					std::string{rel_str},
-					open_how{
-						.flags = static_cast<__u64>(O_RDONLY | O_CLOEXEC),
-						.mode = 0,
-						.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS}))
-				.detach();
-			return conflux::http::Response::deferred(std::move(dr));
+				static_options.cache_control,
+				range,
+				file_size)) {
+			return std::move(*async_response);
 		}
 
-		auto lease = conflux::file_map::blocking_map_file_readonly(root_fd, std::string_view{rel_str});
+		auto lease = conflux::file_map::blocking_map_file_readonly(root_fd, std::string_view{target.rel_path});
 		if (!lease) {
 			return conflux::http::Response::internal_error();
 		}
 
-		if (is_range_request) {
+		if (range.is_range_request) {
 			return make_static_mapped_response(
 				std::move(*lease),
 				mime,
@@ -992,8 +1063,8 @@ conflux::http::Response handle_static_get(
 				last_modified,
 				content_encoding,
 				static_options.cache_control,
-				range_start,
-				range_end,
+				range.start,
+				range.end,
 				file_size,
 				true);
 		}
@@ -1005,8 +1076,8 @@ conflux::http::Response handle_static_get(
 			last_modified,
 			content_encoding,
 			static_options.cache_control,
-			range_start,
-			range_end,
+			range.start,
+			range.end,
 			file_size,
 			false);
 	} catch (...) { return conflux::http::Response::internal_error(); }
