@@ -6,6 +6,10 @@
 //   curl -i http://localhost:9095/slow
 //   curl -i http://localhost:9095/metrics
 import conflux.extended;
+import conflux.net.cache_control;
+import conflux.net.observability;
+import conflux.net.rate_limit;
+import conflux.net.security;
 import std;
 
 int main() {
