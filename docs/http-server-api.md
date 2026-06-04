@@ -448,24 +448,26 @@ PATCH content type in OpenAPI metadata.
 
 ## Handlers
 
-Handlers can be synchronous or coroutine-based. Prefer `Request` /
-`RequestView`; accepting `OwnedRequest` explicitly materializes an owned copy.
-Both sync and async handler bodies start on the HTTP ring thread. Conflux does
-not silently offload blocking work: disk I/O, DNS, DB calls, client HTTP,
-sleeps, and heavy CPU work must move through an explicit async API or an
-explicit worker/offload path.
+The first-contact handler mental model is: accept `http::RequestView` or typed
+extractors, then return `http::Response` or a typed JSON value. Accepting
+`OwnedRequest` explicitly materializes an owned copy. Return
+`conflux::work::Task<http::Response>` only when the handler has real suspension
+points. Both ordinary response handlers and task-returning handlers start on the
+HTTP ring thread. Conflux does not silently offload blocking work: disk I/O,
+DNS, DB calls, client HTTP, sleeps, and heavy CPU work must move through an
+explicit async API or an explicit worker/offload path.
 
 Request bodies are bounded and buffered in memory today. Raise `max_body_size`
 deliberately for known workloads; arbitrary large uploads need the deferred
 streaming upload API rather than hidden spill-to-disk behavior.
 
 ```cpp
-// Sync handler: runs inline on the HTTP ring thread and borrows the request.
+// First-contact handler: runs inline on the HTTP ring thread and borrows the request.
 app.get("/ping", [](http::RequestView const& req) -> http::Response {
     return http::text("pong");
 });
 
-// Async handler: also borrows the server-owned request storage.
+// Task-returning handler: use only when the work has suspension points.
 app.post("/echo", [](http::RequestView const& req) -> conflux::work::Task<http::Response> {
     co_return http::text(req.body);
 });

@@ -45,6 +45,15 @@ def check_http_server_api_order(failures: list[str]) -> None:
         failures.append(
             "docs/http-server-api.md: first-contact route and handler sections must precede extended router reference",
         )
+    handler_markers = [
+        "The first-contact handler mental model is",
+        "return `http::Response`",
+        "Return\n`conflux::work::Task<http::Response>` only when the handler has real suspension\npoints.",
+        "Task-returning handler: use only when the work has suspension points.",
+    ]
+    missing = [marker for marker in handler_markers if marker not in text]
+    if missing:
+        failures.append("docs/http-server-api.md: missing first-contact handler mental-model wording")
 
 
 def files() -> list[pathlib.Path]:
