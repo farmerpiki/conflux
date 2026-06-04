@@ -12,8 +12,34 @@ REQUIRED_HEADINGS = [
     "## HTTP request lifetimes",
     "## HTTP response costs",
     "## JSON ownership and allocation",
+    "## File and mmap lifetimes",
     "## Runtime blocking model",
     "## Do not do this",
+]
+
+REQUIRED_DOC_MARKERS = [
+    "| Type | owns memory? | borrows from? | valid until | can suspend? | can cross thread? | can be stored? | copies? | allocates? |",
+    "| Response | body ownership | copies body? | allocates? | blocks? | zero-copy eligible? | TLS caveat? | validity requirement |",
+    "| API | input ownership | string ownership | arena/PMR behavior | copies? | allocates? | error path allocations? | UTF-8 validation? | duplicate key behavior? |",
+    "| API/type | ownership | valid until | copies? | allocates? | blocks? | zero-copy caveat |",
+    "| API/path | runs on caller? | blocks caller? | blocks ring thread? | requires explicit opt-in? | safe inside HTTP handler? |",
+    "`http::RequestView`",
+    "`http::OwnedRequest`",
+    "`http::BodyBytes`",
+    "`http::OwnedBodyBytes`",
+    "`http::JsonDocument`",
+    "`parse_borrowed`",
+    "`parse_owned`",
+    "`parse_into`",
+    "`parse_copy`",
+    "`http::owned_text(...)`",
+    "`http::owned_created(...)`",
+    "`http::blocking_file_response(...)`",
+    "`http::buffered_stream(...)`",
+    "`file_map::MappedFileLease`",
+    "Static mapped response",
+    "mmap",
+    "Do not block inside handlers.",
 ]
 
 FORBIDDEN_PUBLIC_HELPERS = [
@@ -39,6 +65,9 @@ def main() -> int:
         for heading in REQUIRED_HEADINGS:
             if heading not in text:
                 failures.append(f"missing required heading: {heading}")
+        for marker in REQUIRED_DOC_MARKERS:
+            if marker not in text:
+                failures.append(f"docs/cost-lifetime-model.md missing marker: {marker}")
         for helper in FORBIDDEN_PUBLIC_HELPERS:
             if helper in text:
                 failures.append(f"docs/cost-lifetime-model.md mentions nonexistent helper: {helper}")
