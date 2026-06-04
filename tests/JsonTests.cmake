@@ -4,6 +4,8 @@ add_executable(conflux_json_dom_path_tests json_dom_path_test.cxx)
 target_link_libraries(conflux_json_dom_path_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 add_executable(conflux_json_parse_container_tests json_parse_container_test.cxx)
 target_link_libraries(conflux_json_parse_container_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+add_executable(conflux_json_parse_error_tests json_parse_error_test.cxx)
+target_link_libraries(conflux_json_parse_error_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 add_executable(conflux_json_parse_scalar_tests json_parse_scalar_test.cxx)
 target_link_libraries(conflux_json_parse_scalar_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
