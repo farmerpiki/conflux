@@ -32,6 +32,21 @@ QUICKSTART_ALLOWED_LEAF_IMPORTS = {
 }
 
 
+def check_http_server_api_order(failures: list[str]) -> None:
+    path = ROOT / "docs" / "http-server-api.md"
+    text = path.read_text(encoding="utf-8")
+    markers = [
+        "## Typed routes and extractors",
+        "## Handlers",
+        "## Extended router reference",
+    ]
+    positions = [text.find(marker) for marker in markers]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        failures.append(
+            "docs/http-server-api.md: first-contact route and handler sections must precede extended router reference",
+        )
+
+
 def files() -> list[pathlib.Path]:
     found: list[pathlib.Path] = []
     for path in PATHS:
@@ -48,6 +63,7 @@ def skipped(path: pathlib.Path) -> bool:
 
 def main() -> int:
     failures: list[str] = []
+    check_http_server_api_order(failures)
     for path in files():
         if skipped(path):
             continue

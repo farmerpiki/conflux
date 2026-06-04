@@ -397,7 +397,101 @@ and floating-point types. Missing required fields produce
 
 ---
 
-## Router
+## Typed routes and extractors
+
+Fixed-string app routes can tag path parameter types and pass them directly as
+plain handler arguments by capture order:
+
+```cpp
+app.get<"/todos/{id:i64}">([](std::int64_t id) {
+    return http::text(std::format("todo={}", id));
+});
+```
+
+Typed query, header, cookie, and form extractors make requiredness explicit.
+Use `RequiredQuery`, `RequiredHeader`, `RequiredCookie`, and `RequiredForm`
+when a missing field should reject the request. Use `OptionalQuery`,
+`OptionalHeader`, `OptionalCookie`, and `OptionalForm` when absence is allowed.
+The shorter `Query`, `Header`, `Cookie`, and `Form` spellings remain available
+as low-ceremony shorthands, but their missing-field behavior depends on the
+target type: string-view targets produce an empty view, scalar targets fail
+conversion, and `std::optional<T>` targets produce `std::nullopt`. Public docs
+and examples should prefer the explicit required/optional aliases whenever the
+route contract matters.
+
+```cpp
+app.get(
+    "/search",
+    [](http::RequiredQuery<"q"> q,
+       http::OptionalQuery<"page", std::uint32_t> page,
+       http::OptionalHeader<"x-trace-id"> trace_id) {
+        auto const page_number = page.value_or(1);
+        return http::text(std::format("q={} page={} trace={}\n",
+                                      q.get(),
+                                      page_number,
+                                      trace_id.value_or("none")));
+    });
+```
+
+The HTTP server owns the request storage for the dispatch lifetime. Handlers,
+middleware, and extractors receive `http::Request` / `http::RequestView` unless
+they explicitly ask for `http::OwnedRequest`.
+
+Typed app handlers can receive PATCH JSON bodies directly. `http::JsonPatch`
+requires `Content-Type: application/json-patch+json`, parses the body, and
+validates RFC 6902 operation shape before invoking the handler. `http::MergePatch`
+requires `application/merge-patch+json`. Both use the route/app JSON body limit,
+return `application/problem+json` on extractor failure, and record the matching
+PATCH content type in OpenAPI metadata.
+
+---
+
+## Handlers
+
+Handlers can be synchronous or coroutine-based. Prefer `Request` /
+`RequestView`; accepting `OwnedRequest` explicitly materializes an owned copy.
+Both sync and async handler bodies start on the HTTP ring thread. Conflux does
+not silently offload blocking work: disk I/O, DNS, DB calls, client HTTP,
+sleeps, and heavy CPU work must move through an explicit async API or an
+explicit worker/offload path.
+
+Request bodies are bounded and buffered in memory today. Raise `max_body_size`
+deliberately for known workloads; arbitrary large uploads need the deferred
+streaming upload API rather than hidden spill-to-disk behavior.
+
+```cpp
+// Sync handler: runs inline on the HTTP ring thread and borrows the request.
+app.get("/ping", [](http::RequestView const& req) -> http::Response {
+    return http::text("pong");
+});
+
+// Async handler: also borrows the server-owned request storage.
+app.post("/echo", [](http::RequestView const& req) -> conflux::work::Task<http::Response> {
+    co_return http::text(req.body);
+});
+
+// Explicit worker placement for blocking/heavy work.
+// Requires import conflux.http.extended.
+auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
+app.get("/slow", [pool](http::RequestView const&) -> http::Response {
+    return http::offload(pool, [] {
+        return http::text("done");
+    });
+});
+```
+
+---
+
+## Extended router reference
+
+Raw `Router`, context handlers, and async context middleware are extended escape
+hatches for integrations that bypass the `App` facade or need ring-context
+access. First-contact applications should stay on `App`, `RequestView`, typed
+extractors, and `Response` until they have a concrete need for this surface.
+
+Raw router path patterns support `{param}` segment captures and `*` wildcards.
+Raw handlers can inspect captures through `req.params`; fixed-string app routes
+should prefer typed captures.
 
 ```cpp
 using NextHandler = CloneableFunction<Response(RequestView const&)>;
@@ -458,7 +552,6 @@ public:
     using Handler = NextHandler;
     using Middleware = MiddlewareFunction;
 
-    // Route registration
     template<RouteHandler F> Router& get    (std::string_view path, F&&);
     template<RouteHandler F> Router& post   (std::string_view path, F&&);
     template<RouteHandler F> Router& put    (std::string_view path, F&&);
@@ -466,7 +559,6 @@ public:
     template<RouteHandler F> Router& del    (std::string_view path, F&&);
     template<RouteHandler F> Router& options(std::string_view path, F&&);
 
-    // Context/coroutine routes with access to the ring context.
     template<ContextHandlerFunction F>
     Router& add_context(std::string_view method, std::string_view path, F&& handler);
     template<ContextHandlerFunction F> Router& get_context    (std::string_view path, F&&);
@@ -476,118 +568,27 @@ public:
     template<ContextHandlerFunction F> Router& del_context    (std::string_view path, F&&);
     template<ContextHandlerFunction F> Router& options_context(std::string_view path, F&&);
 
-    // WebSocket upgrade and SSE.
     template<typename F> Router& ws (std::string_view path, F&& handler);
     template<typename F> Router& sse(std::string_view path, F&& handler);
 
-    // Static file serving.
     Router& serve_static(std::string_view url_prefix,
                          std::string root_dir,
                          conflux::http::StaticOptions const& = {});
 
-    // Middleware (applied in registration order, outermost first).
     template<class F> requires ::Middleware<F>
     Router& use(F&&);
     template<AsyncMiddleware F>
     Router& use_async(F&&);
 
-    // Route groups.
     template<typename F> Router& group(std::string_view prefix, F&& fn);
-
-    // Error/not-found handlers.
     template<typename F> Router& on_not_found(F&& handler);
     template<typename F> Router& on_error(F&& handler);
 
-    // Route introspection.
     std::vector<RouteInfo> route_infos() const;
 };
 ```
 
-Fixed-string app routes can tag path parameter types and pass them directly as
-plain handler arguments by capture order:
-
-```cpp
-app.get<"/todos/{id:i64}">([](std::int64_t id) {
-    return http::text(std::format("todo={}", id));
-});
-```
-
-Raw router path patterns support `{param}` segment captures and `*` wildcards.
-Raw handlers can inspect captures through `req.params`; fixed-string app
-routes should prefer typed captures.
-
-Typed query, header, cookie, and form extractors make requiredness explicit.
-Use `RequiredQuery`, `RequiredHeader`, `RequiredCookie`, and `RequiredForm`
-when a missing field should reject the request. Use `OptionalQuery`,
-`OptionalHeader`, `OptionalCookie`, and `OptionalForm` when absence is allowed.
-The shorter `Query`, `Header`, `Cookie`, and `Form` spellings remain available
-as low-ceremony shorthands, but their missing-field behavior depends on the
-target type: string-view targets produce an empty view, scalar targets fail
-conversion, and `std::optional<T>` targets produce `std::nullopt`. Public docs
-and examples should prefer the explicit required/optional aliases whenever the
-route contract matters.
-
-```cpp
-app.get(
-    "/search",
-    [](http::RequiredQuery<"q"> q,
-       http::OptionalQuery<"page", std::uint32_t> page,
-       http::OptionalHeader<"x-trace-id"> trace_id) {
-        auto const page_number = page.value_or(1);
-        return http::text(std::format("q={} page={} trace={}\n",
-                                      q.get(),
-                                      page_number,
-                                      trace_id.value_or("none")));
-    });
-```
-
-The public concepts are intended for user helpers and diagnostics. The HTTP
-server owns the request storage for the dispatch lifetime; handlers,
-middleware, async context routes, and extractors receive `http::Request` /
-`http::RequestView` unless they explicitly ask for `http::OwnedRequest`.
-
-Typed app handlers can receive PATCH JSON bodies directly. `http::JsonPatch`
-requires `Content-Type: application/json-patch+json`, parses the body, and
-validates RFC 6902 operation shape before invoking the handler. `http::MergePatch`
-requires `application/merge-patch+json`. Both use the route/app JSON body limit,
-return `application/problem+json` on extractor failure, and record the matching
-PATCH content type in OpenAPI metadata.
-
----
-
-## Handlers
-
-Handlers can be synchronous or coroutine-based. Prefer `Request` /
-`RequestView`; accepting `OwnedRequest` explicitly materializes an owned copy.
-Both sync and async handler bodies start on the HTTP ring thread. Conflux does
-not silently offload blocking work: disk I/O, DNS, DB calls, client HTTP,
-sleeps, and heavy CPU work must move through an explicit async API or an
-explicit worker/offload path.
-
-Request bodies are bounded and buffered in memory today. Raise `max_body_size`
-deliberately for known workloads; arbitrary large uploads need the deferred
-streaming upload API rather than hidden spill-to-disk behavior.
-
-```cpp
-// Sync handler: runs inline on the HTTP ring thread and borrows the request.
-app.get("/ping", [](http::RequestView const& req) -> http::Response {
-    return http::text("pong");
-});
-
-// Async handler: also borrows the server-owned request storage.
-app.post("/echo", [](http::RequestView const& req) -> conflux::work::Task<http::Response> {
-    co_return http::text(req.body);
-});
-
-// Explicit worker placement for blocking/heavy work.
-// Requires import conflux.http.extended.
-auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
-app.get("/slow", [pool](http::RequestView const&) -> http::Response {
-    return http::offload(pool, [] {
-        return http::text("done");
-    });
-});
-```
+The public concepts are intended for user helpers and diagnostics.
 
 ---
 
