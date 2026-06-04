@@ -11,7 +11,9 @@ export import conflux.net.http_server;
 export import conflux.net.http.static_files;
 export import conflux.net.http.realtime;
 export import conflux.net.auth;
+#if CONFLUX_SURFACE_HAS_HTTP_COMPRESSION
 export import conflux.net.compress;
+#endif
 export import conflux.net.cors;
 export import conflux.net.rate_limit;
 export import conflux.net.security;

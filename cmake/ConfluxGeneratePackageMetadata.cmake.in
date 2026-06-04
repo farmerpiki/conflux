@@ -148,6 +148,8 @@ _conflux_registry_exports(_conflux_generated_header_support_registry_exports
     CONFLUX_GENERATED_HEADER_SUPPORT_DECLARATIONS)
 list(APPEND _conflux_support_registry_exports
     ${_conflux_generated_header_support_registry_exports})
+list(APPEND _conflux_support_registry_exports
+    ${_conflux_requestable_registry_exports})
 _conflux_validate_registry_subset(_conflux_requestable_components
     _conflux_requestable_registry_exports requestable)
 _conflux_validate_registry_subset(_conflux_explicit_components

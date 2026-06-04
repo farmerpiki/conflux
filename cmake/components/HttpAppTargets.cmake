@@ -49,12 +49,14 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_net_client
     PUBLIC  conflux_http_protocol
     PUBLIC  conflux_http_auth
-    PUBLIC  conflux_http_compression
     PUBLIC  conflux_http_policy
     PUBLIC  conflux_http_observability
     PUBLIC  conflux_http_openapi
     PUBLIC  conflux_http_vhost
 )
+if(CONFLUX_WANT_HTTP_COMPRESSION)
+    target_link_libraries(conflux_http_app PUBLIC conflux_http_compression)
+endif()
 if(TARGET conflux_http2)
     target_link_libraries(conflux_http_app PUBLIC conflux_http2)
 endif()

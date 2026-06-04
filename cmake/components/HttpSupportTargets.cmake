@@ -171,7 +171,7 @@ target_link_libraries(conflux_http_vhost
 )
 endif() # CONFLUX_WANT_HTTP_VHOST || CONFLUX_WANT_HTTP_SERVER
 
-if(CONFLUX_WANT_HTTP_COMPRESSION OR CONFLUX_WANT_HTTP_SERVER)
+if(CONFLUX_WANT_HTTP_COMPRESSION)
 add_library(conflux_http_compression STATIC)
 set(CONFLUX_HTTP_COMPRESSION_SOURCES ${CONFLUX_SRC_ROOT}/net/compress.cxx)
 if(CONFLUX_HAS_ZLIB STREQUAL "true")
@@ -227,7 +227,7 @@ endif()
 if(CONFLUX_HAS_ZSTD STREQUAL "true")
     target_link_libraries(conflux_http_compression PUBLIC PkgConfig::ZSTD)
 endif()
-endif() # CONFLUX_WANT_HTTP_COMPRESSION || CONFLUX_WANT_HTTP_SERVER
+endif() # CONFLUX_WANT_HTTP_COMPRESSION
 
 if(CONFLUX_WANT_HTTP_PROXY OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_proxy STATIC)

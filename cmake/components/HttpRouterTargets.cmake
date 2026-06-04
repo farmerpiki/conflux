@@ -1,4 +1,4 @@
-if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED)
+if(CONFLUX_HTTP_REALTIME_TARGET_REQUESTED)
 add_library(conflux_http_realtime STATIC)
 target_sources(conflux_http_realtime
     PUBLIC FILE_SET CXX_MODULES
@@ -26,7 +26,7 @@ endif()
 if(CONFLUX_BUILD_FUZZ)
     target_compile_definitions(conflux_http_realtime PUBLIC CONFLUX_BUILD_FUZZ=1)
 endif()
-endif() # CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED
+endif() # CONFLUX_HTTP_REALTIME_TARGET_REQUESTED
 
 if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
 add_library(conflux_http_response STATIC)
@@ -76,7 +76,7 @@ target_link_libraries(conflux_http_native_json
 )
 endif() # conflux_http_response_json && conflux_json_native_provider
 
-if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED)
+if(CONFLUX_HTTP_STATIC_TARGET_REQUESTED)
 add_library(conflux_http_static_core STATIC)
 target_sources(conflux_http_static_core
     PUBLIC FILE_SET CXX_MODULES
@@ -100,7 +100,7 @@ target_link_libraries(conflux_http_static
     PUBLIC  conflux_work
     PUBLIC  conflux_net_config
 )
-endif() # CONFLUX_HTTP_STATIC_SURFACE_REQUESTED
+endif() # CONFLUX_HTTP_STATIC_TARGET_REQUESTED
 
 if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
 add_library(conflux_http_static_async STATIC)

@@ -1811,6 +1811,7 @@ def check_package_smoke_wrapper_contracts() -> None:
             "PACKAGE_ALIASES": "package smoke forbidden component helper must explicitly name package-only aliases",
             "unknown forbidden component": "package smoke forbidden component helper must reject stale policy entries",
             '"core": ["http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"]': "package smoke forbidden component helper must define the core policy",
+            '"http": ["http_compression", "template", "pg", "db"]': "package smoke forbidden component helper must keep compression out of HTTP API smokes",
             '"json": [': "package smoke forbidden component helper must define the JSON policy",
             '"http_compression"': "package smoke forbidden component helper must keep compression out of JSON-only smokes",
             '"net_tls"': "package smoke forbidden component helper must keep TLS out of JSON-only smokes",
@@ -3085,6 +3086,7 @@ def check_core_isolated_forbidden_components() -> None:
 
     runner_forbidden = package_smoke_forbidden_components("core")
     runner_json_forbidden = package_smoke_forbidden_components("json")
+    runner_http_forbidden = package_smoke_forbidden_components("http")
     if "--components core" not in core_isolated:
         fail("core-isolated package smoke must request the core component")
     errors: list[str] = []
@@ -3115,6 +3117,13 @@ def check_core_isolated_forbidden_components() -> None:
         package_smoke_forbidden_components("json"),
         "JSON standalone forbidden components missing isolation entries: ",
         "JSON standalone forbidden components contain unexpected entries: ",
+    )
+    append_set_delta_errors(
+        errors,
+        {"http_compression", "template", "pg", "db"},
+        runner_http_forbidden,
+        "default HTTP API isolation policy is missing component entries: ",
+        "default HTTP API isolation policy contains unexpected component entries: ",
     )
     if 'package-smoke-forbidden-components.py" json' not in json_standalone:
         errors.append("JSON standalone package smoke must derive forbidden components from the shared JSON policy")

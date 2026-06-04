@@ -27,7 +27,6 @@ target_link_libraries(conflux_net_http
     PUBLIC conflux_http_server
     PUBLIC conflux_http_app
     PUBLIC conflux_http_auth
-    PUBLIC conflux_http_compression
     PUBLIC conflux_http_policy
     PUBLIC conflux_http_observability
     PUBLIC conflux_http_openapi
@@ -37,6 +36,9 @@ target_link_libraries(conflux_net_http
 )
 if(TARGET conflux_http_native_json)
     target_link_libraries(conflux_net_http PUBLIC conflux_http_native_json)
+endif()
+if(CONFLUX_WANT_HTTP_COMPRESSION)
+    target_link_libraries(conflux_net_http PUBLIC conflux_http_compression)
 endif()
 if(TARGET conflux_json)
     target_link_libraries(conflux_net_http PUBLIC conflux_json)
