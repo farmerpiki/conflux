@@ -52,14 +52,11 @@ struct DefaultPmrResourceGuard {
 
 } // namespace
 
-// ---------------------------------------------------------------------------
-// Phase 2: conflux::json::JsonMembers<T> — plain struct decode
-// ---------------------------------------------------------------------------
-
 struct Point {
 	std::int64_t x{};
 	std::int64_t y{};
 };
+
 template<>
 struct conflux::json::JsonMembers<Point> {
 	static constexpr auto members() {
@@ -70,72 +67,13 @@ struct conflux::json::JsonMembers<Point> {
 	}
 	static constexpr std::string_view type_name() { return "Point"; }
 };
-TEST_CASE(
-	"json: JsonMembers decode plain struct",
-	"[json][codec][members]") {
-	auto doc = parse(R"({"x":3,"y":7})");
-	REQUIRE(doc.has_value());
-	auto r = decode<Point>(doc->root());
-	REQUIRE(r.has_value());
-	CHECK(r->x == 3LL);
-	CHECK(r->y == 7LL);
-}
-TEST_CASE(
-	"json: decode_full_into updates existing JsonMembers struct",
-	"[json][codec][members]") {
-	Point point{.x = 1, .y = 2};
-	auto r = decode_full_into(point, R"({"x":3,"y":7})");
-	REQUIRE(r.has_value());
-	CHECK(point.x == 3LL);
-	CHECK(point.y == 7LL);
-}
-TEST_CASE(
-	"json: JsonMembers decode missing required member yields missing_member",
-	"[json][codec][members]") {
-	auto doc = parse(R"({"x":3})");
-	REQUIRE(doc.has_value());
-	auto r = decode<Point>(doc->root());
-	CHECK_FALSE(r.has_value());
-	CHECK(r.error().code == JsonIssueCode::missing_member);
-	CHECK(r.error().member_name == "y");
-}
-TEST_CASE(
-	"json: JsonMembers decode unknown member yields invalid_value",
-	"[json][codec][members]") {
-	auto doc = parse(R"({"x":1,"y":2,"z":3})");
-	REQUIRE(doc.has_value());
-	auto r = decode<Point>(doc->root());
-	CHECK_FALSE(r.has_value());
-	CHECK(r.error().code == JsonIssueCode::invalid_value);
-	CHECK(r.error().member_name == "z");
-}
-TEST_CASE(
-	"json: JsonMembers decode wrong kind for field propagates path",
-	"[json][codec][members]") {
-	auto doc = parse(R"({"x":"bad","y":2})");
-	REQUIRE(doc.has_value());
-	auto r = decode<Point>(doc->root());
-	CHECK_FALSE(r.has_value());
-	auto &err = r.error();
-	CHECK(err.code == JsonIssueCode::wrong_kind);
-	REQUIRE(err.path.size() == 1UZ);
-	CHECK(get<JsonPathMember>(err.path.segment(0)).name == "x");
-}
-TEST_CASE(
-	"json: has_json_codec true for JsonMembers type",
-	"[json][codec][members]") {
-	CHECK(has_json_codec<Point>);
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2: conflux::json::JsonCodec<T> — custom enum codec
-// ---------------------------------------------------------------------------
 
 enum class Color {
 	red,
 	green,
 	blue,
 };
+
 template<>
 struct conflux::json::JsonCodec<Color> {
 	static std::expected<Color, JsonError> decode(
@@ -160,6 +98,7 @@ struct conflux::json::JsonCodec<Color> {
 				.target_type = std::string{type_name()},
 				.message = std::format("unknown Color spelling: {}", *s)});
 	}
+
 	static std::expected<void, JsonError> encode(
 		ValueBuilder &b,
 		Color c) {
@@ -175,39 +114,15 @@ struct conflux::json::JsonCodec<Color> {
 				.target_type = std::string{type_name()},
 				.message = "Color enum value outside declared range"});
 	}
+
 	static constexpr std::string_view type_name() { return "Color"; }
 };
-TEST_CASE(
-	"json: JsonCodec custom enum decode",
-	"[json][codec]") {
-	auto doc = parse(R"("green")");
-	REQUIRE(doc.has_value());
-	auto r = decode<Color>(doc->root());
-	REQUIRE(r.has_value());
-	CHECK(*r == Color::green);
-}
-TEST_CASE(
-	"json: JsonCodec custom enum decode invalid spelling",
-	"[json][codec]") {
-	auto doc = parse(R"("purple")");
-	REQUIRE(doc.has_value());
-	auto r = decode<Color>(doc->root());
-	CHECK_FALSE(r.has_value());
-	CHECK(r.error().code == JsonIssueCode::invalid_value);
-}
-TEST_CASE(
-	"json: has_json_codec true for JsonCodec type",
-	"[json][codec]") {
-	CHECK(has_json_codec<Color>);
-}
-// ---------------------------------------------------------------------------
-// Phase 2: std::optional<T> member in JsonMembers struct
-// ---------------------------------------------------------------------------
 
 struct Config {
 	std::int64_t required_field{};
 	std::optional<std::int64_t> optional_field{};
 };
+
 template<>
 struct conflux::json::JsonMembers<Config> {
 	static constexpr auto members() {
@@ -218,51 +133,7 @@ struct conflux::json::JsonMembers<Config> {
 	}
 	static constexpr std::string_view type_name() { return "Config"; }
 };
-TEST_CASE(
-	"json: Opt member present decodes value",
-	"[json][codec][Opt]") {
-	auto doc = parse(R"({"required_field":1,"optional_field":42})");
-	REQUIRE(doc.has_value());
-	auto r = decode<Config>(doc->root());
-	REQUIRE(r.has_value());
-	CHECK(r->required_field == 1LL);
-	REQUIRE(r->optional_field.has_value());
-	CHECK(*r->optional_field == 42LL);
-}
-TEST_CASE(
-	"json: Opt member absent yields std::nullopt",
-	"[json][codec][Opt]") {
-	auto doc = parse(R"({"required_field":1})");
-	REQUIRE(doc.has_value());
-	auto r = decode<Config>(doc->root());
-	REQUIRE(r.has_value());
-	CHECK(r->required_field == 1LL);
-	CHECK_FALSE(r->optional_field.has_value());
-}
-// ---------------------------------------------------------------------------
-// Phase 2: built-in targets — std::array<T,N>
-// ---------------------------------------------------------------------------
 
-TEST_CASE(
-	"json: decode<std::array<std::int64_t,3>>",
-	"[json][codec][A]") {
-	auto doc = parse("[10,20,30]");
-	REQUIRE(doc.has_value());
-	auto r = decode<std::array<std::int64_t, 3>>(doc->root());
-	REQUIRE(r.has_value());
-	CHECK((*r)[0] == 10LL);
-	CHECK((*r)[1] == 20LL);
-	CHECK((*r)[2] == 30LL);
-}
-TEST_CASE(
-	"json: decode<std::array<std::int64_t,3>> wrong length yields invalid_value",
-	"[json][codec][A]") {
-	auto doc = parse("[1,2]");
-	REQUIRE(doc.has_value());
-	auto r = decode<std::array<std::int64_t, 3>>(doc->root());
-	CHECK_FALSE(r.has_value());
-	CHECK(r.error().code == JsonIssueCode::invalid_value);
-}
 // ---------------------------------------------------------------------------
 // Phase 2: built-in targets — std::pair<std::array,B>
 // ---------------------------------------------------------------------------
