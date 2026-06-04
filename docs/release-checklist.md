@@ -50,7 +50,8 @@ cmake --build --preset release-clang-libcxx
 ctest --preset release-clang-libcxx --output-on-failure
 scripts/run-install-tree-smoke.sh \
   --interface-mode MODULE_INTERFACE \
-  --components 'core;json;http;work'
+  --feature-set release-http-api \
+  --components 'core;json;http'
 python3 scripts/compile_time_bench.py \
   --build /tmp/gcc-16/compile-time-bench \
   --feature-set release-http-api \

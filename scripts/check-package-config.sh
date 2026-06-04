@@ -103,6 +103,7 @@ compile-time benchmark default targets are not declared by CMake|package-config 
 compile-time benchmark incremental sources are missing|package-config structure guard must reject stale compile-time benchmark sources
 check_build_cost_release_evidence|package-config structure guard must validate release build-cost evidence wiring
 measure-build-costs.py|package-config structure guard must require the build-cost size reporter
+check_release_checklist_install_smoke_lane|package-config structure guard must validate release checklist install smoke lane
 EOF
 python3 scripts/check-empty-catch-rationale.py . \
     || fail "empty-catch rationale guard failed"

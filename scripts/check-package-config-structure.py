@@ -381,6 +381,27 @@ def check_build_cost_release_evidence() -> None:
         fail("\n".join(errors))
 
 
+def check_release_checklist_install_smoke_lane() -> None:
+    checklist = read("docs/release-checklist.md")
+    errors: list[str] = []
+    try:
+        block = checklist.split("Module-interface build and install:", 1)[1].split("python3 scripts/compile_time_bench.py", 1)[0]
+    except IndexError:
+        fail("release checklist must contain the module-interface install smoke lane")
+    expected_components = release_sku_components("release-http-api")
+    required = {
+        "scripts/run-install-tree-smoke.sh": "release checklist must run the install-tree smoke runner",
+        "--interface-mode MODULE_INTERFACE": "release checklist install smoke must cover module interface mode",
+        "--feature-set release-http-api": "release checklist install smoke must use the selected release-http-api feature set",
+        f"--components '{expected_components}'": "release checklist install smoke components must match release-http-api",
+    }
+    errors.extend(message for marker, message in required.items() if marker not in block)
+    if "--components 'core;json;http;work'" in block:
+        errors.append("release checklist install smoke must not request components outside release-http-api")
+    if errors:
+        fail("\n".join(errors))
+
+
 def check_header_bridge_optional_inputs() -> None:
     text = read("cmake/ConfluxInterfaceMode.cmake")
     if "function(conflux_append_optional_bridge_inputs args_out roots_out)" not in text:
@@ -3527,6 +3548,7 @@ def main() -> int:
     check_run_build_artifact_root_examples_are_declared()
     check_compile_time_bench_defaults()
     check_build_cost_release_evidence()
+    check_release_checklist_install_smoke_lane()
     check_header_bridge_optional_inputs()
     check_header_http_impls_do_not_pull_json()
     check_header_impl_lists_have_no_duplicates()
