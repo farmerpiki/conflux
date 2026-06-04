@@ -94,7 +94,6 @@ enum class ConfigIssueCode {
 	incompatible_options,
 	unsafe_option,
 	secret_would_be_logged,
-	deprecated_key,
 };
 struct ConfigIssue {
 	ConfigIssueCode code{ConfigIssueCode::invalid_value};
@@ -850,7 +849,6 @@ export namespace conflux::http {
 	case ConfigIssueCode::incompatible_options  : return "config.incompatible_options";
 	case ConfigIssueCode::unsafe_option         : return "config.unsafe_option";
 	case ConfigIssueCode::secret_would_be_logged: return "config.secret_would_be_logged";
-	case ConfigIssueCode::deprecated_key        : return "config.deprecated_key";
 	}
 	return "config.invalid_value";
 }

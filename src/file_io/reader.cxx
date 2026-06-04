@@ -115,7 +115,7 @@ struct AsyncAtomicPathParts {
 // to multiplex several subsystems through its own opcode space.
 //
 // None of these methods call io_uring_submit(). The caller's run_loop is
-// responsible for flushing SQEs. On SQ-full, the returned Flow rejects
+// responsible for flushing SQEs. On SQ-full, the returned Task completes
 // immediately with ENOSPC.
 // ---------------------------------------------------------------------------
 
@@ -976,7 +976,7 @@ public:
 		return std::move(task);
 	}
 	// Get extended attribute. `name` is moved and kept alive until CQE.
-	// `value` std::span must remain valid until the returned Flow resolves.
+	// `value` std::span must remain valid until the returned Task resolves.
 	// Returns the actual attribute size (may exceed value.size() — ERANGE).
 	[[nodiscard]] root::Task<std::size_t> async_fgetxattr(
 		FileHandle const &fh,

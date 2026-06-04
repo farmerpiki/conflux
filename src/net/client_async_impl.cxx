@@ -683,7 +683,9 @@ wroot::Task<void> close_async_client_stream(
 	if (tls_stream) {
 		try {
 			co_await tls_stream->close(write_timeout);
-		} catch (...) {}
+		} catch (...) {
+			// NOLINT(bugprone-empty-catch): TLS shutdown is best-effort after the response body has been received.
+		}
 		co_return;
 	}
 #endif

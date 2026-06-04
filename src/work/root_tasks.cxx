@@ -58,8 +58,6 @@ struct TaskAwaiter {
 		if (ready_callback_already_installed_) [[unlikely]] {
 			throw JoinError{JoinError::reason::ready_callback_already_installed, loc_};
 		}
-		// Rethrow original exception on Failure (not FailureError wrapper) so
-		// existing catch sites work. E2b.2 migrates to FailureError uniformly.
 		auto outcome = state_->try_take_ready_outcome();
 		if (!outcome) [[unlikely]] {
 			raise_join_not_ready(loc_);
