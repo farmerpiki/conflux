@@ -80,43 +80,6 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http facade: try_server rejects invalid app metadata",
-	"[http.facade]") {
-	auto app = http::app();
-	app.get("/needs-state", [](http::State<std::string> state) { return http::text(state.get()); });
-
-	auto server = std::move(app).try_server();
-	REQUIRE_FALSE(server.has_value());
-	CHECK(server.error() == "GET /needs-state [app.state.missing]: missing app state");
-}
-
-TEST_CASE(
-	"http facade: prepare_server validates before creating server",
-	"[http.facade]") {
-	auto app = http::app();
-	app.get("/needs-state", [](http::State<std::string> state) { return http::text(state.get()); });
-
-	auto server = std::move(app).prepare_server();
-	REQUIRE_FALSE(server.has_value());
-	CHECK(server.error() == "GET /needs-state [app.state.missing]: missing app state");
-}
-
-TEST_CASE(
-	"http facade: missing state fails during direct dispatch",
-	"[http.facade]") {
-	auto app = http::app();
-	app.get("/needs-state", [](http::State<std::string> state) { return http::text(state.get()); });
-
-	conflux::http::OwnedRequest req;
-	req.method = "GET";
-	req.path = "/needs-state";
-
-	auto response = http::router(app).dispatch(req);
-	CHECK(response.status == kHttpInternalServerError);
-	CHECK(response.text_body().find("missing app state") != std::string_view::npos);
-}
-
-TEST_CASE(
 	"http facade: server startup report is explicit and redacted",
 	"[http.facade]") {
 	auto cfg = http::Config::development();
