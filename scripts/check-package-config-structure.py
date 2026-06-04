@@ -2833,6 +2833,7 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_add_python_check(docs/cancellation": "missing cancellation docs CTest guard",
             "conflux_add_python_check(docs/security-posture": "missing security posture docs CTest guard",
             "conflux_add_python_check(docs/route-openapi": "missing route/OpenAPI docs CTest guard",
+            "conflux_add_python_check(docs/observability": "missing observability docs CTest guard",
             "conflux_add_python_check(docs/release-notes": "missing release-notes CTest guard",
         },
         "tests/TestHelpers.cmake": {

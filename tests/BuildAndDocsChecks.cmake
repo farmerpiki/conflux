@@ -139,6 +139,9 @@ if(CONFLUX_BUILD_TESTS)
     conflux_add_python_check(docs/route-openapi
         scripts/check-route-openapi-docs.py
         "docs;http;openapi")
+    conflux_add_python_check(docs/observability
+        scripts/check-observability-docs.py
+        "docs;http;observability")
     conflux_add_python_check(docs/release-notes
         scripts/check-release-notes.py
         "docs;release")
