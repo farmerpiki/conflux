@@ -240,6 +240,166 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"json: example — builder construction of arbitrary JSON number lexemes",
+	"[json][examples]") {
+	{
+		auto b = value_builder();
+		REQUIRE(b.set_number("1e100").has_value());
+		auto doc = std::move(b).finish();
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->lexeme() == "1e100");
+		CHECK(n->form() == JsonNumberForm::non_integer);
+		auto dumped = doc->dump();
+		REQUIRE(dumped.has_value());
+		CHECK(*dumped == "1e100");
+	}
+	{
+		auto b = value_builder();
+		REQUIRE(b.set_number("99999999999999999999999999999999").has_value());
+		auto doc = std::move(b).finish();
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->lexeme() == "99999999999999999999999999999999");
+	}
+	{
+		auto b = value_builder();
+		REQUIRE(b.set_number("1.0").has_value());
+		auto doc = std::move(b).finish();
+		REQUIRE(doc.has_value());
+		auto dumped = doc->dump();
+		REQUIRE(dumped.has_value());
+		CHECK(*dumped == "1.0");
+	}
+	{
+		auto b = value_builder();
+		CHECK_FALSE(b.set_number("+1").has_value());
+		CHECK_FALSE(b.set_number("01").has_value());
+		CHECK_FALSE(b.set_number("1.").has_value());
+		CHECK_FALSE(b.set_number("NaN").has_value());
+		CHECK_FALSE(b.set_number("Infinity").has_value());
+	}
+}
+
+TEST_CASE(
+	"json: example — commit-on-success abort-on-error child builder patterns",
+	"[json][examples]") {
+	auto build_doc = [](bool inject_error) -> std::expected<Document, JsonError> {
+		auto vb = value_builder();
+		auto root_res = vb.begin_object();
+		if (!root_res) {
+			return std::unexpected(std::move(root_res).error());
+		}
+		auto &root = *root_res;
+
+		{
+			auto child_res = root.insert_object("user");
+			if (!child_res) {
+				return std::unexpected(std::move(child_res).error());
+			}
+			auto &child = *child_res;
+			auto id_res = child.insert_i64("id", inject_error ? -1LL : 1LL);
+			if (inject_error) {
+				auto dup_res = child.insert_i64("id", 99LL);
+				if (!dup_res) {
+					return std::unexpected(std::move(dup_res).error());
+				}
+			}
+			if (!id_res) {
+				return std::unexpected(std::move(id_res).error());
+			}
+			REQUIRE(child.insert_string("name", "bob").has_value());
+			std::move(child).commit();
+		}
+
+		std::move(root).commit();
+		return std::move(vb).finish();
+	};
+
+	{
+		auto doc = build_doc(false);
+		REQUIRE(doc.has_value());
+		auto obj = doc->root().as_object();
+		REQUIRE(obj.has_value());
+		auto user = obj->member("user");
+		REQUIRE(user.has_value());
+		auto user_obj = user->as_object();
+		REQUIRE(user_obj.has_value());
+		CHECK(*user_obj->member("name")->as_string() == "bob");
+	}
+
+	{
+		auto doc = build_doc(true);
+		CHECK_FALSE(doc.has_value());
+		CHECK(doc.error().code == JsonIssueCode::duplicate_member);
+	}
+}
+
+TEST_CASE(
+	"json: example — child abort leaves parent unchanged",
+	"[json][examples]") {
+	auto b = value_builder();
+	auto root_res = b.begin_object();
+	REQUIRE(root_res.has_value());
+	auto &root = *root_res;
+
+	{
+		auto child_res = root.insert_object("discarded");
+		REQUIRE(child_res.has_value());
+		auto &child = *child_res;
+		REQUIRE(child.insert_i64("x", 7LL).has_value());
+	}
+
+	REQUIRE(root.insert_string("kept", "yes").has_value());
+	std::move(root).commit();
+	auto doc = std::move(b).finish();
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	CHECK_FALSE(obj->find_member("discarded").has_value());
+	REQUIRE(obj->find_member("kept").has_value());
+	CHECK(*obj->member("kept")->as_string() == "yes");
+}
+
+TEST_CASE(
+	"json: example — partial-build abandonment via reset()",
+	"[json][examples]") {
+	auto b = value_builder();
+
+	REQUIRE(b.set_i64(100LL).has_value());
+
+	b.reset();
+
+	REQUIRE(b.set_string("after-reset").has_value());
+	auto doc = std::move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_string() == "after-reset");
+}
+
+TEST_CASE(
+	"json: example — reset then build complex document",
+	"[json][examples]") {
+	auto b = value_builder();
+
+	REQUIRE(b.set_bool(false).has_value());
+	b.reset();
+
+	auto obj_res = b.begin_object();
+	REQUIRE(obj_res.has_value());
+	auto &obj = *obj_res;
+	REQUIRE(obj.insert_i64("v", 42LL).has_value());
+	std::move(obj).commit();
+
+	auto doc = std::move(b).finish();
+	REQUIRE(doc.has_value());
+	auto o = doc->root().as_object();
+	REQUIRE(o.has_value());
+	CHECK(*o->member("v")->as_number()->to_i64() == 42LL);
+}
+
+TEST_CASE(
 	"json: ObjectBuilder::insert_object — nested object committed",
 	"[json][builder][phase3]") {
 	auto b = value_builder();
