@@ -43,6 +43,7 @@ set(_conflux_http_server_private_partitions
     ${CONFLUX_SRC_ROOT}/net/http_server_init.cxx
     ${CONFLUX_SRC_ROOT}/net/http_server_state.cxx
     ${CONFLUX_SRC_ROOT}/net/http_server_accept.cxx
+    ${CONFLUX_SRC_ROOT}/net/http_server_lifecycle.cxx
     ${CONFLUX_SRC_ROOT}/net/http_server_timer.cxx
     ${CONFLUX_SRC_ROOT}/net/http_server_tls.cxx
     ${CONFLUX_SRC_ROOT}/net/http_server_send.cxx
