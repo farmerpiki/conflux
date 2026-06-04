@@ -2675,6 +2675,12 @@ def check_package_config_uses_generated_component_metadata() -> None:
         "set(conflux_RESOLVED_EXTERNAL_DEPS": "package config must expose resolved external deps",
         "_conflux_import_component": "package config must compute requested component dependency closure",
         "_conflux_find_external_dep": "package config must resolve closure-scoped external deps",
+        "foreach(_external IN LISTS _conflux_component_external_deps_${component})": (
+            "package config must resolve only component-scoped external deps"
+        ),
+        'set(conflux_RESOLVED_EXTERNAL_DEPS "${conflux_RESOLVED_EXTERNAL_DEPS}" PARENT_SCOPE)': (
+            "package config must propagate resolved external deps for package-smoke reporting"
+        ),
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in config)
     if missing:
