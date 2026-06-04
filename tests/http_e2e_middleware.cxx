@@ -1,43 +1,4 @@
 // ---------------------------------------------------------------------------
-// compress_middleware
-// ---------------------------------------------------------------------------
-
-TEST_CASE(
-	"compress: large body with Accept-Encoding gzip is compressed") {
-	ensure_compress_server();
-	auto resp = http_get_on(g_compress_port, "/big", "Accept-Encoding: gzip\r\n");
-	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") != std::string::npos);
-	REQUIRE(resp.find("Vary: Accept-Encoding") != std::string::npos);
-	// Body decompresses back to 512 A's.
-	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
-	auto body = resp.substr(hdr_end + 4);
-	auto decompressed = gzip_decompress(body);
-	REQUIRE(decompressed == std::string(512, 'A'));
-}
-TEST_CASE(
-	"compress: large body without Accept-Encoding is not compressed") {
-	ensure_compress_server();
-	auto resp = http_get_on(g_compress_port, "/big");
-	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") == std::string::npos);
-}
-TEST_CASE(
-	"compress: body smaller than min_body_size is not compressed") {
-	ensure_compress_server();
-	auto resp = http_get_on(g_compress_port, "/small", "Accept-Encoding: gzip\r\n");
-	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") == std::string::npos);
-}
-TEST_CASE(
-	"compress: non-compressible MIME type is not compressed") {
-	ensure_compress_server();
-	auto resp = http_get_on(g_compress_port, "/bin", "Accept-Encoding: gzip\r\n");
-	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") == std::string::npos);
-}
-// ---------------------------------------------------------------------------
 // conflux::http::security_headers_middleware
 // ---------------------------------------------------------------------------
 

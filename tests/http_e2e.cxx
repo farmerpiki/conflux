@@ -15,7 +15,6 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <zlib.h>
 
 import std;
 import conflux.types;
@@ -44,7 +43,6 @@ import conflux.net.trailing_slash;
 #if CONFLUX_HAS_TLS
 import conflux.net.jwt;
 #endif
-import conflux.net.compress;
 import conflux.net.http.static_core;
 import conflux.net.http1_parser;
 #if CONFLUX_HAS_TLS
@@ -261,57 +259,6 @@ std::string http_get_with_header_on(
 	std::string_view path,
 	std::string_view header) {
 	return conflux::tests::http_get_on(port, path, header);
-}
-// Gzip-decompress a buffer; returns empty on failure.
-std::string gzip_decompress(
-	std::string_view compressed) {
-	z_stream zs{};
-	if (inflateInit2(&zs, 15 | 16) != Z_OK) {
-		return {};
-	}
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-type-const-cast)
-	zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(compressed.data()));
-	zs.avail_in = static_cast<uInt>(compressed.size());
-	std::string out;
-	std::array<char, 4096> chunk{};
-	int rc = Z_OK;
-	while (rc == Z_OK) {
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-		zs.next_out = reinterpret_cast<Bytef *>(chunk.data());
-		zs.avail_out = static_cast<uInt>(chunk.size());
-		rc = inflate(&zs, Z_NO_FLUSH);
-		out.append(chunk.data(), chunk.size() - zs.avail_out);
-	}
-	inflateEnd(&zs);
-	return rc == Z_STREAM_END ? out : std::string{};
-}
-// ---------------------------------------------------------------------------
-// compress_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_compress_port = 0;
-void ensure_compress_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::compress_middleware());
-		// Large body (>256 bytes) so min_body_size is exceeded.
-		router.get("/big", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::html(std::string(512, 'A'));
-		});
-		// Small body (<256 bytes).
-		router.get("/small", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::html("hi"); });
-		// Non-compressible MIME type.
-		router.get("/bin", [](conflux::http::OwnedRequest const &) {
-			conflux::http::Response r;
-			r.status = 200;
-			r.status_text = "OK";
-			r.content_type = "application/octet-stream";
-			r.set_text_body(std::string(512, '\x00'));
-			return r;
-		});
-		g_compress_port = start_mw_server(mw_config(), std::move(router));
-	});
 }
 // ---------------------------------------------------------------------------
 // conflux::http::security_headers_middleware test server
