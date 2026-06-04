@@ -601,172 +601,23 @@ public:
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
 		return std::move(task);
 	}
-	[[nodiscard]] root::Task<void> async_fsync(
-		FileHandle const &fh,
-		bool data_only = false) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_fsync(fd, conflux::uring::FsyncFlags{data_only ? IORING_FSYNC_DATASYNC : 0U});
-		});
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_fallocate(
-		FileHandle const &fh,
-		int mode,
-		std::uint64_t offset,
-		std::uint64_t len) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_fallocate(fd, static_cast<std::uint32_t>(mode), offset, len); });
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<void> async_fsync(FileHandle const &fh, bool data_only = false);
+	[[nodiscard]] root::Task<void>
+	async_fallocate(FileHandle const &fh, int mode, std::uint64_t offset, std::uint64_t len);
 	// Consumes the handle; the ring closes the fd via io_uring.
-	[[nodiscard]] root::Task<void> async_fadvise(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		std::uint32_t len,
-		int advice) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_fadvise(fd, offset, len, static_cast<std::uint32_t>(advice)); });
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_madvise(
-		void *addr,
-		std::uint32_t length,
-		int advice) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		sqe.prep_madvise(addr, length, static_cast<std::uint32_t>(advice));
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_unlink(
-		int dir_fd,
-		std::string path,
-		int flags = 0) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto path_owner = std::make_shared<std::string>(std::move(path));
-		sqe.prep_unlinkat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_rename(
-		int old_dir_fd,
-		std::string old_path,
-		int new_dir_fd,
-		std::string new_path,
-		unsigned flags = 0) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(old_path), std::move(new_path));
-		sqe.prep_renameat(
-			conflux::uring::SqeFd{old_dir_fd},
-			paths->first.c_str(),
-			conflux::uring::SqeFd{new_dir_fd},
-			paths->second.c_str(),
-			flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_mkdirat(
-		int dir_fd,
-		std::string path,
-		mode_t mode = 0755) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto path_owner = std::make_shared<std::string>(std::move(path));
-		sqe.prep_mkdirat(conflux::uring::SqeFd{dir_fd}, path_owner->c_str(), mode);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_symlinkat(
-		std::string target,
-		int new_dir_fd,
-		std::string link_path) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(target), std::move(link_path));
-		sqe.prep_symlinkat(paths->first.c_str(), conflux::uring::SqeFd{new_dir_fd}, paths->second.c_str());
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_ftruncate(
-		FileHandle const &fh,
-		std::uint64_t length) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_ftruncate(fd, static_cast<std::int64_t>(length)); });
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_linkat(
-		int old_dir_fd,
-		std::string old_path,
-		int new_dir_fd,
-		std::string new_path,
-		int flags = 0) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(old_path), std::move(new_path));
-		sqe.prep_linkat(
-			conflux::uring::SqeFd{old_dir_fd},
-			paths->first.c_str(),
-			conflux::uring::SqeFd{new_dir_fd},
-			paths->second.c_str(),
-			flags);
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<void> async_sync_file_range(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		unsigned len,
-		int flags = 0) {
-		auto [task, shared_src, sqe] = prepare_sqe<void>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_sync_file_range(fd, len, offset, flags); });
-		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<void>
+	async_fadvise(FileHandle const &fh, std::uint64_t offset, std::uint32_t len, int advice);
+	[[nodiscard]] root::Task<void> async_madvise(void *addr, std::uint32_t length, int advice);
+	[[nodiscard]] root::Task<void> async_unlink(int dir_fd, std::string path, int flags = 0);
+	[[nodiscard]] root::Task<void>
+	async_rename(int old_dir_fd, std::string old_path, int new_dir_fd, std::string new_path, unsigned flags = 0);
+	[[nodiscard]] root::Task<void> async_mkdirat(int dir_fd, std::string path, mode_t mode = 0755);
+	[[nodiscard]] root::Task<void> async_symlinkat(std::string target, int new_dir_fd, std::string link_path);
+	[[nodiscard]] root::Task<void> async_ftruncate(FileHandle const &fh, std::uint64_t length);
+	[[nodiscard]] root::Task<void>
+	async_linkat(int old_dir_fd, std::string old_path, int new_dir_fd, std::string new_path, int flags = 0);
+	[[nodiscard]] root::Task<void>
+	async_sync_file_range(FileHandle const &fh, std::uint64_t offset, unsigned len, int flags = 0);
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
 	async_socket(
 		int domain,
