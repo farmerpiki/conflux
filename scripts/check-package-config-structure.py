@@ -427,6 +427,15 @@ def check_release_checklist_install_smoke_lane() -> None:
         "--forbid-external-deps": "release checklist install smoke must assert forbidden HTTP external deps",
     }
     errors.extend(message for marker, message in required.items() if marker not in block)
+    checklist_required = {
+        "scripts/check-package-smoke-api-surfaces.sh": (
+            "release checklist must include installed header/module API-surface parity smoke"
+        ),
+        "`curated`, `extended`, and `complete`": (
+            "release checklist must say API-surface parity covers curated, extended, and complete"
+        ),
+    }
+    errors.extend(message for marker, message in checklist_required.items() if marker not in checklist)
     if "--components 'core;json;http;work'" in block:
         errors.append("release checklist install smoke must not request components outside release-http-api")
     if errors:
@@ -1766,6 +1775,10 @@ def package_smoke_wrapper_default_components() -> dict[str, str]:
             "CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET",
             "CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS",
         ),
+        "scripts/check-package-smoke-api-surfaces.sh": (
+            "CONFLUX_PACKAGE_SMOKE_API_SURFACE_FEATURE_SET",
+            "CONFLUX_PACKAGE_SMOKE_API_SURFACE_COMPONENTS",
+        ),
         "scripts/check-public-module-import-smoke.sh": (
             "CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_FEATURE_SET",
             "CONFLUX_PUBLIC_MODULE_IMPORT_SMOKE_COMPONENTS",
@@ -1805,6 +1818,7 @@ def check_package_smoke_wrapper_default_components() -> None:
         "scripts/check-package-smoke-runtime.sh": "core;json;http;file_io_sync;work",
         "scripts/check-package-smoke-db.sh": "core;json;pg",
         "scripts/check-package-smoke-mixed-module-header.sh": release_sku_components("release-http-api"),
+        "scripts/check-package-smoke-api-surfaces.sh": release_sku_components("release-http-api"),
         "scripts/check-public-module-import-smoke.sh": release_sku_components("release-http-api"),
     }
     errors: list[str] = []
@@ -1861,6 +1875,16 @@ def check_package_smoke_wrapper_contracts() -> None:
         },
         "scripts/check-package-smoke-mixed-module-header.sh": {
             'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "mixed module/header package smoke must cap its default build concurrency",
+        },
+        "scripts/check-package-smoke-api-surfaces.sh": {
+            'release-sku-field.py" "$source_root" release-http-api feature_set': "API-surface package smoke must derive feature set from release-http-api",
+            'release-sku-field.py" "$source_root" release-http-api components': "API-surface package smoke must derive components from release-http-api",
+            "CONFLUX_PACKAGE_SMOKE_API_SURFACE_FEATURE_SET": "API-surface package smoke must keep the feature-set override",
+            "CONFLUX_PACKAGE_SMOKE_API_SURFACE_COMPONENTS": "API-surface package smoke must keep the component override",
+            "for interface_mode in HEADER_INTERFACE MODULE_INTERFACE": "API-surface package smoke must cover header and module interface modes",
+            "for api_surface in curated extended complete": "API-surface package smoke must cover curated, extended, and complete API surfaces",
+            "--api-surface \"$api_surface\"": "API-surface package smoke must pass selected API surface to the install-tree runner",
+            'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "API-surface package smoke must cap its default build concurrency",
         },
         "scripts/check-package-smoke-json-standalone.sh": {
             'release-sku-field.py" "$source_root" release-json feature_set': "JSON standalone package smoke must derive feature set from release-json",

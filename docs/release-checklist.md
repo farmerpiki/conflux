@@ -122,6 +122,14 @@ dependencies are not exposed.
 scripts/check-package-smoke-json-standalone.sh
 ```
 
+Installed API-surface parity smoke for the preview HTTP API package. This runs
+`release-http-api` package consumers in generated-header and module modes for
+`curated`, `extended`, and `complete` API-surface selections.
+
+```sh
+scripts/check-package-smoke-api-surfaces.sh
+```
+
 Runtime package smoke, only on hosts with real liburing discoverable through
 `pkg-config` and a non-mock install:
 
