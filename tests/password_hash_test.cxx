@@ -62,7 +62,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"conflux::http::password_hash: verifier secret marks new hashes and allows legacy migration",
+	"conflux::http::password_hash: verifier secret marks new hashes and rejects unmarked hashes",
 	"[auth][conflux::http::password_hash]") {
 	auto opts = conflux::http::pbkdf2_sha256_password_hash_options(1);
 	opts.salt_bytes = 8;
@@ -88,8 +88,8 @@ TEST_CASE(
 	REQUIRE(legacy.has_value());
 	auto migrated = conflux::http::password_verify("secret", *legacy, opts, secrets);
 	REQUIRE(migrated.has_value());
-	CHECK(migrated->ok);
-	CHECK(migrated->needs_rehash);
+	CHECK_FALSE(migrated->ok);
+	CHECK_FALSE(migrated->needs_rehash);
 }
 
 TEST_CASE(

@@ -43,8 +43,8 @@ $pbkdf2-sha256$v=1$i=600000,l=32,k=1$<salt-b64url>$<hash-b64url>
 `k=1` means the stored hash was post-processed with the verifier-only secret
 carried in `conflux::http::PasswordHashSecrets`, not in the stored password row and not in
 `conflux::http::PasswordHashOptions`. A `k=1` row fails closed if verification is attempted
-without that secret. Rows without `k=1` still verify with current options and
-then report `needs_rehash` when a verifier secret is now configured.
+without that secret. Rows without `k=1` are unpeppered rows and must be verified
+without a verifier secret.
 
 The metadata is deliberately part of the stored value so DB rows can be upgraded
 without a separate schema flag. On login:
@@ -54,6 +54,9 @@ without a separate schema flag. On login:
 3. Call `conflux::http::password_verify(password, stored, current_opts, secrets)`.
 4. If `ok && needs_rehash`, call `conflux::http::password_hash(password, current_opts, secrets)` and store
    the replacement in the same transaction/session flow.
+
+Introducing a verifier secret to an existing unpeppered password table requires
+a controlled migration before enabling the secret for login verification.
 
 ## Algorithm policy
 
@@ -76,7 +79,7 @@ want to run on systems where `libargon2` may or may not be installed. Missing
 Argon2id support fails closed; it never silently falls back to PBKDF2 for a new
 Argon2id hash.
 
-`conflux::http::pbkdf2_sha256_password_hash_options()` remains a compatibility/FIPS migration
+`conflux::http::pbkdf2_sha256_password_hash_options()` remains a FIPS-oriented
 fallback and for test fixtures. The PBKDF2 path uses a no-allocation streaming
 SHA-256/HMAC implementation for the 600k-iteration inner loop. Do not use PBKDF2
 for new production password rows when Argon2id is available.

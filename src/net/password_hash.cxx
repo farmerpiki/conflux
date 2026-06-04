@@ -732,16 +732,6 @@ export namespace conflux::http {
 		return std::unexpected{raw.error()};
 	}
 	result.ok = conflux::crypto::constant_time_eq(parsed->hash, *raw);
-	if (!result.ok
-		&& parsed->algorithm == PasswordHashAlgorithm::pbkdf2_sha256
-		&& !parsed->uses_verifier_secret
-		&& !secrets.verifier_secret.empty()) {
-		auto legacy = password_hash_detail::derive_hash(password, *parsed, PasswordHashSecrets{});
-		if (!legacy) {
-			return std::unexpected{legacy.error()};
-		}
-		result.ok = conflux::crypto::constant_time_eq(parsed->hash, *legacy);
-	}
 	result.needs_rehash = result.ok && !password_hash_detail::parameters_match(*parsed, current, secrets);
 	return result;
 }
