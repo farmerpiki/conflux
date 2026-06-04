@@ -14,6 +14,8 @@ EXECUTION_TABLE_MARKERS = [
     "| Socket read/write (`SocketTaskRing`, HTTP receive/send) |",
     "| TLS |",
     "| `send_zc` and async file-backed send |",
+    "| Request body receive |",
+    "| Response body send |",
     "| Async file read |",
     "| DNS resolve |",
     "| DB acquire/query |",
