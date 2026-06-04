@@ -53,6 +53,15 @@ function(conflux_apply_compiler_options target)
             -Wno-unqualified-std-cast-call
             -Wno-missing-designated-field-initializers
         )
+        # hack: Gentoo Clang 21 enables _FORTIFY_SOURCE=2 under optimization;
+        # POSIX declarations imported through C++ module artifacts can then
+        # emit unresolved pass_object_size read/recv references in installed
+        # module package smokes.
+        if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
+            target_compile_options(${target} INTERFACE
+                -U_FORTIFY_SOURCE
+                -D_FORTIFY_SOURCE=0)
+        endif()
     endif()
 
     # ── Sanitisers ────────────────────────────────────────────────────────────
