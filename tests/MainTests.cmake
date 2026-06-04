@@ -1,7 +1,7 @@
 add_executable(conflux_tests)
 target_sources(conflux_tests
     PRIVATE
-        http_e2e.cxx
+        http_protocol_e2e.cxx
         http_app_e2e.cxx
         http_router_e2e.cxx
         http_lifecycle_e2e.cxx

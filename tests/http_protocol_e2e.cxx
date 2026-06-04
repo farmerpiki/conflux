@@ -13,33 +13,21 @@
 #include <unistd.h>
 
 import std;
-import conflux.types;
 
 import conflux.json;
 import conflux.http.extended;
-import conflux.net.app;
-import conflux.net.compress;
 import conflux.net.config;
-import conflux.net.cookie_signing;
-import conflux.net.http.static_files;
 import conflux.net.http_server;
-import conflux.net.metrics;
 import conflux.net.redirect;
 import conflux.net.router;
-import conflux.net.http.static_core;
-import conflux.net.http1_parser;
 import conflux.tests.support;
 import conflux.work;
 
 using conflux::http::Config;
-using conflux::http::ParserLimits;
 using namespace conflux::json;
 using namespace conflux::tests;
 
 namespace {
-namespace chttp = conflux::http;
-using conflux::work::WorkPool;
-using conflux::work::WorkPoolOptions;
 
 // Actual port chosen by the OS; set once in ensure_server().
 std::uint16_t g_test_port = 0;
@@ -185,15 +173,6 @@ std::string http_post(
 	ensure_server();
 	return conflux::tests::http_post_on(g_test_port, path, content_type, body);
 }
-// Send an arbitrary HTTP request with a body.
-std::string http_request(
-	std::string_view method,
-	std::string_view path,
-	std::string_view content_type = "",
-	std::string_view body = "") {
-	ensure_server();
-	return conflux::tests::http_request_on(g_test_port, method, path, content_type, body, "Connection: close\r\n");
-}
 // Read exactly one HTTP/1.1 response from an already-connected fd.
 // Returns the full raw response (status + headers + body).
 // Send two sequential GET requests on one persistent connection.
@@ -274,22 +253,6 @@ void check_problem_code(
 	auto diagnostic_value = diagnostic_node->as_string();
 	REQUIRE(diagnostic_value.has_value());
 	CHECK(*diagnostic_value == code);
-}
-conflux::json::NodeRef require_json_pointer(
-	conflux::json::Document const &doc,
-	std::string_view pointer) {
-	auto node = doc.root().at_pointer(pointer);
-	REQUIRE(node.has_value());
-	return *node;
-}
-void check_json_string_at(
-	conflux::json::Document const &doc,
-	std::string_view pointer,
-	std::string_view expected) {
-	auto node = require_json_pointer(doc, pointer);
-	auto value = node.as_string();
-	REQUIRE(value.has_value());
-	CHECK(*value == expected);
 }
 
 } // namespace
