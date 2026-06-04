@@ -105,6 +105,7 @@ conflux_add_module_library(conflux_file_io
         ${CONFLUX_SRC_ROOT}/file_io/file_io.cxx
     PRIVATE_SOURCES
         ${CONFLUX_SRC_ROOT}/file_io/atomic_write.cxx
+        ${CONFLUX_SRC_ROOT}/file_io/xattr.cxx
 )
 target_link_libraries(conflux_file_io
     PRIVATE conflux_options
