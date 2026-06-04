@@ -21,6 +21,38 @@ CHECKS = {
     ROOT / "docs" / "production-checklist.md": ["Lifecycle", "Pressure"],
 }
 
+OVERFLOW_POLICIES = [
+    "reject",
+    "drop_oldest",
+    "drop_newest",
+    "close_connection",
+    "backpressure",
+]
+
+PRESSURE_COUNTERS = [
+    "accept_rejected",
+    "connections_closed_for_pressure",
+    "response_backpressure_events",
+    "sse_dropped_newest",
+    "sse_dropped_oldest",
+    "sse_disconnected_for_pressure",
+    "websocket_closed_for_pressure",
+    "drain_started",
+    "drain_deadline_hit",
+    "drain_forced_close",
+]
+
+BOUNDARY_MARKERS = [
+    "Accept/admission",
+    "Request body",
+    "Response send",
+    "SSE channel",
+    "WebSocket outbound",
+    "Worker/offload pool",
+    "DB pool, when enabled",
+    "Ring CQ overflow",
+]
+
 
 def main() -> int:
     failures: list[str] = []
@@ -36,6 +68,43 @@ def main() -> int:
     example = ROOT / "examples" / "advanced" / "http_lifecycle.cxx"
     if not example.exists():
         failures.append("missing examples/advanced/http_lifecycle.cxx")
+
+    server_types = (ROOT / "src" / "net" / "server_types.cxx").read_text(encoding="utf-8")
+    http_api = (ROOT / "docs" / "http-server-api.md").read_text(encoding="utf-8")
+    production = (ROOT / "docs" / "production-checklist.md").read_text(encoding="utf-8")
+    metrics = (ROOT / "src" / "net" / "metrics.cxx").read_text(encoding="utf-8")
+    observability = (ROOT / "src" / "net" / "observability.cxx").read_text(encoding="utf-8")
+
+    for policy in OVERFLOW_POLICIES:
+        if policy not in server_types:
+            failures.append(f"src/net/server_types.cxx missing OverflowPolicy::{policy}")
+        if policy not in http_api:
+            failures.append(f"docs/http-server-api.md missing OverflowPolicy::{policy}")
+
+    for counter in PRESSURE_COUNTERS:
+        if counter not in server_types:
+            failures.append(f"src/net/server_types.cxx missing pressure counter {counter}")
+        if counter not in http_api:
+            failures.append(f"docs/http-server-api.md missing pressure counter {counter}")
+        if counter not in metrics and counter not in observability:
+            failures.append(f"pressure metric formatting missing counter {counter}")
+
+    for marker in BOUNDARY_MARKERS:
+        if marker not in production:
+            failures.append(f"docs/production-checklist.md missing pressure boundary {marker!r}")
+
+    for marker in [
+        "SseOverflowPolicy",
+        "DropNewest",
+        "DropOldest",
+        "Disconnect",
+        "`drop_newest`, `drop_oldest`, and `close_connection`",
+        "work_pool_rejected_total",
+        "work_pool_queue_depth",
+    ]:
+        joined = "\n".join([http_api, observability])
+        if marker not in joined:
+            failures.append(f"lifecycle/backpressure docs missing {marker!r}")
 
     if failures:
         print("lifecycle docs guard failed:", file=sys.stderr)
