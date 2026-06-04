@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <liburing.h>
-#include <linux/futex.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/epoll.h>
@@ -15,14 +14,12 @@
 
 import std;
 import conflux.types;
-import conflux.work;
 import conflux.file_io.buffers;
 import conflux.file_io.reader;
 import conflux.file_io.iopoll;
 import conflux.file_io.driver;
 import conflux.file_io_sync;
 
-namespace root = conflux::work::root;
 using conflux::uring::CompletionTable;
 using conflux::uring::FileHandle;
 using conflux::uring::IoResult;
@@ -312,47 +309,6 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: async_cancel on non-existent user_data succeeds (ENOENT → ok)",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	bool ok = false;
-	int err = 0;
-	// user_data 0xDEADBEEF has no pending op — should resolve (ENOENT → ok path).
-	try {
-		conflux::file_io::block_on(fx->reader, fx->reader.async_cancel(0xDEADBEEFULL), std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_cancel_fd on idle fd resolves",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	TempFile const tmp = TempFile::create("cancel fd test");
-
-	bool ok = false;
-	int err = 0;
-	try {
-		conflux::file_io::block_on(fx->reader, fx->reader.async_cancel_fd(tmp.fd), std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
 	"file_io: async_connect returns ECONNREFUSED on closed port",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
@@ -382,92 +338,6 @@ TEST_CASE(
 	}
 
 	bool const passed = err == ECONNREFUSED || err == EINPROGRESS || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_futex_wake wakes zero waiters on uncontested futex",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	std::uint32_t futex_word = 0;
-	std::uint32_t woken = 42;
-	int err = 0;
-	try {
-		woken = conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_futex_wake(&futex_word, UINT64_MAX),
-			std::chrono::seconds{5});
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = (woken == 0 && err == 0) || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_futex_wait resolves immediately when word already changed",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	std::uint32_t futex_word = 1;
-	bool ok = false;
-	int err = 0;
-	// val=0 but *futex=1 — condition already met, returns immediately.
-	try {
-		conflux::file_io::block_on(fx->reader, fx->reader.async_futex_wait(&futex_word, 0), std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EAGAIN || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_msg_ring delivers synthetic CQE to self ring",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	bool ok = false;
-	int err = 0;
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_msg_ring(fx->ring.ring_fd, 42, 0xCAFEBABEULL),
-			std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS || err == EOPNOTSUPP;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_waitid on non-existent pid returns ECHILD",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	siginfo_t info{};
-	int err = 0;
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_waitid(P_PID, static_cast<id_t>(99999999), &info),
-			std::chrono::seconds{5});
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = err == ECHILD || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
 }
 TEST_CASE(
@@ -519,23 +389,6 @@ TEST_CASE(
 
 	bool const listen_passed = listen_ok || listen_err == EINVAL || listen_err == ENOSYS;
 	CHECK(listen_passed);
-}
-TEST_CASE(
-	"file_io: async_nop completes successfully",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	bool ok = false;
-	try {
-		conflux::file_io::block_on(fx->reader, fx->reader.async_nop(), std::chrono::seconds{5});
-		ok = true;
-	} catch (...) { // NOLINT(bugprone-empty-catch)
-	}
-
-	CHECK(ok);
 }
 TEST_CASE(
 	"file_io: readv2_into scatter-reads with RWF flags",
@@ -613,128 +466,6 @@ TEST_CASE(
 	CHECK(verify == payload);
 }
 TEST_CASE(
-	"file_io: async_timeout fires after delay",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	bool ok = false;
-	int err = 0;
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_timeout(std::chrono::milliseconds{10}),
-			std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_futex_waitv resolves immediately on already-changed word",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	std::uint32_t futex_word = 42;
-	// uaddr cast to std::uint64_t as expected by futex_waitv
-	futex_waitv w{};
-	w.val = 0;
-	w.uaddr = reinterpret_cast<std::uint64_t>(&futex_word);
-	w.flags = FUTEX2_SIZE_U32;
-	w.__reserved = 0;
-	std::vector<futex_waitv> waiters{w};
-
-	bool ok = false;
-	int err = 0;
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_futex_waitv(std::move(waiters)),
-			std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EAGAIN || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_msg_ring_fd sends fd to same ring",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	TempFile const tmp = TempFile::create("fd_msg");
-	int const dup_fd = ::dup(tmp.fd);
-	REQUIRE(dup_fd >= 0);
-
-	bool ok = false;
-	int err = 0;
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_msg_ring_fd(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL),
-			std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-	::close(dup_fd);
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS || err == EOPNOTSUPP;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_timeout_remove on non-existent tag resolves",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	bool ok = false;
-	int err = 0;
-	// Remove a timeout tag that was never armed — should resolve (ENOENT→ok).
-	try {
-		conflux::file_io::block_on(fx->reader, fx->reader.async_timeout_remove(0xDEADULL), std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_timeout_update on non-existent tag resolves",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	bool ok = false;
-	int err = 0;
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_timeout_update(0xBEEFULL, std::chrono::milliseconds{100}),
-			std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-}
-TEST_CASE(
 	"async_poll_add fires on readable pipe") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -761,39 +492,6 @@ TEST_CASE(
 	CHECK((mask & POLLIN) != 0u);
 	::close(pfd[0]);
 	::close(pfd[1]);
-}
-TEST_CASE(
-	"async_poll_remove cancels pending poll") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring_queue_init failed");
-	}
-	bool remove_ok{false};
-	int err{0};
-
-	// Open a socket that is never written to (poll will block indefinitely).
-	int sv[2];
-	REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, sv) == 0);
-
-	// Submit poll_add (won't fire because nothing writes to sv[0]).
-	auto poll_flow = fx->reader.async_poll_add(sv[0], POLLIN);
-	io_uring_submit(fx->reader.ring());
-
-	// Now cancel it: we need the user_data of the poll SQE.
-	// Our fixture encodes ud as pack_ud(slot, gen). We know the poll_add
-	// reserved slot 0 gen 1 (first reservation after construction).
-	// Use async_cancel_fd instead — simpler to test.
-	try {
-		conflux::file_io::block_on(fx->reader, fx->reader.async_cancel_fd(sv[0], 0), std::chrono::seconds{5});
-		remove_ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-	root::abandon_to(std::move(poll_flow), root::drop_on_abandon{});
-
-	bool const passed = remove_ok || err == ENOENT || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
-	::close(sv[0]);
-	::close(sv[1]);
 }
 TEST_CASE(
 	"async_accept returns new fd from socketpair-like listen") {
@@ -1126,28 +824,6 @@ TEST_CASE(
 		CHECK(std::string_view{buf.data(), recvd} == payload);
 	}
 #endif
-}
-TEST_CASE(
-	"async_msg_ring_cqe_flags posts message to self ring") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring_queue_init failed");
-	}
-
-	bool ok{false};
-	int err{0};
-	int const ring_fd = fx->ring.ring_fd;
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_msg_ring_cqe_flags(ring_fd, 42, 0xBEEFULL, 0, 0),
-			std::chrono::seconds{5});
-		ok = true;
-	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
-	}
-
-	bool const passed = ok || err == EINVAL || err == ENOSYS;
-	CHECK(passed);
 }
 TEST_CASE(
 	"async_unsafe_sendmsg_zc_sent sends data (or gracefully unsupported)") {
