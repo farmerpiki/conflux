@@ -124,7 +124,7 @@ Recommended starting components: `json`, `json_file`, `http`, and `umbrella`.
 | `umbrella` | `conflux::umbrella` | `conflux` | selected | `README.md` |
 
 
-Stage 1 profile rule of thumb: normal app/JSON facades are `curated`; stable extension/provider/customization modules are `extended`; raw runtime, protocol, parser, socket/file async I/O, and helper internals are `complete` or explicit-only. Detailed drift checking is deferred to the manifest stage.
+Stage 1 profile rule of thumb: normal app/JSON facades are `curated`; stable extension/provider/customization modules are `extended`; raw runtime, protocol, parser, socket/file async I/O, and helper internals are `complete` or explicit-only. `scripts/check-api-surface-map.py` verifies the manifest, facade exports, and this map stay synchronized.
 
 `cmake/ConfluxComponentRegistry.cmake` also classifies each component as
 `STABLE`, `ADVANCED`, `EXPERIMENTAL`, or `INTERNAL_SUPPORT`. The registry is the
