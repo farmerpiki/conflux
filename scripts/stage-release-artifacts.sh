@@ -148,9 +148,6 @@ fi
 
 {
     printf 'artifact_contract=modules-first-preview\n'
-    printf 'source_root=%s\n' "$root"
-    printf 'build_dir=%s\n' "$build_dir"
-    printf 'stage_dir=%s\n' "$stage_dir"
     printf 'primary_interface=MODULE_INTERFACE\n'
     printf 'release_sku=%s\n' "$release_sku"
     printf 'feature_set=%s\n' "$feature_set"

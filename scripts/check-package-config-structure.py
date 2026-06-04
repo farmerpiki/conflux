@@ -3336,6 +3336,9 @@ def check_release_artifact_staging_contract() -> None:
     offline_bootstrap = read("scripts/check-release-offline-bootstrap.sh")
     generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
     runner_json_forbidden = package_smoke_forbidden_components("json")
+    for marker in ("printf 'source_root=", "printf 'build_dir=", "printf 'stage_dir="):
+        if marker in staging:
+            fail("release artifact staging must not write local path metadata")
     if 'package-smoke-forbidden-components.py" json' not in bootstrap:
         fail("bootstrap check must derive release-json forbidden package components from the shared policy helper")
     if 'package-smoke-forbidden-components.py" http' not in bootstrap:
@@ -3378,6 +3381,7 @@ def check_release_artifact_staging_contract() -> None:
         "selected_docs=source/docs/$release_sku": "source archive check must require selected docs manifest metadata by SKU",
         "package_components=$sku_components": "source archive check must require selected component manifest metadata",
         "source_generated_header_artifact=source/include/conflux": "source archive check must require source generated-header manifest metadata",
+        "source_root|build_dir|stage_dir": "source archive check must reject local path manifest metadata",
     }
     bootstrap_required = {
         "check-release-artifact-bootstrap": "release artifact checks must include a source bootstrap entrypoint",

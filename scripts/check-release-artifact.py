@@ -84,6 +84,9 @@ def main(argv: list[str]) -> int:
             fail(f"missing {path.relative_to(stage)}")
 
     release_manifest = read_manifest(stage / "release-artifact-manifest.txt")
+    for forbidden_key in ["source_root", "build_dir", "stage_dir"]:
+        if forbidden_key in release_manifest:
+            fail(f"release artifact manifest must not record local {forbidden_key}")
     sku = release_sku(release_manifest)
     sku_manifest = json.loads((stage / "source" / "docs" / "release-skus.json").read_text(encoding="utf-8"))
     sku_entry = sku_manifest.get(sku)

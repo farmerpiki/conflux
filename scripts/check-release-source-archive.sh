@@ -73,5 +73,9 @@ if ! grep -qx "package_components=$sku_components" \
     printf 'check-release-source-archive: manifest does not record %s package components\n' "$release_sku" >&2
     exit 1
 fi
+if grep -Eq '^(source_root|build_dir|stage_dir)=' "$stage_dir/release-artifact-manifest.txt"; then
+    printf 'check-release-source-archive: manifest records local source/build/stage paths\n' >&2
+    exit 1
+fi
 
 printf 'check-release-source-archive: ok (%s)\n' "$stage_dir/source"
