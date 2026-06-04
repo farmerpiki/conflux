@@ -245,10 +245,13 @@ scripts/run-install-tree-smoke.sh \
 ```
 
 This configures a fresh dependency-light build, installs it into a temporary
-prefix, then runs the downstream package smoke against that installed prefix. Use
-`--feature-set json --components 'core;json'` or a larger feature preset when the
-CI host has the required system dependencies and you want broader component
-coverage. Prefer isolated component smokes such as `--components dns`,
+prefix, then runs the downstream package smoke against that installed prefix.
+For the manifest-backed JSON preview lane, use
+`scripts/check-package-smoke-liburing-free.sh`; it derives the `release-json`
+feature set and `core;json;file_io_sync` component list from
+`docs/release-skus.json` and forbids runtime-facing dependencies. Use a larger
+feature preset when the CI host has the required system dependencies and you
+want broader component coverage. Prefer isolated component smokes such as `--components dns`,
 `--components template`, or `--components pg --enable-db-smoke` when changing a
 component contract; those lanes prove that only the requested component and its
 dependency closure are exposed.

@@ -83,13 +83,7 @@ required generated-header artifact lane for dependency-light installs and does
 not publish runtime-facing/http package components.
 
 ```sh
-cmake -S cmake/package-smoke -B /tmp/conflux-smoke -G Ninja \
-  -DCMAKE_CXX_COMPILER=g++ \
-  -Dconflux_DIR=/tmp/conflux-install/lib/cmake/conflux \
-  -DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE=HEADER_INTERFACE \
-  -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="core;json;file_io_sync"
-cmake --build /tmp/conflux-smoke
-ctest --test-dir /tmp/conflux-smoke --output-on-failure
+scripts/check-package-smoke-liburing-free.sh
 ```
 
 Runtime package smoke, only on hosts with real liburing discoverable through
