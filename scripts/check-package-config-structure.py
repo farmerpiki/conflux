@@ -2531,6 +2531,7 @@ def check_install_and_dependency_contracts() -> None:
         "function(conflux_register_header_public_profile_hpps)": "profile header hpp registration must use a shared helper",
         "if(NOT umbrella IN_LIST CONFLUX_PACKAGE_COMPONENTS)": "profile hpp wrappers must require the aggregate package component",
         "foreach(_profile IN ITEMS curated extended complete)": "profile hpp helper must cover all aggregate profiles",
+        "tests/http_facade_api_snapshot": "header-mode test source list must keep the HTTP facade API snapshot",
     }
     errors.extend(
         message for marker, message in profile_helper_markers.items()
