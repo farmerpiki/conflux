@@ -84,3 +84,120 @@ TEST_CASE(
 	"[json][codec][members]") {
 	CHECK(has_json_codec<Point>);
 }
+
+TEST_CASE(
+	"json: decode with unknown_members=ignore skips extra fields",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"x":1,"y":2,"z":3})");
+	REQUIRE(doc.has_value());
+	JsonDecodeOptions opts{.unknown_members = UnknownMemberPolicy::ignore};
+	auto r = decode<Point>(doc->root(), opts);
+	REQUIRE(r.has_value());
+	CHECK(r->x == 1LL);
+	CHECK(r->y == 2LL);
+}
+
+TEST_CASE(
+	"json: decode with unknown_members=reject still rejects (default)",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"x":1,"y":2,"extra":99})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Point>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
+}
+
+struct Rect {
+	std::int64_t width{};
+	std::int64_t height{};
+};
+
+template<>
+struct conflux::json::JsonMembers<Rect> {
+	static constexpr auto members() {
+		return std::tuple{
+			make_tuple(
+				conflux::json::json_member("width", &Rect::width),
+				static_cast<conflux::json::JsonConstraintFn<std::int64_t>>(
+					[](std::int64_t const &v) -> std::expected<void, JsonError> {
+						if (v <= 0) {
+							return std::unexpected(
+								JsonError{
+									.stage = JsonStage::decode,
+									.code = JsonIssueCode::constraint_violation,
+									.message = "width must be positive"});
+						}
+						return {};
+					})),
+			conflux::json::json_member("height", &Rect::height),
+		};
+	}
+};
+
+TEST_CASE(
+	"json: constrained member passes when valid",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"width":10,"height":5})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Rect>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(r->width == 10LL);
+	CHECK(r->height == 5LL);
+}
+
+TEST_CASE(
+	"json: constrained member fails on violation",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"width":-1,"height":5})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Rect>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::constraint_violation);
+	CHECK(r.error().member_name == "width");
+}
+
+struct Inner {
+	std::int64_t val{};
+};
+
+template<>
+struct conflux::json::JsonMembers<Inner> {
+	static constexpr auto members() { return std::tuple{conflux::json::json_member("val", &Inner::val)}; }
+};
+
+struct Outer {
+	Inner inner{};
+};
+
+template<>
+struct conflux::json::JsonMembers<Outer> {
+	static constexpr auto members() { return std::tuple{conflux::json::json_member("inner", &Outer::inner)}; }
+};
+
+TEST_CASE(
+	"json: nested struct wrong type propagates full path",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"inner":{"val":"bad"}})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Outer>(doc->root());
+	CHECK_FALSE(r.has_value());
+	auto &err = r.error();
+	CHECK(err.code == JsonIssueCode::wrong_kind);
+	REQUIRE(err.path.size() == 2UZ);
+	CHECK(get<JsonPathMember>(err.path.segment(0)).name == "inner");
+	CHECK(get<JsonPathMember>(err.path.segment(1)).name == "val");
+}
+
+TEST_CASE(
+	"json: nested struct missing member has parent path",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"inner":{}})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Outer>(doc->root());
+	CHECK_FALSE(r.has_value());
+	auto &err = r.error();
+	CHECK(err.code == JsonIssueCode::missing_member);
+	CHECK(err.member_name == "val");
+	REQUIRE(err.path.size() == 1UZ);
+	CHECK(get<JsonPathMember>(err.path.segment(0)).name == "inner");
+}
