@@ -18,7 +18,12 @@ Conflux exposes runtime configuration diagnostics without changing startup defau
 | `Config::public_server()` | Default web-facing app/server configuration | Bounded request/body/header limits, request and TLS/plain sniff timeouts, `strict_config`, slow-handler diagnostics, explicit fallback diagnostics. |
 | `Config::development()` | Local development with compatible config parsing | Keeps non-strict INI compatibility, enables slow-handler diagnostics and startup banner. |
 | `Config::low_latency()` | Bounded low-latency tuning | Smaller rings, explicit taskrun/cooperative ring flags, and fail-fast feature fallback while keeping parser/body limits bounded. |
-| `Config::benchmark()` | Measurement-only mode | Starts from `low_latency()`, disables startup banner and request/sniff timeouts to keep measurements explicit. |
+
+Non-production presets — not for real deployments:
+
+| Preset | Use | Notes |
+|---|---|---|
+| `benchmark` | Measurement-only mode | Starts from `low_latency()`, disables startup banner and request/sniff timeouts. Use only inside a controlled benchmark harness. |
 | `Config::unsafe_max_speed()` | Unsafe opt-in throughput experiments | Raises parser/body caps and enables registered send buffers / SEND_ZC; `unsafe_config_issues(...)` reports these choices and this preset must not be a production default. |
 
 Strict checked loads report structured `ConfigIssue` values such as `config.unknown_key` with file, line, section, key, value, and hints where available.
