@@ -74,6 +74,7 @@ def main() -> int:
     production = (ROOT / "docs" / "production-checklist.md").read_text(encoding="utf-8")
     metrics = (ROOT / "src" / "net" / "metrics.cxx").read_text(encoding="utf-8")
     observability = (ROOT / "src" / "net" / "observability.cxx").read_text(encoding="utf-8")
+    e2e_tests = (ROOT / "tests" / "E2ETests.cmake").read_text(encoding="utf-8")
 
     for policy in OVERFLOW_POLICIES:
         if policy not in server_types:
@@ -105,6 +106,13 @@ def main() -> int:
         joined = "\n".join([http_api, observability])
         if marker not in joined:
             failures.append(f"lifecycle/backpressure docs missing {marker!r}")
+
+    for marker in [
+        "add_executable(conflux_http_backpressure_e2e)",
+        "add_executable(conflux_http_full_drain_contract_e2e)",
+    ]:
+        if marker not in e2e_tests:
+            failures.append(f"tests/E2ETests.cmake missing {marker}")
 
     if failures:
         print("lifecycle docs guard failed:", file=sys.stderr)
