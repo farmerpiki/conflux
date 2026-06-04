@@ -35,9 +35,14 @@ one small service.
 ## Lifecycle
 
 - Install a shutdown path that calls `conflux::http::HttpServer::drain()` or `shutdown()`.
+- For controller-thread startup, call `port()` after `run()` starts to wait for
+  listen readiness; run `App::validate()`, `try_server()`, or `try_run()` before
+  depending on readiness.
 - Pick a drain deadline that matches the service's load balancer and process
   supervisor timeout.
 - Decide whether SSE/WebSocket streams should finish or close during drain.
+- Tie application background tasks and certificate reload controllers to the
+  same cancellation/supervision path as the HTTP server drain.
 - Capture `build_info_summary()`, `conflux::http::HttpServer::startup_report()`, and the
   redacted `Config` summary in startup logs when the service owner wants
   diagnostics.

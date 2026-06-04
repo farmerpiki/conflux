@@ -620,6 +620,15 @@ the fallible setup path without binding/listening until `run()` is called; use i
 when a controller thread needs to call `port()`, `metrics()`, `drain()`, or
 `shutdown()`.
 
+The preview lifecycle API is intentionally small. `run()` owns bind/listen and
+the blocking ring loop. `port()` is the readiness wait: after `run()` starts on
+another thread, `port()` blocks until ring 0 has called `listen()` and returns
+the actual port. There are no separate public `listen()`, `ready()`,
+`stop_accepting()`, `close_idle()`, or `finish_streams()` methods; those
+behaviors are selected through `DrainOptions` and reported through
+`DrainReport`. `App::validate()` / `App::try_run()` / `App::try_server()` remain
+the pre-listen validation paths.
+
 | Situation | Default behavior | Config knob | Metric |
 |---|---|---|---|
 | New connection while draining | Stop accepting; close any accepted late socket | `DrainOptions::stop_accepting` | `pressure.accept_rejected` |
@@ -658,6 +667,10 @@ channel API. `DropNewest`, `DropOldest`, and `Disconnect` map to
 HTTP/1.1 drain behavior is implemented by the server ring shutdown path. HTTP/2
 and HTTP/3 keep their existing experimental behavior in this branch; full GOAWAY
 or QUIC drain correctness should be treated as separate protocol work.
+Application background tasks and certificate reload controllers are outside
+`HttpServer` ownership in this preview. Tie them to the same process supervisor
+or application cancellation source that calls `drain()` so they do not outlive
+the server state they reference.
 
 ## `http::Response`
 
