@@ -41,6 +41,15 @@ target_link_libraries(conflux_file_io_fixed_tests
         Catch2::Catch2WithMain
 )
 
+add_executable(conflux_file_io_pipe_tests file_io_pipe_test.cxx)
+target_link_libraries(conflux_file_io_pipe_tests
+    PRIVATE
+        conflux_file_io
+        conflux_work
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 add_executable(conflux_poll_first_auto_tests poll_first_auto_test.cxx)
 target_link_libraries(conflux_poll_first_auto_tests
     PRIVATE
