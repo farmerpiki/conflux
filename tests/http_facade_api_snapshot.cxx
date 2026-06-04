@@ -107,6 +107,15 @@ void run_spelling_compiles() {
 	(void)http::exit_code(http::RunStatus::stopped_normally);
 }
 
+void config_preset_spelling_compiles() {
+	[[maybe_unused]] auto public_cfg = http::Config::public_server();
+	[[maybe_unused]] auto development_cfg = http::Config::development();
+	[[maybe_unused]] auto low_latency_cfg = http::Config::low_latency();
+	[[maybe_unused]] auto benchmark_cfg = http::Config::benchmark();
+	[[maybe_unused]] auto unsafe_cfg = http::Config::unsafe_max_speed();
+	[[maybe_unused]] auto test_cfg = http::Config::test();
+}
+
 void response_helpers_compile() {
 	(void)http::html("<p>ok</p>");
 	(void)http::html(std::string{"<p>ok</p>"});

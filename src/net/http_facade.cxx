@@ -10,7 +10,7 @@ export import conflux.json;
 import conflux.net.http.native_json;
 import std;
 
-import conflux.net.config;
+export import conflux.net.config;
 export import conflux.net.http.app_json;
 import conflux.net.router;
 import conflux.net.request_id;

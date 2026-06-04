@@ -269,6 +269,13 @@ handled when host capabilities do not match the config:
   paths.
 - `silent_fallback`: supported paths are used without public warning.
 
+First-contact code should start with `Config::public_server()` for web-facing
+service defaults or `Config::development()` for local development. Use
+`Config::low_latency()`, `Config::benchmark()`, and
+`Config::unsafe_max_speed()` only when the deployment or measurement harness
+explicitly owns the tradeoff; see [`configuration.md`](configuration.md) for the
+preset differences.
+
 Use `Config::summary_redacted()` or `Config::to_json_redacted()` for effective
 configuration diagnostics. Secret-like fields are redacted. `conflux::http::HttpServer` also
 exposes `startup_report()` for pull-based startup diagnostics; the library does
