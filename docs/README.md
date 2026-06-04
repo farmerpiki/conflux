@@ -7,6 +7,7 @@
 - `docs/package-consumption.md`
 - `docs/component-map.md`
 - `docs/public-api-map.md`
+- `docs/task-path.md`
 
 ## Runtime and HTTP
 

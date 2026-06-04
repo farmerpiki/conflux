@@ -36,6 +36,7 @@ required = [
     "docs/package-consumption.md",
     "docs/component-map.md",
     "docs/public-api-map.md",
+    "docs/task-path.md",
     "docs/http-server-api.md",
     "docs/json-api.md",
     "docs/cost-lifetime-model.md",
@@ -61,6 +62,53 @@ for rel in required:
         fail(f"README.md does not link {rel}")
     if not (ROOT / rel).exists():
         fail(f"README.md links missing file {rel}")
+
+task_path = (ROOT / "docs/task-path.md").read_text(encoding="utf-8")
+for phrase in [
+    "Import/include",
+    "Cost/lifetime note",
+    "Minimal example",
+    "Advanced escape hatch",
+]:
+    if phrase not in task_path:
+        fail(f"docs/task-path.md missing column {phrase}")
+
+for task in [
+    "hello world",
+    "JSON API",
+    "typed path/query/body extraction",
+    "error handling",
+    "middleware",
+    "auth",
+    "DB access",
+    "static files",
+    "uploads/multipart",
+    "SSE/WebSocket",
+    "observability",
+    "graceful shutdown",
+    "deployment config",
+]:
+    if f"| {task} |" not in task_path:
+        fail(f"docs/task-path.md missing task row {task}")
+
+for marker in [
+    "examples/quickstart/hello.cxx",
+    "examples/quickstart/json_crud.cxx",
+    "examples/quickstart/openapi.cxx",
+    "examples/quickstart/middleware.cxx",
+    "examples/public/middleware.cxx",
+    "examples/advanced/db_basic.cxx",
+    "examples/quickstart/static_files.cxx",
+    "examples/public/forms.cxx",
+    "examples/quickstart/sse.cxx",
+    "examples/quickstart/websocket.cxx",
+    "examples/advanced/http_observability.cxx",
+    "examples/advanced/http_lifecycle.cxx",
+    "examples/advanced/production_showcase.cxx",
+    "docs/cost-lifetime-model.md",
+]:
+    if marker not in task_path:
+        fail(f"docs/task-path.md missing task path marker {marker}")
 
 first_contact = readme.split("## Project policy", 1)[0]
 if "todo/" in first_contact or "proposals/" in first_contact:
