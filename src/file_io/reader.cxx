@@ -264,42 +264,13 @@ public:
 	}
 	// Read into a caller-owned std::span. The caller must keep `dst` alive until the
 	// Flow resolves.
-	[[nodiscard]] root::Task<std::size_t> read_into(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		std::span<std::byte> dst) {
-		auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_read(fd, dst.data(), dst.size(), offset); });
-		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
-			return static_cast<std::size_t>(r.res);
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<std::size_t>
+	read_into(FileHandle const &fh, std::uint64_t offset, std::span<std::byte> dst);
 	// Scatter-gather read: fills `iovecs` segments in sequence. The V is
 	// moved into shared state and kept alive until the CQE fires.
 	// Returns total bytes read across all segments.
-	[[nodiscard]] root::Task<std::size_t> readv_into(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		std::vector<iovec> iovecs) {
-		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_readv(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
-		});
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			return static_cast<std::size_t>(r.res);
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<std::size_t>
+	readv_into(FileHandle const &fh, std::uint64_t offset, std::vector<iovec> iovecs);
 	// Read into a pre-registered fixed buffer. The pool slot is held by the
 	// buffer and returned on destruction — by placing the buffer inside the
 	// completion callback we keep it alive until the CQE fires, then move it
@@ -312,34 +283,7 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		FixedBuffer buf,
-		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
-		auto [task, src, sqe] = prepare_sqe_direct<ReadFixedResult>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		unsigned const slot_idx = buf.slot();
-		std::size_t const bytes = std::min(buf.view().size(), max_bytes);
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_read_fixed(
-				fd,
-				buf.view().data(),
-				bytes,
-				offset,
-				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
-		});
-		auto [slot, gen] = completions_->reserve([src = std::move(src), buf = std::move(buf)](IoResult r) mutable {
-			try {
-				if (r.res < 0) {
-					auto _ = src.try_set_exception(std::make_exception_ptr(IoError{-r.res, "file_io: read_fixed"}));
-					return;
-				}
-				ReadFixedResult result{.buffer = std::move(buf), .bytes = static_cast<std::size_t>(r.res)};
-				auto _ = src.try_set_value(root::Success<ReadFixedResult>{std::move(result)});
-			} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+		std::size_t max_bytes = std::numeric_limits<std::size_t>::max());
 	// Read into a pre-registered fixed buffer, bypassing the kernel page cache.
 	// The file must have been opened with O_DIRECT. `offset` must be a multiple
 	// of `block_size`. `max_bytes` is the caller's true limit (e.g. remaining
@@ -353,42 +297,7 @@ public:
 		std::uint64_t offset,
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max(),
-		std::size_t block_size = 4096) {
-		std::size_t const actual_cap = std::min(max_bytes, buf.size());
-		std::size_t aligned_bytes = actual_cap;
-		if (block_size > 1 && actual_cap > 0) {
-			aligned_bytes = ((actual_cap + block_size - 1) / block_size) * block_size;
-			aligned_bytes = std::min(aligned_bytes, buf.size());
-		}
-		auto [task, src, sqe] = prepare_sqe_direct<ReadFixedResult>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		unsigned const slot_idx = buf.slot();
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_read_fixed(
-				fd,
-				buf.view().data(),
-				aligned_bytes,
-				offset,
-				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
-		});
-		auto [slot, gen] =
-			completions_->reserve([src = std::move(src), buf = std::move(buf), actual_cap](IoResult r) mutable {
-				try {
-					if (r.res < 0) {
-						auto _ = src.try_set_exception(
-							std::make_exception_ptr(IoError{-r.res, "file_io: read_nocache_fixed"}));
-						return;
-					}
-					std::size_t const bytes = std::min(static_cast<std::size_t>(r.res), actual_cap);
-					ReadFixedResult result{.buffer = std::move(buf), .bytes = bytes};
-					auto _ = src.try_set_value(root::Success<ReadFixedResult>{std::move(result)});
-				} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
-			});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+		std::size_t block_size = 4096);
 	// Write from a pre-registered fixed buffer. Symmetric to read_fixed.
 	// The buffer is held by the completion callback until the CQE fires, then returned
 	// to the caller (who decides when to release the slot back to the pool).
@@ -400,110 +309,20 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		FixedBuffer buf,
-		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
-		auto [task, src, sqe] = prepare_sqe_direct<WriteFixedResult>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		unsigned const slot_idx = buf.slot();
-		std::size_t const bytes = std::min(buf.view().size(), max_bytes);
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_write_fixed(
-				fd,
-				buf.view().data(),
-				bytes,
-				offset,
-				conflux::uring::FixedBufIdx{static_cast<int>(slot_idx)});
-		});
-		auto [slot, gen] = completions_->reserve([src = std::move(src), buf = std::move(buf)](IoResult r) mutable {
-			try {
-				if (r.res < 0) {
-					auto _ = src.try_set_exception(std::make_exception_ptr(IoError{-r.res, "file_io: write_fixed"}));
-					return;
-				}
-				WriteFixedResult result{.buffer = std::move(buf), .bytes = static_cast<std::size_t>(r.res)};
-				auto _ = src.try_set_value(root::Success<WriteFixedResult>{std::move(result)});
-			} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
-	[[nodiscard]] root::Task<std::size_t> write_into(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		std::span<std::byte const> src_view) {
-		auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) { sqe.prep_write(fd, src_view.data(), src_view.size(), offset); });
-		auto [slot, gen] = reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) {
-			return static_cast<std::size_t>(r.res);
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+		std::size_t max_bytes = std::numeric_limits<std::size_t>::max());
+	[[nodiscard]] root::Task<std::size_t>
+	write_into(FileHandle const &fh, std::uint64_t offset, std::span<std::byte const> src_view);
 	// Scatter-gather write: sends `iovecs` segments to the file in sequence.
 	// The V is moved into shared state and kept alive until the CQE fires.
 	// Returns total bytes written across all segments.
-	[[nodiscard]] root::Task<std::size_t> writev_into(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		std::vector<iovec> iovecs) {
-		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_writev(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
-		});
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			return static_cast<std::size_t>(r.res);
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<std::size_t>
+	writev_into(FileHandle const &fh, std::uint64_t offset, std::vector<iovec> iovecs);
 	// readv2_into: like readv_into but with RWF flags (e.g. RWF_NOWAIT, RWF_DSYNC).
-	[[nodiscard]] root::Task<std::size_t> readv2_into(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		std::vector<iovec> iovecs,
-		int rwf_flags = 0) {
-		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_readv2(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset, rwf_flags);
-		});
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			return static_cast<std::size_t>(r.res);
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<std::size_t>
+	readv2_into(FileHandle const &fh, std::uint64_t offset, std::vector<iovec> iovecs, int rwf_flags = 0);
 	// writev2_into: like writev_into but with RWF flags.
-	[[nodiscard]] root::Task<std::size_t> writev2_into(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		std::vector<iovec> iovecs,
-		int rwf_flags = 0) {
-		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		auto iov_owner = std::make_shared<std::vector<iovec>>(std::move(iovecs));
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_writev2(fd, iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset, rwf_flags);
-		});
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
-			return static_cast<std::size_t>(r.res);
-		});
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<std::size_t>
+	writev2_into(FileHandle const &fh, std::uint64_t offset, std::vector<iovec> iovecs, int rwf_flags = 0);
 	// No-op SQE — useful for latency measurement, wakeup, or pipeline flushing.
 	[[nodiscard]] root::Task<void> async_nop() {
 		auto [task, shared_src, sqe] = prepare_sqe<void>();
@@ -1299,24 +1118,8 @@ public:
 	}
 	// Write using a pre-registered fixed buffer (IORING_OP_WRITE_FIXED).
 	// `buf` pointer and `buf_index` must refer to the registered buffer in the pool.
-	[[nodiscard]] root::Task<std::size_t> async_write_fixed(
-		FileHandle const &fh,
-		std::uint64_t offset,
-		void const *buf,
-		unsigned nbytes,
-		int buf_index) {
-		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
-		if (!sqe) {
-			return std::move(task);
-		}
-		visit_fd(fh, [&](RingFd auto fd) {
-			sqe.prep_write_fixed(fd, buf, nbytes, offset, conflux::uring::FixedBufIdx{buf_index});
-		});
-		auto [slot, gen] =
-			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
-		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-		return std::move(task);
-	}
+	[[nodiscard]] root::Task<std::size_t>
+	async_write_fixed(FileHandle const &fh, std::uint64_t offset, void const *buf, unsigned nbytes, int buf_index);
 	// Remove a file by name relative to `dir_fd`.
 	// `flags` = 0 for file; AT_REMOVEDIR for directory.
 	[[nodiscard]] root::Task<void> async_unlinkat(
