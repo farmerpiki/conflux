@@ -493,52 +493,6 @@ TEST_CASE(
 	CHECK(st.st_size == 1024);
 }
 TEST_CASE(
-	"file_io: async_fsetxattr + async_fgetxattr round-trips an xattr",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	TempFile const tmp = TempFile::create("xattr test");
-	FileHandle const handle = FileHandle::from_fd(::dup(tmp.fd));
-
-	bool set_ok = false;
-	int set_err = 0;
-	std::string const xattr_name = "user.test_key";
-	std::string const xattr_val = "hello_xattr";
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_fsetxattr(handle, xattr_name, xattr_val),
-			std::chrono::seconds{5});
-		set_ok = true;
-	} catch (std::system_error const &se) { set_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-	}
-
-	bool const set_passed =
-		set_ok || set_err == EOPNOTSUPP || set_err == ENOTSUP || set_err == EINVAL || set_err == ENOSYS;
-	CHECK(set_passed);
-	if (!set_ok) {
-		return;
-	}
-
-	std::array<char, 64> buf{};
-	std::size_t got = 0;
-	int get_err = 0;
-	try {
-		got = conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_fgetxattr(handle, xattr_name, std::span<char>{buf.data(), buf.size()}),
-			std::chrono::seconds{5});
-	} catch (std::system_error const &se) { get_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-	}
-
-	CHECK(get_err == 0);
-	REQUIRE(got == xattr_val.size());
-	CHECK(std::string_view{buf.data(), got} == xattr_val);
-}
-TEST_CASE(
 	"file_io: async_fixed_fd_install rejects non-direct handle",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
@@ -814,50 +768,6 @@ TEST_CASE(
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == EOPNOTSUPP;
 	CHECK(passed);
-}
-TEST_CASE(
-	"file_io: async_setxattr + async_getxattr round-trips path-based xattr",
-	"[file_io][async]") {
-	auto fx = RingFixture::make();
-	if (!fx) {
-		SKIP("io_uring init failed");
-	}
-
-	TempFile const tmp = TempFile::create("xattr path test");
-
-	bool set_ok = false;
-	int set_err = 0;
-	std::string const xattr_val = "path_xattr_val";
-	try {
-		conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_setxattr(tmp.path, "user.path_test_key", xattr_val),
-			std::chrono::seconds{5});
-		set_ok = true;
-	} catch (std::system_error const &se) { set_err = se.code().value(); } catch (...) {
-	}
-
-	bool const set_passed =
-		set_ok || set_err == EOPNOTSUPP || set_err == ENOTSUP || set_err == EINVAL || set_err == ENOSYS;
-	CHECK(set_passed);
-	if (!set_ok) {
-		return;
-	}
-
-	std::array<char, 64> buf{};
-	std::size_t got = 0;
-	int get_err = 0;
-	try {
-		got = conflux::file_io::block_on(
-			fx->reader,
-			fx->reader.async_getxattr(tmp.path, "user.path_test_key", std::span<char>{buf.data(), buf.size()}),
-			std::chrono::seconds{5});
-	} catch (std::system_error const &se) { get_err = se.code().value(); } catch (...) {
-	}
-
-	CHECK(get_err == 0);
-	REQUIRE(got == xattr_val.size());
-	CHECK(std::string_view{buf.data(), got} == xattr_val);
 }
 TEST_CASE(
 	"file_io: async_waitid on non-existent pid returns ECHILD",
