@@ -32,18 +32,20 @@ For code-review rules around handler placement and `blocking_`/`sync_`/`async_` 
   raw syscall-style helpers whose `blocking_*` names make thread-blocking cost
   explicit.
 - `http::App` is the preferred first-contact surface and includes core routing
-  ergonomics (`get/post/put/patch/del/options`, context-aware handlers, `use`,
+  ergonomics (`get/post/put/patch/del/options`, sync middleware through `use`,
   `sse`, `ws`, `serve_static`, `group`, `on_not_found`, `on_error`), while
-  still exposing `config()` for app/server tuning. Direct raw-router access is an
-  advanced escape hatch through `conflux.http.extended` (`http::router(app)`) or
-  explicit low-level imports; it is not part of the curated façade.
+  still exposing `config()` for app/server tuning. Context-aware handlers,
+  async middleware, and direct raw-router access are advanced escape hatches
+  through `conflux.http.extended` (`http::router(app)`) or explicit low-level
+  imports; they are not part of the curated façade.
 
 Current HTTP direction:
 
 - Keep synchronous handlers supported, but they run on ring threads and must stay
   short, bounded, and non-blocking.
-- Prefer facade async handlers (`conflux::work::Task<http::Response>`) when the work
-  has explicit suspension points.
+- Prefer ordinary `http::Response` or typed JSON returns for first-contact HTTP.
+  Use facade async handlers (`conflux::work::Task<http::Response>`) only when
+  the work has explicit suspension points.
 - Use explicit executor handoff for executor-owned chains. Reserve
   `blocking_*` names for raw syscall-style helpers that can block the calling
   thread; do not rely on hidden handler auto-offload.
@@ -84,8 +86,8 @@ contract from `docs/execution-model.md` and the review checklist in
 `docs/concurrency-naming-model.md`:
 
 - Fast synchronous work: accept `http::RequestView` and return
-  `http::Response` directly. `http::RequestView` is the first-contact sync request
-  type. This code executes on the HTTP ring thread.
+  `http::Response` or a typed JSON wrapper directly. `http::RequestView` is the
+  first-contact sync request type. This code executes on the HTTP ring thread.
 - Async workflow with coroutine-style composition: accept `http::RequestView`
   through normalized server/app dispatch, or owning `http::Request` when storage
   is caller-owned or must escape dispatch. Task progress is executor-owned;
@@ -110,17 +112,15 @@ int main() {
 		return http::text("ok");
 	});
 
-	app.get("/task", [](http::RequestView const &) -> conflux::work::Task<http::Response> {
-		co_return http::text("task-ok");
-	});
-
-	app.get("/context", [](http::RequestView const &, http::RequestContext const &) -> conflux::work::Task<http::Response> {
-		co_return http::text("context-ok");
-	});
-
 	return http::exit_code(std::move(app).run({.port = 9090}));
 }
 ```
+
+Task-returning handlers, context-aware handlers, async middleware, and raw
+router access remain available for advanced integrations through
+`conflux.http.extended` or explicit low-level imports. Do not introduce them in
+first-contact examples unless the example is specifically about execution
+placement or middleware internals.
 
 ## Blocking Handler Guardrails
 
@@ -132,7 +132,7 @@ that can stall must not be hidden inside ordinary sync handlers.
 
 Preferred explicit options:
 
-- Return `conflux::work::Task<http::Response>` when the handler naturally
+- Return `conflux::work::Task<http::Response>` only when the handler naturally
   composes with coroutine/task suspension. The task still progresses through an
   executor; there is no non-executor task path.
 - Use a caller-owned executor/work pool for blocking callables where that is the

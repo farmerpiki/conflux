@@ -71,9 +71,9 @@ return static_cast<int>((*server)->run());
 `http::App` keeps the route-registration APIs commonly needed before handing
 ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for
 custom HTTP methods, ordinary verbs for handlers that need request context,
-`app.use(...)` for both sync and owned async middleware, and `app.routes()` /
-`app.openapi_spec()` for app-level metadata. The raw router is an extended
-escape hatch available as `http::router(app)` after `import conflux.http.extended;`.
+`app.use(...)` for sync middleware, and `app.routes()` / `app.openapi_spec()`
+for app-level metadata. Context handlers, async middleware, and the raw router
+are extended escape hatches available after `import conflux.http.extended;`.
 
 ```cpp
 app.add("REPORT", "/reports/{id}", [](http::RequestView const& req) {
@@ -761,7 +761,13 @@ app.use([](http::RequestView const& req, auto const& next) {
     }
     return response;
 });
+```
 
+Async context middleware is an advanced path that requires the extended HTTP
+surface and explicit executor/task placement:
+
+```cpp
+// Requires import conflux.http.extended.
 app.use([](http::RequestView const& req,
            http::RequestContext const& ctx,
            auto const& next) -> conflux::work::Task<http::Response> {
