@@ -270,12 +270,17 @@ outside the tracked source tree.
 - Lifecycle/backpressure docs match `DrainOptions`, `DrainReport`,
   `OverflowPolicy`, SSE overflow mapping, and `HttpPressureMetrics`.
 - HTTP/1 rejection taxonomy docs match status codes and passive server metrics:
+  `request_line_too_large` -> 414 -> `rejections.request_line_too_large`,
   `malformed_content_length` -> 400 -> `rejections.malformed_content_length`,
   `duplicate_content_length` -> 400 -> `rejections.duplicate_content_length`,
   `content_length_with_transfer_encoding` -> 400 ->
   `rejections.content_length_with_transfer_encoding`,
-  `header_block_too_large` -> 431 -> `rejections.header_block_too_large`, and
-  `body_too_large` -> 413 -> `rejections.body_too_large`.
+  `header_block_too_large` -> 431 -> `rejections.header_block_too_large`,
+  `too_many_headers` -> 431 -> `rejections.too_many_headers`,
+  `invalid_chunk` -> 400 -> `rejections.invalid_chunk`,
+  `body_too_large` -> 413 -> `rejections.body_too_large`,
+  `header_timeout` -> 408 -> `rejections.header_timeout`, and
+  `body_timeout` -> 408 -> `rejections.body_timeout`.
 - Auth, CSRF, JWT, cookie, rate-limit, and password-hash docs are updated when
   defaults or policy knobs change.
 

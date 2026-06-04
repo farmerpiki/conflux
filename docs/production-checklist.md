@@ -20,8 +20,8 @@ one small service.
 
 - [ ] Duplicate `Content-Length` returns `400` and increments
   `duplicate_content_length`.
-- [ ] `Content-Length` with `Transfer-Encoding` returns `400` and increments
-  `content_length_with_transfer_encoding`.
+- [ ] Content-Length with `Transfer-Encoding` request smuggling defense returns
+  `400` and increments `content_length_with_transfer_encoding`.
 - [ ] Aggregate header bytes/count limits return `431` with
   `header_block_too_large`.
 - [ ] Body limits return `413` with `body_too_large`.

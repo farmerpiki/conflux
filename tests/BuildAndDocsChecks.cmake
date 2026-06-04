@@ -118,6 +118,9 @@ if(CONFLUX_BUILD_TESTS)
     conflux_add_python_check(docs/package-docs
         scripts/check-package-docs.py
         "docs;package")
+    conflux_add_python_check(docs/security-posture
+        scripts/check-security-posture-docs.py
+        "docs;http;security")
     conflux_add_python_check(docs/release-notes
         scripts/check-release-notes.py
         "docs;release")
