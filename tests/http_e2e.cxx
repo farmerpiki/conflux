@@ -28,7 +28,6 @@ import conflux.net.cache_control;
 import conflux.net.compress;
 import conflux.net.config;
 import conflux.net.cookie_signing;
-import conflux.net.cors;
 import conflux.net.forwarded;
 import conflux.net.http.client;
 import conflux.net.http.static_files;
@@ -259,57 +258,6 @@ std::string http_get_with_header_on(
 	std::string_view header) {
 	return conflux::tests::http_get_on(port, path, header);
 }
-// ---------------------------------------------------------------------------
-// conflux::http::cors_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_cors_port = 0;
-void ensure_cors_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::cors_middleware({.allowed_origins = {"https://test.example"}}));
-		router.get("/api", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::json(R"({"ok":true})");
-		});
-		router.get("/vary", [](conflux::http::OwnedRequest const &) {
-			auto r = conflux::http::Response::text("vary");
-			r.headers["Vary"] = "Accept-Encoding";
-			return r;
-		});
-		g_cors_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-std::uint16_t g_cors_cred_port = 0;
-void ensure_cors_cred_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(
-			conflux::http::cors_middleware({
-				.allowed_origins = {"*"},
-				.expose_headers = {"X-Custom-Header", "X-Request-Id"},
-				.allow_credentials = true,
-        }));
-		router.get("/api", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::json(R"({"ok":true})");
-		});
-		g_cors_cred_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-std::uint16_t g_cors_wildcard_port = 0;
-void ensure_cors_wildcard_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::cors_middleware()); // default: allowed_origins={"*"}, no credentials
-		router.get("/api", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::json(R"({"ok":true})");
-		});
-		g_cors_wildcard_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-// ---------------------------------------------------------------------------
 // auth middleware test server
 // ---------------------------------------------------------------------------
 
