@@ -3643,6 +3643,8 @@ def check_release_sku_guard_contract() -> None:
         "scripts/check-release-sku-examples.py": "Build/docs CTest fragment must run the release SKU examples guard",
         "docs/http-response-helper-policy": "Build/docs CTest fragment must register the HTTP response helper policy guard",
         "scripts/check-http-response-helper-policy.py": "Build/docs CTest fragment must run the HTTP response helper policy guard",
+        "docs/extension-points": "Build/docs CTest fragment must register the extension point docs guard",
+        "scripts/check-extension-points-docs.py": "Build/docs CTest fragment must run the extension point docs guard",
     }
     release_docs_required = {
         '"docs/release-skus.json"': "release docs guard must read the release SKU manifest",

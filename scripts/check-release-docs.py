@@ -37,6 +37,7 @@ required = [
     "docs/component-map.md",
     "docs/public-api-map.md",
     "docs/task-path.md",
+    "docs/extension-points.md",
     "docs/http-server-api.md",
     "docs/json-api.md",
     "docs/cost-lifetime-model.md",

@@ -8,6 +8,7 @@
 - `docs/component-map.md`
 - `docs/public-api-map.md`
 - `docs/task-path.md`
+- `docs/extension-points.md`
 
 ## Runtime and HTTP
 

@@ -24,6 +24,7 @@
       "docs/http-server-api.md",
       "docs/conflux-http-client-api.md",
       "docs/task-path.md",
+      "docs/extension-points.md",
       "docs/api-surface-profiles.md",
       "docs/package-consumption.md",
       "docs/prerelease-status.md"
@@ -42,6 +43,7 @@
     "docs": [
       "docs/http-server-api.md",
       "docs/task-path.md",
+      "docs/extension-points.md",
       "docs/production-checklist.md",
       "docs/observability.md",
       "docs/configuration.md",
