@@ -8,10 +8,6 @@
 #include <ctime>
 #include <fcntl.h>
 #include <netinet/in.h>
-#if CONFLUX_HAS_TLS
-	#include <openssl/err.h>
-	#include <openssl/ssl.h>
-#endif
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -28,7 +24,6 @@ import conflux.net.compress;
 import conflux.net.config;
 import conflux.net.cookie_signing;
 import conflux.net.forwarded;
-import conflux.net.http.client;
 import conflux.net.http.static_files;
 import conflux.net.http_server;
 import conflux.net.ip_filter;
@@ -41,9 +36,6 @@ import conflux.net.jwt;
 #endif
 import conflux.net.http.static_core;
 import conflux.net.http1_parser;
-#if CONFLUX_HAS_TLS
-import conflux.net.tls;
-#endif
 import conflux.tests.support;
 import conflux.work;
 
@@ -55,8 +47,6 @@ using namespace conflux::tests;
 
 namespace {
 namespace chttp = conflux::http;
-using conflux::http::HttpClient;
-using conflux::http::HttpClientOptions;
 using conflux::work::WorkPool;
 using conflux::work::WorkPoolOptions;
 
