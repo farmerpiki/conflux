@@ -416,12 +416,11 @@ def check_release_checklist_install_smoke_lane() -> None:
         block = checklist.split("Module-interface build and install:", 1)[1].split("python3 scripts/compile_time_bench.py", 1)[0]
     except IndexError:
         fail("release checklist must contain the module-interface install smoke lane")
-    expected_components = release_sku_components("release-http-api")
     required = {
         "scripts/run-install-tree-smoke.sh": "release checklist must run the install-tree smoke runner",
         "--interface-mode MODULE_INTERFACE": "release checklist install smoke must cover module interface mode",
         "--feature-set release-http-api": "release checklist install smoke must use the selected release-http-api feature set",
-        f"--components '{expected_components}'": "release checklist install smoke components must match release-http-api",
+        "--components 'http;json'": "release checklist install smoke must cover the first-contact HTTP/JSON package components",
         "scripts/package-smoke-forbidden-components.py http": "release checklist install smoke must derive HTTP forbidden components from the shared helper",
         "scripts/external-dependency-tokens.py . --policy http": "release checklist install smoke must derive HTTP forbidden external deps from the shared helper",
         "--forbid-components": "release checklist install smoke must assert forbidden HTTP components",
@@ -783,6 +782,7 @@ def check_header_interface_contracts() -> None:
             "conflux_add_header_link_smoke_targets": "header mode must expose a linked smoke target",
             "header/link-smoke-http": "header linked HTTP smoke must be registered with CTest",
             "conflux_header_impl_json": "header implementation sources must be split by component",
+            "_surface_level GREATER CONFLUX_API_SURFACE_LEVEL_VALUE": "header API surface smokes must skip surfaces above the configured API surface level",
             "COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-O0": "header generated targets must override release optimization for fast compile",
         },
         "scripts/check-header-first-contact-smoke.sh": {

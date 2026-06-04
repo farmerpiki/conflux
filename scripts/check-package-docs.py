@@ -39,16 +39,17 @@ for phrase in [
     "`MODULE_INTERFACE` is the primary",
     "Generated headers are release artifacts",
     "`HEADER_INTERFACE` exists for generated release artifacts",
-    "find_package(conflux REQUIRED COMPONENTS core json http)",
-    "target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)",
+    "find_package(conflux REQUIRED COMPONENTS http json)",
+    "target_link_libraries(myapp PRIVATE conflux::http conflux::json)",
+    "HTTP/JSON consumers request `http` and `json`",
 ]:
     if phrase not in package:
         fail(f"package-consumption.md must document modules-first artifact contract: {phrase}")
 
 component_map = docs["docs/component-map.md"]
 for phrase in [
-    "find_package(conflux REQUIRED COMPONENTS core json http)",
-    "conflux::http)",
+    "find_package(conflux REQUIRED COMPONENTS http json)",
+    "conflux::http",
 ]:
     if phrase not in component_map:
         fail(f"component-map.md must document first-contact HTTP package target: {phrase}")

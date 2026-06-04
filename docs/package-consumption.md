@@ -18,8 +18,8 @@ import conflux.http;
 ```
 
 ```cmake
-find_package(conflux REQUIRED COMPONENTS core json http)
-target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
+find_package(conflux REQUIRED COMPONENTS http json)
+target_link_libraries(myapp PRIVATE conflux::http conflux::json)
 ```
 
 ## Generated Header Artifact
@@ -96,6 +96,9 @@ flags unless the package metadata declares that CPU baseline.
   isolated components with `scripts/run-install-tree-smoke.sh --components
   '<component>' --feature-set <matching-feature-set>`; this is the guard that
   prevents broad aggregates from leaking into minimal installs.
+- HTTP/JSON consumers request `http` and `json`; the package config imports the
+  required `core`/support dependency closure without making consumers spell it
+  in first-contact CMake.
 - liburing-free install: `core`, `types`, `json`, `file_io_sync` only.
 - real-liburing install: `work` and `http` may be requested when producer
   configure found real `liburing` and consumers can find it through
@@ -108,8 +111,8 @@ flags unless the package metadata declares that CPU baseline.
 Runtime/http consumers use a real-liburing install:
 
 ```cmake
-find_package(conflux REQUIRED COMPONENTS core json http work)
-target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http conflux::work)
+find_package(conflux REQUIRED COMPONENTS http json work)
+target_link_libraries(myapp PRIVATE conflux::http conflux::json conflux::work)
 ```
 
 Do not mix `import conflux.*` and generated Conflux headers in one consumer

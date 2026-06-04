@@ -51,7 +51,7 @@ ctest --preset release-clang-libcxx --output-on-failure
 scripts/run-install-tree-smoke.sh \
   --interface-mode MODULE_INTERFACE \
   --feature-set release-http-api \
-  --components 'core;json;http' \
+  --components 'http;json' \
   --forbid-components "$(python3 scripts/package-smoke-forbidden-components.py http)" \
   --forbid-external-deps "$(python3 scripts/external-dependency-tokens.py . --policy http)"
 python3 scripts/compile_time_bench.py \
@@ -228,8 +228,9 @@ outside the tracked source tree.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests
   `core;json;http;file_io_sync;work`.
-- Installed `find_package(conflux REQUIRED COMPONENTS ...)` works for the
-  components listed in `docs/component-map.md`.
+- Installed `find_package(conflux REQUIRED COMPONENTS http json)` works in
+  module and generated-header package lanes; the package config imports the
+  required dependency closure.
 - Install/package smokes cover the selected public interface mode. Run the
   module package lane as primary and the generated-header artifact lane
   separately; mixed import/include consumers are not a supported release gate.

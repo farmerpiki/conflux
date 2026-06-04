@@ -72,8 +72,8 @@ Maintainer planning files are outside this first-contact path.
 After installing the package, consume only the components your program needs:
 
 ```cmake
-find_package(conflux REQUIRED COMPONENTS core json http)
-target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::http)
+find_package(conflux REQUIRED COMPONENTS http json)
+target_link_libraries(myapp PRIVATE conflux::http conflux::json)
 ```
 
 The package contract, component/target map, public import map, and
