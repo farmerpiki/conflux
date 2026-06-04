@@ -48,16 +48,16 @@ one small service.
 
 ## Pressure
 
-| Boundary | Required decision |
-|---|---|
-| Accept/admission | Capacity, rejection/close behavior, metric. |
-| Request body | Maximum size and rejection path. |
-| Response send | Backpressure behavior and slow-client timeout. |
-| SSE channel | Queue capacity, overflow policy, per-channel metric. |
-| WebSocket outbound | Queue capacity and close/backpressure policy. |
-| Worker/offload pool | Queue capacity and reject/backpressure behavior. |
-| DB pool, when enabled | Acquire timeout, queue capacity, and reject/backpressure behavior. |
-| Ring CQ overflow | Ring sizing, fatal-overflow handling, and `cq_overflow` reporting. |
+| Boundary | Owner | Policy vocabulary | Required decision/evidence |
+|---|---|---|---|
+| Accept/admission | HTTP server | `OverflowPolicy::reject` | Capacity, late-accept close behavior, and `pressure.accept_rejected`. |
+| Request body | HTTP server | parser rejection | `max_body_size` and `body_too_large` rejection path. |
+| Response send | HTTP server | `OverflowPolicy::backpressure` | Slow-client timeout/drain deadline and `response_backpressure_events` / `drain_forced_close`. |
+| SSE channel | Application channel | `drop_newest`, `drop_oldest`, `close_connection` through `SseOverflowPolicy` | Queue capacity, overflow policy, and `SseChannel::pressure_metrics()`. |
+| WebSocket outbound | Application after `WsConn` handoff | chosen `OverflowPolicy` for any app broadcast queue | Queue capacity and close/backpressure policy; server-owned handoff pressure uses `websocket_closed_for_pressure`. |
+| Worker/offload pool | Application executor | bounded queue reject/backpressure through `WorkPoolOptions` | `max_inject_queue`, `local_queue_capacity`, `enqueue(job)` rejection behavior, and `work_pool_rejected_total` / `work_pool_queue_depth` when exported. |
+| DB pool, when enabled | Application DB component | bounded wait through `PoolConfig::acquire_timeout` | `min_connections`, `max_connections`, acquire timeout, queued-acquire cancellation, and timeout/retry policy. |
+| Ring CQ overflow | HTTP server/runtime | fatal overflow reporting | Ring sizing, fatal-overflow handling, and `cq_overflow` reporting. |
 
 ## Observability
 

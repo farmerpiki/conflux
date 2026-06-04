@@ -631,6 +631,14 @@ when a controller thread needs to call `port()`, `metrics()`, `drain()`, or
 | Slow streaming client | Close at drain deadline | `DrainOptions::deadline` | `pressure.drain_forced_close` |
 | Ring CQ pressure | Report kernel CQ overflow and fatal overflow status | Ring sizing / runtime config | `cq_overflow`, fatal `RunStatus` |
 
+Boundary policy ownership is split deliberately. The HTTP server owns
+accept/admission, in-flight response send, drain, WebSocket handoff, and kernel
+ring overflow accounting. Application-owned queues keep their own capacity and
+overflow policy: SSE channels expose `SseOverflowPolicy`, WebSocket broadcast
+queues should choose an `OverflowPolicy` before calling `WsConn`, work pools use
+bounded `WorkPoolOptions` queues where `enqueue(job)` rejects on stop/full, and
+PostgreSQL pools use `PoolConfig::acquire_timeout` as their queue wait bound.
+
 The shared overflow vocabulary is:
 
 ```cpp

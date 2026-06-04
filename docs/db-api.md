@@ -288,6 +288,12 @@ complete the task with a `PgError` exception. External cancellation of a queued
 acquire completes the task as cancelled and does not consume the next available
 lease. A successful acquire returns a truthy `Lease`.
 
+For HTTP-service pressure reviews, the DB pool is application-owned. The public
+capacity knobs are `min_connections`, `max_connections`, and
+`PoolConfig::acquire_timeout`; there is no separate public overflow enum. Treat
+`acquire_timeout` as the queue wait bound, export timeout/cancellation counts
+through application metrics, and keep retry policy at the call site.
+
 ---
 
 ## Transactions

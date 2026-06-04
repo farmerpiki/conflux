@@ -571,6 +571,13 @@ bounded local queue; other producers use sharded bounded direct-job inject rings
 `max_inject_queue` is divided across inject shards; `inject_queue_shards == 0`
 picks one inject ring per worker.
 
+For HTTP-service pressure reviews, work/offload pools are application-owned
+capacity boundaries. The public queue bounds are `max_inject_queue` and
+`local_queue_capacity`; a full or stopped pool rejects admission through
+`enqueue(job) == false`. Export `work_pool_rejected_total`,
+`work_pool_queue_depth`, and related queue stats when the service needs
+operational pressure evidence.
+
 Default `stealing` mode keeps the mutex-protected local job deque and victim
 stealing behavior. It skips victim scans while no worker-local jobs are queued,
 so external-producer workloads do not pay the steal-lock path when stealing

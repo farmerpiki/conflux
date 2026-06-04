@@ -19,6 +19,8 @@ CHECKS = {
     ROOT / "docs" / "cost-lifetime-model.md": ["HttpServer::drain"],
     ROOT / "docs" / "release-checklist.md": ["Lifecycle/backpressure docs"],
     ROOT / "docs" / "production-checklist.md": ["Lifecycle", "Pressure"],
+    ROOT / "docs" / "db-api.md": ["PoolConfig::acquire_timeout", "application-owned"],
+    ROOT / "docs" / "conflux-work-root-api.md": ["WorkPoolOptions", "enqueue(job) == false"],
 }
 
 OVERFLOW_POLICIES = [
@@ -53,6 +55,16 @@ BOUNDARY_MARKERS = [
     "Ring CQ overflow",
 ]
 
+BOUNDARY_POLICY_MARKERS = [
+    "OverflowPolicy::reject",
+    "OverflowPolicy::backpressure",
+    "SseOverflowPolicy",
+    "websocket_closed_for_pressure",
+    "WorkPoolOptions",
+    "PoolConfig::acquire_timeout",
+    "cq_overflow",
+]
+
 
 def main() -> int:
     failures: list[str] = []
@@ -75,6 +87,8 @@ def main() -> int:
     metrics = (ROOT / "src" / "net" / "metrics.cxx").read_text(encoding="utf-8")
     observability = (ROOT / "src" / "net" / "observability.cxx").read_text(encoding="utf-8")
     e2e_tests = (ROOT / "tests" / "E2ETests.cmake").read_text(encoding="utf-8")
+    db_api = (ROOT / "docs" / "db-api.md").read_text(encoding="utf-8")
+    work_api = (ROOT / "docs" / "conflux-work-root-api.md").read_text(encoding="utf-8")
 
     for policy in OVERFLOW_POLICIES:
         if policy not in server_types:
@@ -93,6 +107,30 @@ def main() -> int:
     for marker in BOUNDARY_MARKERS:
         if marker not in production:
             failures.append(f"docs/production-checklist.md missing pressure boundary {marker!r}")
+
+    for marker in BOUNDARY_POLICY_MARKERS:
+        if marker not in production:
+            failures.append(f"docs/production-checklist.md missing pressure policy marker {marker!r}")
+
+    for marker in [
+        "application-owned",
+        "min_connections",
+        "max_connections",
+        "acquire_timeout",
+    ]:
+        if marker not in db_api:
+            failures.append(f"docs/db-api.md missing DB pressure marker {marker!r}")
+
+    for marker in [
+        "application-owned",
+        "max_inject_queue",
+        "local_queue_capacity",
+        "enqueue(job) == false",
+        "work_pool_rejected_total",
+        "work_pool_queue_depth",
+    ]:
+        if marker not in work_api:
+            failures.append(f"docs/conflux-work-root-api.md missing work pressure marker {marker!r}")
 
     for marker in [
         "SseOverflowPolicy",
