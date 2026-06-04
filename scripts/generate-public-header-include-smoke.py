@@ -67,6 +67,10 @@ def main() -> int:
             encoding='utf-8')
         sources.append(source)
 
+    if active_modules and not sources:
+        requested = ', '.join(active_modules)
+        raise SystemExit(f'no public generated headers matched active modules: {requested}')
+
     with args.cmake_fragment.open('w', encoding='utf-8') as out:
         out.write('set(CONFLUX_PUBLIC_HEADER_SMOKE_SOURCES\n')
         for source in sources:

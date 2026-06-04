@@ -791,6 +791,11 @@ def check_header_interface_contracts() -> None:
         "scripts/check-header-component-smoke.sh": {
             "CONFLUX_HEADER_COMPONENT_SMOKE_BUILD_ROOT": "full header component smoke must remain separately configurable",
         },
+        "scripts/generate-public-header-include-smoke.py": {
+            "no public generated headers matched active modules": (
+                "public header smoke generator must fail when active module filters match no headers"
+            ),
+        },
         "cmake/conflux-config.cmake.in": {
             "@PACKAGE_INIT@": "package config must use PACKAGE_INIT",
             "include(CMakeFindDependencyMacro)": "package config must include CMakeFindDependencyMacro",
