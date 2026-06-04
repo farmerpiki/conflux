@@ -365,7 +365,7 @@ Use dynamic parameter/header map lookup only when documenting the lower-level
 router surface or when the handler truly needs runtime-selected keys.
 
 ```cpp
-router.get("/items/{id}", [](http::RequestView const& req) -> http::Response {
+app.get("/items/{id}", [](http::RequestView const& req) -> http::Response {
     auto id = req.param_as<std::uint64_t>("id");
     if (!id) return http::text("bad id", 400);
 
@@ -572,19 +572,19 @@ streaming upload API rather than hidden spill-to-disk behavior.
 
 ```cpp
 // Sync handler: runs inline on the HTTP ring thread and borrows the request.
-router.get("/ping", [](http::RequestView const& req) -> http::Response {
+app.get("/ping", [](http::RequestView const& req) -> http::Response {
     return http::text("pong");
 });
 
 // Async handler: also borrows the server-owned request storage.
-router.post("/echo", [](http::RequestView const& req) -> root::Task<http::Response> {
+app.post("/echo", [](http::RequestView const& req) -> conflux::work::Task<http::Response> {
     co_return http::text(req.body);
 });
 
 // Explicit worker placement for blocking/heavy work.
 // Requires import conflux.http.extended.
 auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
-router.get("/slow", [pool](http::RequestView const&) -> http::Response {
+app.get("/slow", [pool](http::RequestView const&) -> http::Response {
     return http::offload(pool, [] {
         return http::text("done");
     });
@@ -887,18 +887,17 @@ Password storage uses the dedicated `conflux.net.password_hash` boundary; see `d
 Middleware wraps every matched route. Applied outermost-first in registration order.
 
 ```cpp
-router.use([](RequestView req, NextHandler next) -> Response {
-    // pre-processing
-    auto resp = next(req);
-    // post-processing
-    return resp;
+app.use([](http::RequestView const& req, auto const& next) {
+    auto response = next(req);
+    response.headers.set("x-middleware", "1");
+    return response;
 });
 ```
 
 ### Built-in: access log
 
 ```cpp
-router.use(make_access_log_middleware([](std::string const& line) {
+app.use(make_access_log_middleware([](std::string const& line) {
     std::println("{}", line);
 }));
 // Logs: [ISO8601] METHOD path status bytes elapsed_ms
