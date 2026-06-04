@@ -1141,37 +1141,14 @@ export class DirectFdTable {
 	bool registered_{false};
 
 public:
-	DirectFdTable(
-		io_uring *ring,
-		std::uint32_t max_slots)
-		: DirectFdTable(conflux::uring::RingRef{ring}, max_slots) {}
-	DirectFdTable(
-		conflux::uring::RingRef ring,
-		std::uint32_t max_slots)
-		: ring_{ring}
-		, capacity_{max_slots} {
-		err_ = ring_.register_files_sparse(capacity_);
-		if (err_ == 0) {
-			registered_ = true;
-		}
-	}
-	~DirectFdTable() {
-		if (registered_) {
-			auto _ = ring_.unregister_files();
-		}
-	}
+	DirectFdTable(io_uring *ring, std::uint32_t max_slots);
+	DirectFdTable(conflux::uring::RingRef ring, std::uint32_t max_slots);
+	~DirectFdTable();
 	DirectFdTable(DirectFdTable const &) = delete;
 	DirectFdTable &operator =(DirectFdTable const &) = delete;
 	DirectFdTable(DirectFdTable &&) = delete;
 	DirectFdTable &operator =(DirectFdTable &&) = delete;
-	[[nodiscard]] bool install(
-		std::uint32_t slot,
-		int fd) {
-		if (!registered_ || slot >= capacity_) {
-			return false;
-		}
-		return ring_.register_files_update(slot, std::span<int const>{&fd, 1}) == 1;
-	}
+	[[nodiscard]] bool install(std::uint32_t slot, int fd);
 	[[nodiscard]] bool registered() const noexcept { return registered_; }
 	[[nodiscard]] int error() const noexcept { return err_; }
 	[[nodiscard]] std::uint32_t capacity() const noexcept { return capacity_; }

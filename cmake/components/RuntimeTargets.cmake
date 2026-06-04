@@ -132,6 +132,7 @@ conflux_add_module_library(conflux_socket_io
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io_coro.cxx
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io_blocking.cxx
     PRIVATE_SOURCES
+        ${CONFLUX_SRC_ROOT}/socket_io/direct_fd_table.cxx
         ${CONFLUX_SRC_ROOT}/socket_io/tcp_listener.cxx
         ${CONFLUX_SRC_ROOT}/socket_io/socket_io_coro_impl.cxx
 )
