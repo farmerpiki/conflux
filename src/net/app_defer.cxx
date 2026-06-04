@@ -9,6 +9,7 @@ import conflux.work;
 
 export namespace conflux::http {
 
+#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_API_SURFACE_LEVEL >= CONFLUX_API_SURFACE_EXTENDED
 using conflux::work::WorkPool;
 
 template<typename Fn>
@@ -53,5 +54,6 @@ template<typename Fn>
 	}
 	return Response::deferred(std::move(deferred));
 }
+#endif
 
 } // namespace conflux::http

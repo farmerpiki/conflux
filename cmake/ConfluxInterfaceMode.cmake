@@ -1315,6 +1315,10 @@ function(conflux_add_header_compile_fail_tests)
                 tests/header_http_facade_compile_fail_offload_free
                 "no member named 'offload' in namespace 'conflux::http'")
             conflux_add_header_compile_fail_test(
+                api-surface/header-http-facade-defer-free
+                tests/header_http_facade_compile_fail_defer_free
+                "no member named 'defer' in namespace 'conflux::http'")
+            conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-openapi-handler-free
                 tests/header_http_facade_compile_fail_openapi_handler_free
                 "no member named 'openapi_handler' in namespace 'conflux::http'")

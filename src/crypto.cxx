@@ -736,7 +736,7 @@ std::expected<std::vector<unsigned char>, std::string> decrypt_aes_gcm_with_fall
 	j0[15] = 1;
 
 	auto const expected_tag = compute_aes_gcm_tag(ek, j0, h, ct, aad);
-	if (!constant_time_eq(std::span{expected_tag.data(), expected_tag.size()}, claimed_tag)) {
+	if (!conflux::crypto::constant_time_eq(std::span{expected_tag.data(), expected_tag.size()}, claimed_tag)) {
 		return std::unexpected(std::string{"aes_gcm_decrypt: authentication failed"});
 	}
 
