@@ -23,9 +23,10 @@ int main() {
 }
 ```
 
-Use `Router` + `conflux::http::HttpServer` directly when you need lower-level server ownership;
-use `http::App` for first-contact routes, middleware, WebSocket/SSE, and static
-file registration.
+Use `http::App` for first-contact routes, middleware, WebSocket/SSE, static file
+registration, validation, setup, and `run()`. Raw `Router` and
+`conflux::http::HttpServer` ownership are lower-level escape hatches for
+integrations that need to bypass the app facade.
 
 For request/response copy costs, borrow lifetimes, coroutine ownership rules,
 and zero-copy caveats, see [`cost-lifetime-model.md`](cost-lifetime-model.md).
@@ -34,18 +35,10 @@ and zero-copy caveats, see [`cost-lifetime-model.md`](cost-lifetime-model.md).
 
 ## Fallible setup factories
 
-`conflux::http::HttpServer` construction can allocate eventfds and initialize TLS contexts before `run()`. Use `try_create` when setup errors should be reported as values rather than exceptions.
-
-```cpp
-auto server = conflux::http::HttpServer::try_create(cfg, std::move(router));
-if (!server) {
-    std::println(std::cerr, "server setup failed: {}", server.error());
-    return 1;
-}
-return static_cast<int>((*server)->run());
-```
-
-The `App` facade mirrors this with `prepare_server()`, `try_server()`, and `try_run()`.
+The `App` facade exposes `prepare_server()`, `try_server()`, and `try_run()` so
+setup errors can be reported as values. These paths validate app state,
+configuration, route metadata, static mounts, and fail-fast capability issues
+before constructing the server.
 
 ```cpp
 auto status = std::move(app).try_run({.port = 8080});
@@ -58,9 +51,29 @@ return static_cast<int>(*status);
 
 `try_config_from_ini(path)` provides the same value-returning style for config load/parse errors. `config_from_ini_checked(path)` remains as the older expected-returning spelling, and `config_from_ini(path)` throws `std::runtime_error` on failure.
 
+### Lower-level server ownership
+
+`conflux::http::HttpServer` construction can allocate eventfds and initialize
+TLS contexts before `run()`. Use raw `Router` + `HttpServer::try_create` when an
+integration owns routing outside `App` and still wants setup errors as values.
+
+```cpp
+auto server = conflux::http::HttpServer::try_create(cfg, std::move(router));
+if (!server) {
+    std::println(std::cerr, "server setup failed: {}", server.error());
+    return 1;
+}
+return static_cast<int>((*server)->run());
+```
+
 ### App facade passthroughs
 
-`http::App` keeps the route-registration APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods, ordinary verbs for handlers that need `RequestContext`, `app.use(...)` for both sync and owned async middleware, and `app.routes()` / `app.openapi_spec()` for app-level metadata. The raw router is an extended escape hatch available as `http::router(app)` after `import conflux.http.extended;`.
+`http::App` keeps the route-registration APIs commonly needed before handing
+ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for
+custom HTTP methods, ordinary verbs for handlers that need request context,
+`app.use(...)` for both sync and owned async middleware, and `app.routes()` /
+`app.openapi_spec()` for app-level metadata. The raw router is an extended
+escape hatch available as `http::router(app)` after `import conflux.http.extended;`.
 
 ```cpp
 app.add("REPORT", "/reports/{id}", [](http::RequestView const& req) {
