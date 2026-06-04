@@ -16,7 +16,6 @@ namespace {
 
 std::uint16_t g_fwd_port = 0;
 std::uint16_t g_fwd_strict_empty_port = 0;
-std::uint16_t g_fwd_fallback_empty_port = 0;
 void ensure_forwarded_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
@@ -39,18 +38,6 @@ void ensure_forwarded_strict_empty_server() {
 		g_fwd_strict_empty_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
-void ensure_forwarded_fallback_empty_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::forwarded_middleware({.trusted_proxies = {}, .strict_mode = false}));
-		router.get("/addr", [](conflux::http::OwnedRequest const &req) {
-			return conflux::http::Response::text(req.remote_addr);
-		});
-		g_fwd_fallback_empty_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-
 std::uint16_t g_ipallow_port = 0;
 std::uint16_t g_ipblock_port = 0;
 void ensure_ipallow_server() {
@@ -268,12 +255,12 @@ TEST_CASE(
 	REQUIRE(resp.substr(hdr_end + 4) == "127.0.0.1");
 }
 TEST_CASE(
-	"forwarded: fallback mode with empty trusted_proxies trusts all peers") {
-	ensure_forwarded_fallback_empty_server();
-	auto resp = http_get_on(g_fwd_fallback_empty_port, "/addr", "X-Forwarded-For: 203.0.113.9\r\n");
+	"forwarded: empty trusted_proxies has no trust-all fallback") {
+	ensure_forwarded_strict_empty_server();
+	auto resp = http_get_on(g_fwd_strict_empty_port, "/addr", "X-Forwarded-For: 203.0.113.9\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(resp.substr(hdr_end + 4) == "203.0.113.9");
+	REQUIRE(resp.substr(hdr_end + 4) == "127.0.0.1");
 }
 TEST_CASE(
 	"forwarded: use_x_forwarded_for=false falls back to X-Real-IP") {

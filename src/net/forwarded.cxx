@@ -9,19 +9,13 @@ export namespace conflux::http {
 
 struct ForwardedOptions {
 	// CIDRs trusted to set forwarding headers.
-	// If empty and strict_mode is true (the default): trust nobody. Forwarding
-	// headers are stripped for every request. If empty and strict_mode is false:
-	// legacy behaviour — all peers are trusted.
+	// If empty, trust nobody. Forwarding headers are stripped for every request.
 	std::vector<std::string> trusted_proxies;
 
 	// Header to read the real client IP from (checked in order).
 	// X-Forwarded-For may contain a comma-separated chain; first entry is used.
 	bool use_x_forwarded_for{true};
 	bool use_x_real_ip{true};
-	// When true (default) an empty trusted_proxies list means no header is trusted.
-	// Flip to false only for deployments that consciously rely on the legacy
-	// trust-all-on-empty semantics.
-	bool strict_mode{true};
 };
 namespace forwarded_detail {
 
@@ -40,15 +34,11 @@ std::string_view xff_first(
 Router::Middleware forwarded_middleware(
 	ForwardedOptions opts = {}) {
 	auto cidrs = conflux::utils::parse_cidr_list(opts.trusted_proxies);
-	if (opts.trusted_proxies.empty() && !opts.strict_mode) {
-		eprintln("forwarded_middleware: empty trusted_proxies with strict_mode=false trusts every peer");
-	}
 
 	return [opts = std::move(opts), cidrs = std::move(cidrs)](
 			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
-		bool const trust_empty = opts.trusted_proxies.empty() && !opts.strict_mode;
-		bool const trusted = trust_empty || [&] {
+		bool const trusted = [&] {
 			auto const peer_ip = conflux::utils::parse_ip(req.remote_addr).value_or(conflux::utils::IpAddr{});
 			return std::ranges::any_of(cidrs, [&](conflux::utils::IpCidr const &c) {
 				return conflux::utils::cidr_match(c, peer_ip);

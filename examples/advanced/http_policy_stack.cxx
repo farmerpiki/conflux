@@ -54,7 +54,6 @@ int main() {
 	app.use(
 		conflux::http::forwarded_middleware({
 			.trusted_proxies = {"127.0.0.0/8", "::1/128"},
-			.strict_mode = true,
     }));
 	app.use(
 		conflux::http::ip_filter_middleware({
