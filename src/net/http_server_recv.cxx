@@ -340,7 +340,7 @@ void Ring::reject_oversized_receive_buffer(
 }
 
 bool Ring::maybe_start_tls_sniff(
-	Conn &conn) {
+	[[maybe_unused]] Conn &conn) {
 #if CONFLUX_HAS_TLS
 	if (!conn.ssl && conn.tls_hs_done && !conn.partial.empty()) {
 		if (static_cast<unsigned char>(conn.partial.front()) == 0x16U) {

@@ -9,6 +9,47 @@ import conflux.file_io_sync;
 
 namespace conflux::templates {
 
+namespace {
+
+template <typename T>
+std::string to_decimal_string(
+	T value) {
+	std::array<char, 64> buffer{};
+	auto const [ptr, ec] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+	if (ec == std::errc{}) {
+		return std::string(buffer.data(), ptr);
+	}
+	return {};
+}
+
+std::string to_template_float_string(
+	double value) {
+	std::array<char, 128> buffer{};
+	auto const [ptr, ec] =
+		std::to_chars(buffer.data(), buffer.data() + buffer.size(), value, std::chars_format::fixed, 6);
+	if (ec != std::errc{}) {
+		return {};
+	}
+	auto s = std::string(buffer.data(), ptr);
+	auto dot = s.find('.');
+	if (dot != std::string::npos) {
+		auto last = s.find_last_not_of('0');
+		if (last != std::string::npos) {
+			if (last > dot) {
+				s.erase(last + 1);
+			} else {
+				s.erase(dot);
+			}
+		}
+		if (s.back() == '.') {
+			s.pop_back();
+		}
+	}
+	return s;
+}
+
+} // namespace
+
 std::string Environment::Impl::value_to_string(
 	TmplValue const &v) {
 	if (v.is_null()) {
@@ -18,24 +59,13 @@ std::string Environment::Impl::value_to_string(
 		return std::string(v.as<std::string_view>());
 	}
 	if (v.is_int()) {
-		return std::to_string(v.as<std::int64_t>());
+		return to_decimal_string(v.as<std::int64_t>());
 	}
 	if (v.is_uint()) {
-		return std::to_string(v.as<std::uint64_t>());
+		return to_decimal_string(v.as<std::uint64_t>());
 	}
 	if (v.is_float()) {
-		auto s = std::to_string(v.as<double>());
-		auto dot = s.find('.');
-		if (dot != std::string::npos) {
-			auto last = s.find_last_not_of('0');
-			if (last != std::string::npos && last > dot) {
-				s.erase(last + 1);
-			}
-			if (s.back() == '.') {
-				s.pop_back();
-			}
-		}
-		return s;
+		return to_template_float_string(v.as<double>());
 	}
 	if (v.is_bool()) {
 		return v.as<bool>() ? "True" : "False";

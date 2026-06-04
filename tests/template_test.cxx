@@ -43,6 +43,13 @@ TEST_CASE(
 	CHECK(env.render_string("{{ count }}", R"({"count":42})") == "42");
 }
 TEST_CASE(
+	"template: numeric expression formatting",
+	"[template]") {
+	auto env = make_env();
+	auto const context = R"({"i":-42,"u":9223372036854775808,"f":3.140000,"whole":2.000000})";
+	CHECK(env.render_string("{{ i }} {{ u }} {{ f }} {{ whole }}", context) == "-42 9223372036854775808 3.14 2");
+}
+TEST_CASE(
 	"template: value dump emits valid escaped JSON strings and keys",
 	"[template]") {
 	TmplValue value{TmplValue::Object{}};

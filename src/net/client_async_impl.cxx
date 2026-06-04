@@ -681,7 +681,7 @@ wroot::Task<void> close_async_client_stream(
 #if CONFLUX_HAS_TLS
 	std::optional<conflux::net_tls::TcpTlsStream> &tls_stream,
 #endif
-	std::chrono::milliseconds write_timeout) {
+	[[maybe_unused]] std::chrono::milliseconds write_timeout) {
 #if CONFLUX_HAS_TLS
 	if (tls_stream) {
 		try {

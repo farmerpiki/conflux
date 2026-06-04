@@ -173,7 +173,7 @@ void Ring::handle_connection_timer(
 	Conn &conn,
 	std::chrono::steady_clock::time_point now,
 	std::chrono::milliseconds req_limit,
-	std::chrono::milliseconds sniff_limit) {
+	[[maybe_unused]] std::chrono::milliseconds sniff_limit) {
 	if (conn.fd < 0) {
 		return;
 	}
