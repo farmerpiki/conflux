@@ -21,7 +21,7 @@ bundle, or security-sensitive surface is added.
 | Cost/lifetime docs | Confirmation that `docs/cost-lifetime-model.md` still matches changed HTTP, JSON, file, or runtime behavior | Required when ownership, copying, allocation, blocking, or zero-copy behavior changes. |
 | Benchmarks | Same-machine benchmark artifact path and raw-run summary | Required only for claimed performance changes; use perf presets only. Final public performance proof is out of scope for the prerelease documentation cleanup. |
 | Security review | Affected component and corpus/regression tests | Required for auth/session/password/token, parser, path traversal, proxy, TLS, DB, DNS, and process-spawn surfaces. |
-| Alias cleanup | Remaining aliases or confirmation none remain | Alias removal belongs to the final release-cleanup branch only. |
+| Alias cleanup | Remaining aliases or confirmation none remain | Confirm no deprecated public compatibility aliases are advertised for the preview surface. |
 
 ## Prerelease command lanes
 
@@ -286,8 +286,8 @@ Every release candidate note should include:
 
 Before tagging the first public preview:
 
-- compatibility alias cleanup is complete, or remaining aliases are explicitly
-  internal and not advertised;
+- deprecated public compatibility alias cleanup is complete, or remaining aliases
+  are explicitly internal and not advertised;
 - public examples use final preview names only;
 - README can onboard a new user without sending them to TODO files;
 - release notes exist under `docs/releases/`;

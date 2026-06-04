@@ -67,10 +67,11 @@ If the implementation is executor-owned but the public surface waits or reports 
 plain result, use `sync_*`. If the API returns a coroutine/task or is intended to
 be `co_await`ed, use `async_*`.
 
-Current code still contains suffix-style and legacy names such as `*_sync`,
-`*_async`, and ordinary names that predate this policy. Keep aliases until the
-final release cleanup pass. Add clearer names only in component-local branches
-and update local call sites without broad churn.
+Current code may still contain suffix-style names such as `*_sync`, `*_async`,
+and ordinary names that predate this policy. Public preview surfaces should use
+the final documented names and should not advertise deprecated compatibility
+aliases. Add clearer names only in component-local branches and update local
+call sites without broad churn.
 
 ## Component-boundary rules
 
@@ -100,9 +101,9 @@ Reject or request redesign when a patch:
   a ring-thread synchronous handler;
 - names an executor-owned synchronous facade `blocking_*`;
 - names a raw caller-thread-blocking syscall helper `sync_*`;
-- adds a coroutine/task API without an `async_*` final-shape name or documented
-  transitional alias;
-- starts broad alias removal before `release/remove-aliases`.
+- adds a coroutine/task API without an `async_*` final-shape name or a documented
+  exception;
+- removes unrelated names outside the component being cleaned.
 
 Prefer patches that:
 
@@ -110,7 +111,7 @@ Prefer patches that:
 - make worker-pool or executor handoff explicit at the handler call site;
 - use normalized dispatch-owned request leases for async view handlers, or
   owning `http::Request` when storage is caller-owned or must escape dispatch;
-- isolate temporary wait bridges behind one clearly named compatibility adapter;
+- isolate temporary wait bridges behind one clearly named fallback adapter;
 - update `docs/naming-audit.md` instead of renaming unrelated surfaces.
 
 ## Anti-goals
@@ -121,4 +122,4 @@ Do not implement:
 - a task model that progresses without an executor;
 - a second "simple sync" server runtime outside the ring/executor model;
 - broad `blocking_*` naming for executor-owned sync chains;
-- release-wide alias removal in feature branches.
+- release-wide unrelated renaming in feature branches.

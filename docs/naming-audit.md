@@ -15,9 +15,9 @@ rules and component-boundary semantics are consolidated in
   return/report the result synchronously;
 - `async_*` — coroutine/task APIs with explicit suspension.
 
-Current `*_sync` and `*_async` names are transitional. The final rename pass
-should prefer adding final names first, migrating call sites component-by-
-component, and removing aliases only during the release cleanup branch.
+Current `*_sync` and `*_async` names are cleanup candidates. The preview surface
+should use final names directly; deprecated compatibility aliases should not be
+advertised as part of the public API.
 
 ## Review rules
 
@@ -27,9 +27,9 @@ component, and removing aliases only during the release cleanup branch.
 4. Do not rename ordinary pure value/CPU helpers merely to add a prefix.
 5. Keep module/target renames separate from function renames unless the component
    is already being split.
-6. For public APIs, add aliases and migration notes before removing old names.
+6. For public APIs, update call sites and docs in the same component-local pass.
 7. For internal exported helper modules, prefer narrow local renames with no
-   compatibility alias when no downstream public import is intended.
+   alias when no downstream public import is intended.
 
 ## Blocking syscall-style and file-backed helpers
 
@@ -59,7 +59,8 @@ mainly suffix order and a few unprefixed helpers.
 Status: `file/blocking-name-aliases` added these `blocking_*` function names for
 `conflux.file_io_sync`, `conflux.file_map`, and the file-backed
 `conflux.json.file` helpers. The unprefixed fd helper aliases have been removed;
-type/module renames remain deferred to the release alias-removal pass.
+type/module renames remain deferred until they can be done without broad
+component churn.
 
 ## Coroutine/task APIs with suffix-style async names
 
@@ -145,11 +146,11 @@ These names do not need execution prefixes merely because they perform work:
 - router registration methods such as `get`, `post`, `use`, `group`, `serve_static`,
   and `sse`.
 
-## Release cleanup order
+## Preview cleanup order
 
 1. Finish active implementation branches that touch the same components.
-2. Add final names plus deprecated aliases in component-local branches.
-3. Migrate tests, examples, and docs to final names.
-4. Update migration docs with old-to-new tables.
-5. Remove aliases only in `release/remove-aliases` after all feature branches are
-   merged.
+2. Rename within component-local branches only when the seam is clear.
+3. Migrate tests, examples, and docs to final names in the same branch.
+4. Update historical migration records only when they help explain removed names.
+5. Confirm no deprecated public compatibility aliases are advertised for the
+   preview surface.
