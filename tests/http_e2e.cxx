@@ -15,7 +15,6 @@
 import std;
 import conflux.types;
 
-import conflux.crypto;
 import conflux.json;
 import conflux.http.extended;
 import conflux.net.app;
@@ -27,9 +26,6 @@ import conflux.net.http_server;
 import conflux.net.metrics;
 import conflux.net.redirect;
 import conflux.net.router;
-#if CONFLUX_HAS_TLS
-import conflux.net.jwt;
-#endif
 import conflux.net.http.static_core;
 import conflux.net.http1_parser;
 import conflux.tests.support;
@@ -37,7 +33,6 @@ import conflux.work;
 
 using conflux::http::Config;
 using conflux::http::ParserLimits;
-using conflux::http::single_secret_rotation;
 using namespace conflux::json;
 using namespace conflux::tests;
 
@@ -234,13 +229,6 @@ bool server_closed_after(
 	char probe{};
 	auto n = client.recv(&probe, 1);
 	return n == 0;
-}
-// Alias: GET with a single extra header line (must end with \r\n).
-std::string http_get_with_header_on(
-	std::uint16_t port,
-	std::string_view path,
-	std::string_view header) {
-	return conflux::tests::http_get_on(port, path, header);
 }
 // Extract the value of a named header (case-sensitive) from a raw HTTP response.
 // Returns empty std::string if not found.
@@ -713,4 +701,3 @@ TEST_CASE(
 	::close(fd);
 	REQUIRE(n == 0); // server closed
 }
-#include "http_e2e_middleware.cxx"

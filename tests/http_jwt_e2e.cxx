@@ -1,11 +1,19 @@
-// ---------------------------------------------------------------------------
-// JWT
-// ---------------------------------------------------------------------------
+#include <catch2/catch_test_macros.hpp>
 
 #if CONFLUX_HAS_TLS
+import std;
+import conflux.crypto;
+import conflux.net.config;
+import conflux.net.jwt;
+import conflux.net.router;
+import conflux.tests.support;
+
+using conflux::http::Config;
+using conflux::http::single_secret_rotation;
+using namespace conflux::tests;
+
 namespace {
 
-// Shared JWT test server (single instance, lazy-init).
 std::uint16_t g_jwt_port = 0;
 std::string g_jwt_secret = "test-secret-key-32bytes";
 void ensure_jwt_server() {
@@ -49,8 +57,7 @@ TEST_CASE(
 	auto now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	auto token = make_jwt(std::format(R"({{"sub":"user42","exp":{}}})", now + 3600));
-	auto resp =
-		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp = http_get_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
@@ -66,30 +73,27 @@ TEST_CASE(
 	"jwt: wrong secret returns 401") {
 	ensure_jwt_server();
 	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"bad","exp":9999999999})", "wrong-secret");
-	auto resp =
-		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp = http_get_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 }
 TEST_CASE(
 	"jwt: expired token returns 401") {
 	ensure_jwt_server();
 	auto token = make_jwt(R"({"sub":"x","exp":1})"); // exp = 1970
-	auto resp =
-		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp = http_get_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 }
 TEST_CASE(
 	"jwt: malformed token returns 401") {
 	ensure_jwt_server();
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", "Authorization: Bearer not.a.jwt\r\n");
+	auto resp = http_get_on(g_jwt_port, "/api/protected", "Authorization: Bearer not.a.jwt\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 }
 TEST_CASE(
 	"jwt: lowercase bearer scheme returns 200") {
 	ensure_jwt_server();
 	auto token = make_jwt(R"({"sub":"user42","exp":9999999999})");
-	auto resp =
-		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: bearer {}\r\n", token));
+	auto resp = http_get_on(g_jwt_port, "/api/protected", std::format("Authorization: bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 }
 TEST_CASE(
@@ -104,8 +108,7 @@ TEST_CASE(
 	});
 	auto port = test_servers().start(cfg, std::move(router));
 	auto token = conflux::http::jwt_sign_unchecked(R"({"sub":"victim"})", "sec");
-	auto resp =
-		http_get_with_header_on(port, "/api/protected/attacker", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp = http_get_on(port, "/api/protected/attacker", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
