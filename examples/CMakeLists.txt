@@ -79,6 +79,9 @@ if(TARGET conflux)
     add_executable(conflux_http_lifecycle_example ${_conflux_examples_root}/advanced/http_lifecycle.cxx)
     target_link_libraries(conflux_http_lifecycle_example PRIVATE conflux conflux_options)
 
+    add_executable(conflux_capability_report_example ${_conflux_examples_root}/advanced/capability_report.cxx)
+    target_link_libraries(conflux_capability_report_example PRIVATE conflux conflux_options)
+
     add_executable(conflux_production_showcase_example ${_conflux_examples_root}/advanced/production_showcase.cxx)
     target_link_libraries(conflux_production_showcase_example PRIVATE conflux conflux_options)
 

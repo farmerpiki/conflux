@@ -993,6 +993,9 @@ function(conflux_add_header_examples_from_source_ids)
             HTTP_IMPLS
             IMPLS conflux_header_impl_http_client conflux_header_impl_http_proxy)
         conflux_add_header_example_from_id(conflux_http_observability_example examples/advanced/http_observability HTTP_IMPLS)
+        conflux_add_header_example_from_id(conflux_capability_report_example examples/advanced/capability_report
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_runtime)
         conflux_add_header_example_from_id(conflux_production_showcase_example examples/advanced/production_showcase
             HTTP_IMPLS
             IMPLS conflux_header_impl_json conflux_header_impl_templates)

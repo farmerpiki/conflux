@@ -51,6 +51,7 @@
       "examples/quickstart/static_files.cxx",
       "examples/quickstart/sse.cxx",
       "examples/quickstart/websocket.cxx",
+      "examples/advanced/capability_report.cxx",
       "examples/advanced/http_observability.cxx",
       "examples/advanced/production_showcase.cxx"
     ]
