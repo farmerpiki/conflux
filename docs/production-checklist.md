@@ -56,6 +56,8 @@ one small service.
 | SSE channel | Queue capacity, overflow policy, per-channel metric. |
 | WebSocket outbound | Queue capacity and close/backpressure policy. |
 | Worker/offload pool | Queue capacity and reject/backpressure behavior. |
+| DB pool, when enabled | Acquire timeout, queue capacity, and reject/backpressure behavior. |
+| Ring CQ overflow | Ring sizing, fatal-overflow handling, and `cq_overflow` reporting. |
 
 ## Observability
 
