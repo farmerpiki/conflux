@@ -54,12 +54,12 @@ generated headers in one consumer package or executable is unsupported.
 Install a build, then consume the exported package by component:
 
 ```cmake
-find_package(conflux REQUIRED COMPONENTS core json http_server)
+find_package(conflux REQUIRED COMPONENTS core json http)
 
 target_link_libraries(my_app PRIVATE
     conflux::core
     conflux::json
-    conflux::http_server)
+    conflux::http)
 ```
 
 `conflux::conflux` is the public umbrella target when the aggregate was built and
