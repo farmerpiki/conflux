@@ -48,4 +48,11 @@ void offload_ref_spelling_compiles(
 	(void)http::offload(pool, [] { return http::text("ok"); });
 }
 
+void defer_spelling_compiles(
+	std::shared_ptr<http::WorkPool> pool,
+	http::WorkPool &pool_ref) {
+	(void)http::defer(pool, [] { return http::text("ok"); });
+	(void)http::defer(pool_ref, [] { return http::text("ok"); });
+}
+
 } // namespace http_extended_snapshot
