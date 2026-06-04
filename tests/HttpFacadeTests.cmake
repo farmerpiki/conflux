@@ -471,6 +471,14 @@ if(TARGET conflux_net_http)
         EXPECT "offload")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_defer_free
+        SOURCE http_facade_compile_fail_defer_free.cxx
+        TEST http-facade/compile-fail-defer-free
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "defer")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_openapi_handler_free
         SOURCE http_facade_compile_fail_openapi_handler_free.cxx
         TEST http-facade/compile-fail-openapi-handler-free

@@ -2,7 +2,6 @@ export module conflux.http;
 
 export import :problem;
 export import conflux.net.app;
-export import conflux.net.app.defer;
 export import conflux.net.http.server_types;
 export import conflux.net.http.response;
 export import conflux.net.http.request;
@@ -20,6 +19,7 @@ import conflux.net.tracing;
 import conflux.net.observability;
 import conflux.types;
 import conflux.work;
+import conflux.net.app.defer;
 #if CONFLUX_HAS_METRICS
 import conflux.net.metrics;
 #endif
