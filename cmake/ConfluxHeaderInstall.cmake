@@ -108,6 +108,7 @@ function(conflux_install_registered_public_headers)
                 conflux/net/app/json_helpers.hxx
                 conflux/net/app/metadata_helpers.hxx
                 conflux/net/app/openapi.hxx
+                conflux/net/app/policies.hxx
                 conflux/net/app/response.hxx
                 conflux/net/app/route_helpers.hxx
                 conflux/net/app/traits.hxx
