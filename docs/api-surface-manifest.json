@@ -15,7 +15,6 @@
       "conflux.json.native_provider",
       "conflux.json.reflect",
       "conflux.json.reflect_provider",
-      "conflux.net.config",
       "conflux.http.extended",
       "conflux.crypto",
       "conflux.templates",

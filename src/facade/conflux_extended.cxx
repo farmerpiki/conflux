@@ -30,10 +30,6 @@ export import conflux.json.reflect;
 export import conflux.json.reflect_provider;
 #endif
 
-#if CONFLUX_SURFACE_HAS_HTTP_CONFIG
-export import conflux.net.config;
-#endif
-
 #if CONFLUX_SURFACE_HAS_HTTP_APP
 export import conflux.http.extended;
 #endif

@@ -93,7 +93,7 @@ Manifest-tracked exports:
 | Profile | Exported aggregate modules |
 |---|---|
 | `curated` | `conflux.features`, `conflux.http`, `conflux.json`, `conflux.json.file` |
-| `extended` | `conflux.curated`, `conflux.work`, `conflux.file_io_sync`, `conflux.file_map`, `conflux.json.boundary`, `conflux.json.native_provider`, `conflux.json.reflect`, `conflux.json.reflect_provider`, `conflux.net.config`, `conflux.http.extended`, `conflux.crypto`, `conflux.templates`, `conflux.templates.watch`, `conflux.process`, `conflux.pg` |
+| `extended` | `conflux.curated`, `conflux.work`, `conflux.file_io_sync`, `conflux.file_map`, `conflux.json.boundary`, `conflux.json.native_provider`, `conflux.json.reflect`, `conflux.json.reflect_provider`, `conflux.http.extended`, `conflux.crypto`, `conflux.templates`, `conflux.templates.watch`, `conflux.process`, `conflux.pg` |
 | `complete` | `conflux.extended`, `conflux.uring`, `conflux.uring.completion`, `conflux.uring.flow`, `conflux.uring.handle`, `conflux.uring.timeout`, `conflux.file_io`, `conflux.socket_io`, `conflux.socket_io.blocking`, `conflux.socket_io.coro`, `conflux.net.dns`, `conflux.dns_bridge`, `conflux.net.io_buffer`, `conflux.net.cancel`, `conflux.net.http.protocol`, `conflux.net.http.parse_helpers`, `conflux.net.router_dispatch`, `conflux.net.router_match`, `conflux.net.router_static`, `conflux.net.http.static_async`, `conflux.file_watch`, `conflux.net.smtp` |
 
 ## Migration notes
