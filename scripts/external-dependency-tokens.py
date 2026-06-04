@@ -11,6 +11,7 @@ POLICY_ALLOWED_TOKENS = {
     "all": [],
     "core": [],
     "json": ["XXHASH"],
+    "http": ["LIBURING", "XXHASH"],
     "template": ["XXHASH", "OPENSSL", "ZLIB", "LIBDEFLATE", "ZLIB_NG", "LIBISAL", "BROTLI", "ZSTD"],
     "dns": ["LIBURING", "XXHASH"],
     "pg": ["LIBURING", "XXHASH", "LIBPQ"],

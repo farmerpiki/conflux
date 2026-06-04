@@ -7,6 +7,8 @@ if ! pkg-config --exists liburing; then
 fi
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" http)"
+forbid_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --policy http)"
 
 "$source_root/scripts/run-install-tree-smoke.sh" \
     --source "$source_root" \
@@ -16,5 +18,7 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --components 'core;json;http;file_io_sync;work' \
     --feature-set http-minimal \
     --interface-mode HEADER_INTERFACE \
+    --forbid-components "$forbid_components" \
+    --forbid-external-deps "$forbid_external_deps" \
     --generator Ninja \
     -- -DCONFLUX_POSTGRES_PROVIDER=OFF

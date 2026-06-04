@@ -22,6 +22,7 @@ case "$release_sku" in
         ;;
     release-http-api)
         forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" http)"
+        forbid_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --policy http)"
         ;;
     release-web-server)
         forbid_components="pg;db"

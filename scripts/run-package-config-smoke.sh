@@ -121,6 +121,7 @@ forbidden_components_for() {
 }
 forbid_all_external_deps="$(forbidden_external_deps_for all)"
 forbid_external_deps_without_json_hash="$(forbidden_external_deps_for json)"
+forbid_http_external_deps="$(forbidden_external_deps_for http)"
 forbid_template_external_deps="$(forbidden_external_deps_for template)"
 forbid_dns_external_deps="$(forbidden_external_deps_for dns)"
 forbid_pg_external_deps="$(forbidden_external_deps_for pg)"
@@ -149,6 +150,7 @@ if [[ "$components" != *";"* ]]; then
             ;;
         http)
             forbidden_components="$(forbidden_components_for http)${forbidden_components:+;$forbidden_components}"
+            forbidden_external_deps="${forbid_http_external_deps}${forbidden_external_deps:+;$forbidden_external_deps}"
             ;;
     esac
 fi

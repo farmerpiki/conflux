@@ -413,6 +413,10 @@ def check_release_checklist_install_smoke_lane() -> None:
         "--interface-mode MODULE_INTERFACE": "release checklist install smoke must cover module interface mode",
         "--feature-set release-http-api": "release checklist install smoke must use the selected release-http-api feature set",
         f"--components '{expected_components}'": "release checklist install smoke components must match release-http-api",
+        "scripts/package-smoke-forbidden-components.py http": "release checklist install smoke must derive HTTP forbidden components from the shared helper",
+        "scripts/external-dependency-tokens.py . --policy http": "release checklist install smoke must derive HTTP forbidden external deps from the shared helper",
+        "--forbid-components": "release checklist install smoke must assert forbidden HTTP components",
+        "--forbid-external-deps": "release checklist install smoke must assert forbidden HTTP external deps",
     }
     errors.extend(message for marker, message in required.items() if marker not in block)
     if "--components 'core;json;http;work'" in block:
@@ -1830,7 +1834,7 @@ def check_package_smoke_wrapper_contracts() -> None:
             "PACKAGE_ALIASES": "package smoke forbidden component helper must explicitly name package-only aliases",
             "unknown forbidden component": "package smoke forbidden component helper must reject stale policy entries",
             '"core": ["http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"]': "package smoke forbidden component helper must define the core policy",
-            '"http": ["http_compression", "template", "pg", "db"]': "package smoke forbidden component helper must keep compression out of HTTP API smokes",
+            '"http": ["http_compression", "net_tls", "template", "pg", "db"]': "package smoke forbidden component helper must keep compression/TLS out of HTTP API smokes",
             '"json": [': "package smoke forbidden component helper must define the JSON policy",
             '"http_compression"': "package smoke forbidden component helper must keep compression out of JSON-only smokes",
             '"net_tls"': "package smoke forbidden component helper must keep TLS out of JSON-only smokes",
@@ -1892,8 +1896,17 @@ def check_package_smoke_wrapper_contracts() -> None:
         errors.append(
             "JSON standalone package smoke must derive forbidden external deps from the shared JSON policy",
         )
+    runtime_smoke = read("scripts/check-package-smoke-runtime.sh")
+    if 'package-smoke-forbidden-components.py" http' not in runtime_smoke:
+        errors.append("runtime package smoke must derive forbidden components from the shared HTTP policy")
+    if 'external-dependency-tokens.py" "$source_root" --policy http' not in runtime_smoke:
+        errors.append("runtime package smoke must derive forbidden external deps from the shared HTTP policy")
+    if '--forbid-components "$forbid_components"' not in runtime_smoke:
+        errors.append("runtime package smoke must pass the derived forbidden components")
+    if '--forbid-external-deps "$forbid_external_deps"' not in runtime_smoke:
+        errors.append("runtime package smoke must pass the derived forbidden external deps")
     runtime_pkg_config_probes = shell_pkg_config_exists_probes(
-        read("scripts/check-package-smoke-runtime.sh"),
+        runtime_smoke,
     )
     if "liburing" not in runtime_pkg_config_probes:
         errors.append("runtime package smoke must gate on real liburing")
@@ -3105,6 +3118,7 @@ def check_package_smoke_external_tokens() -> None:
         "--policy \"$1\"": "package smoke runner must pass named external dependency policies to the helper",
         "forbid_all_external_deps=\"$(forbidden_external_deps_for all)": "package smoke runner must derive the all-forbidden policy from the helper",
         "forbid_external_deps_without_json_hash=\"$(forbidden_external_deps_for json)": "package smoke runner must derive JSON external policy from the helper",
+        "forbid_http_external_deps=\"$(forbidden_external_deps_for http)": "package smoke runner must derive HTTP external policy from the helper",
         "forbid_template_external_deps=\"$(forbidden_external_deps_for template)": "package smoke runner must derive template external policy from the helper",
         "forbid_dns_external_deps=\"$(forbidden_external_deps_for dns)": "package smoke runner must derive DNS external policy from the helper",
         "forbid_pg_external_deps=\"$(forbidden_external_deps_for pg)": "package smoke runner must derive PG external policy from the helper",
@@ -3173,7 +3187,7 @@ def check_core_isolated_forbidden_components() -> None:
     )
     append_set_delta_errors(
         errors,
-        {"http_compression", "template", "pg", "db"},
+        {"http_compression", "net_tls", "template", "pg", "db"},
         runner_http_forbidden,
         "default HTTP API isolation policy is missing component entries: ",
         "default HTTP API isolation policy contains unexpected component entries: ",
@@ -3400,6 +3414,8 @@ def check_release_artifact_staging_contract() -> None:
         fail("bootstrap check must derive release-json forbidden package components from the shared policy helper")
     if 'package-smoke-forbidden-components.py" http' not in bootstrap:
         fail("bootstrap check must derive release-http-api forbidden package components from the shared policy helper")
+    if 'external-dependency-tokens.py" "$source_root" --policy http' not in bootstrap:
+        fail("bootstrap check must derive release-http-api forbidden external dependencies from the shared policy helper")
     if 'release-web-server)' not in bootstrap or 'forbid_components="pg;db"' not in bootstrap:
         fail("bootstrap check must forbid DB components from the release-web-server package smoke")
     if '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbid_components"' not in bootstrap:

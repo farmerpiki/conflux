@@ -51,7 +51,9 @@ ctest --preset release-clang-libcxx --output-on-failure
 scripts/run-install-tree-smoke.sh \
   --interface-mode MODULE_INTERFACE \
   --feature-set release-http-api \
-  --components 'core;json;http'
+  --components 'core;json;http' \
+  --forbid-components "$(python3 scripts/package-smoke-forbidden-components.py http)" \
+  --forbid-external-deps "$(python3 scripts/external-dependency-tokens.py . --policy http)"
 python3 scripts/compile_time_bench.py \
   --build /tmp/gcc-16/compile-time-bench \
   --feature-set release-http-api \

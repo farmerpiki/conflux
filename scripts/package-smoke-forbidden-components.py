@@ -30,7 +30,7 @@ POLICIES = {
     "template": ["http", "http1", "http2", "http3", "http_protocol", "pg", "db", "dns"],
     "dns": ["http", "http1", "http2", "http3", "http_protocol", "template", "pg", "db"],
     "pg": ["http", "http1", "http2", "http3", "http_protocol", "template", "db"],
-    "http": ["http_compression", "template", "pg", "db"],
+    "http": ["http_compression", "net_tls", "template", "pg", "db"],
 }
 
 
