@@ -9,7 +9,6 @@
 //   curl -H 'Authorization: Bearer valid-token' http://localhost:9094/private/token
 import conflux;
 import conflux.net.auth;
-import conflux.work;
 import std;
 
 struct PingReply {
@@ -67,14 +66,11 @@ int main() {
 
 	app.use(http::request_id());
 	app.use(http::tracing({.propagate_in_response = true}));
-	app.use(
-		[](http::RequestView const &req,
-		   http::RequestContext const &ctx,
-		   auto const &next) -> conflux::work::Task<http::Response> {
-			auto response = co_await next(req, ctx);
-			response.headers.set("x-middleware-model", "async-owned");
-			co_return response;
-		});
+	app.use([](http::RequestView const &req, auto const &next) {
+		auto response = next(req);
+		response.headers.set("x-middleware-model", "sync");
+		return response;
+	});
 
 	app.get("/", [](http::RequestView const &) {
 		return http::html(
@@ -101,7 +97,7 @@ int main() {
 			return user == "demo" && pass == "demo";
 		}));
 
-		(void)g.get("/profile", [](http::RequestView const &req) {
+		auto _ = g.get("/profile", [](http::RequestView const &req) {
 			return http::json(
 				ProfileReply{
 					.user = "demo",
@@ -113,7 +109,7 @@ int main() {
 	app.group("/private", [](auto &g) {
 		g.use(http::bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
 
-		(void)g.get("/token", [](http::RequestView const &req) {
+		auto _ = g.get("/token", [](http::RequestView const &req) {
 			return http::json(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}});
 		});
 	});
