@@ -87,6 +87,16 @@ not publish runtime-facing/http package components.
 scripts/check-package-smoke-liburing-free.sh
 ```
 
+Standalone JSON package smoke from outside the source tree. This runs the
+`release-json` install smoke in header mode and module mode, including mixed
+module/header and public module import downstream consumers, while asserting
+that HTTP/runtime/DB/TLS/compression components and unrelated external
+dependencies are not exposed.
+
+```sh
+scripts/check-package-smoke-json-standalone.sh
+```
+
 Runtime package smoke, only on hosts with real liburing discoverable through
 `pkg-config` and a non-mock install:
 

@@ -1630,6 +1630,16 @@ def package_smoke_wrapper_default_components() -> dict[str, str]:
     if '--components "$components"' not in liburing_free:
         fail("liburing-free package smoke must pass the release-json component variable")
     defaults["scripts/check-package-smoke-liburing-free.sh"] = release_sku_components("release-json")
+    json_standalone = read("scripts/check-package-smoke-json-standalone.sh")
+    if 'release-sku-field.py" "$source_root" release-json feature_set' not in json_standalone:
+        fail("JSON standalone package smoke must derive the default feature set from release-json")
+    if 'release-sku-field.py" "$source_root" release-json components' not in json_standalone:
+        fail("JSON standalone package smoke must derive default components from release-json")
+    if '--feature-set "$feature_set"' not in json_standalone:
+        fail("JSON standalone package smoke must pass the release-json feature-set variable")
+    if '--components "$components"' not in json_standalone:
+        fail("JSON standalone package smoke must pass the release-json component variable")
+    defaults["scripts/check-package-smoke-json-standalone.sh"] = release_sku_components("release-json")
     http_api_wrappers = {
         "scripts/check-package-smoke-mixed-module-header.sh": (
             "CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET",
@@ -1670,6 +1680,7 @@ def check_package_smoke_wrapper_default_components() -> None:
     expected_defaults = {
         "scripts/check-package-smoke-core-isolated.sh": "core",
         "scripts/check-package-smoke-liburing-free.sh": release_sku_components("release-json"),
+        "scripts/check-package-smoke-json-standalone.sh": release_sku_components("release-json"),
         "scripts/check-package-smoke-runtime.sh": "core;json;http;file_io_sync;work",
         "scripts/check-package-smoke-db.sh": "core;json;pg",
         "scripts/check-package-smoke-mixed-module-header.sh": release_sku_components("release-http-api"),
@@ -1729,6 +1740,16 @@ def check_package_smoke_wrapper_contracts() -> None:
         "scripts/check-package-smoke-mixed-module-header.sh": {
             'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "mixed module/header package smoke must cap its default build concurrency",
         },
+        "scripts/check-package-smoke-json-standalone.sh": {
+            'release-sku-field.py" "$source_root" release-json feature_set': "JSON standalone package smoke must derive feature set from release-json",
+            'release-sku-field.py" "$source_root" release-json components': "JSON standalone package smoke must derive components from release-json",
+            'package-smoke-forbidden-components.py" json': "JSON standalone package smoke must derive forbidden components from the shared JSON policy",
+            'external-dependency-tokens.py" "$source_root" --policy json': "JSON standalone package smoke must derive forbidden external deps from the shared JSON policy",
+            "--mixed-module-header-smoke": "JSON standalone package smoke must run mixed module/header downstream checks",
+            "--public-module-import-smoke": "JSON standalone package smoke must run public module import downstream checks",
+            'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "JSON standalone package smoke must cap module build concurrency",
+            "-DCONFLUX_USE_IMPORT_STD=OFF": "JSON standalone package smoke must avoid toolchain-fragile import std",
+        },
     }
     errors: list[str] = []
     for path, markers in checks.items():
@@ -1750,6 +1771,7 @@ def check_package_smoke_wrapper_contracts() -> None:
     if core_cmake_definitions.get("CONFLUX_JSON_HASH_PROVIDER") != "XXHASH":
         errors.append("core-isolated package smoke must force the external JSON hash provider")
     liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
+    json_standalone = read("scripts/check-package-smoke-json-standalone.sh")
     if 'package-smoke-forbidden-components.py" json' not in liburing_free:
         errors.append("liburing-free package smoke must derive forbidden components from the shared JSON policy")
     if '--forbid-components "$forbid_components"' not in liburing_free:
@@ -1757,6 +1779,14 @@ def check_package_smoke_wrapper_contracts() -> None:
     if 'external-dependency-tokens.py" "$source_root" --policy json' not in liburing_free:
         errors.append(
             "liburing-free package smoke must derive forbidden external deps from the shared JSON policy",
+        )
+    if 'package-smoke-forbidden-components.py" json' not in json_standalone:
+        errors.append("JSON standalone package smoke must derive forbidden components from the shared JSON policy")
+    if '--forbid-components "$forbid_components"' not in json_standalone:
+        errors.append("JSON standalone package smoke must pass the derived forbidden components")
+    if 'external-dependency-tokens.py" "$source_root" --policy json' not in json_standalone:
+        errors.append(
+            "JSON standalone package smoke must derive forbidden external deps from the shared JSON policy",
         )
     runtime_pkg_config_probes = shell_pkg_config_exists_probes(
         read("scripts/check-package-smoke-runtime.sh"),
@@ -1796,7 +1826,7 @@ def check_package_smoke_project_contract() -> None:
         "CONFLUX_PACKAGE_SMOKE_EXERCISE_LINKED_APIS": "package smoke must distinguish declaration-only and linked API lanes",
         "conflux::json::parse": "package smoke must exercise installed JSON implementation symbols when available",
         "conflux::build_info_summary": "package smoke must exercise installed core implementation symbols when available",
-        "read_text_file_nothrow": "package smoke must exercise installed file_io_sync implementation symbols when available",
+        "conflux::file_io_sync::read_text_file_nothrow": "package smoke must exercise installed file_io_sync implementation symbols when available",
         "CONFLUX_HAS_JSON": "package smoke must assert installed JSON feature macros",
         "set(CMAKE_CXX_SCAN_FOR_MODULES OFF)": "header package smoke must disable module scanning by default",
         "set(CMAKE_CXX_SCAN_FOR_MODULES ON)": "module package smoke must enable module scanning",
@@ -1826,6 +1856,8 @@ def check_package_smoke_project_contract() -> None:
         "found unrequested visible target": "package smoke must reject unrequested visible targets",
         "runtime_requires_liburing=${CONFLUX_RUNTIME_REQUIRES_LIBURING}": "package smoke summary must report runtime/liburing status",
         'include("${CMAKE_CURRENT_LIST_DIR}/PublicModuleImports.cmake")': "package smoke project must include the public-module import fragment",
+        "conflux_package_append_target_closure(_seen ${_dep})": "public module import smoke must accumulate dependency closures without replacing requested targets",
+        "get_target_property(_set_sources ${_target} CXX_MODULE_SET_${_set})": "public module import smoke must discover imported target module file-set sources",
         'include("${CMAKE_CURRENT_LIST_DIR}/MixedModuleHeader.cmake")': "package smoke project must include the mixed module/header fragment",
         'include("${CMAKE_CURRENT_LIST_DIR}/ComponentSmokes.cmake")': "package smoke project must include the component smoke fragment",
     }
@@ -2900,6 +2932,7 @@ def check_package_smoke_external_tokens() -> None:
         for path in [
             "scripts/run-package-config-smoke.sh",
             "scripts/check-package-smoke-liburing-free.sh",
+            "scripts/check-package-smoke-json-standalone.sh",
             "scripts/check-package-smoke-core-isolated.sh",
             "scripts/external-dependency-tokens.py",
             "cmake/ConfluxExternalDependencyRegistry.cmake",
@@ -2958,6 +2991,7 @@ def check_core_isolated_forbidden_components() -> None:
     runner = read("scripts/run-package-config-smoke.sh")
     core_isolated = read("scripts/check-package-smoke-core-isolated.sh")
     liburing_free = read("scripts/check-package-smoke-liburing-free.sh")
+    json_standalone = read("scripts/check-package-smoke-json-standalone.sh")
     allowed_components = component_exports_from_registry() | {"db"}
     for variable, value in re.findall(r"^(forbid_[A-Za-z0-9_]*components)=\"([^\"]*)\"", runner, re.MULTILINE):
         policy_components = {component for component in value.split(";") if component}
@@ -2991,6 +3025,15 @@ def check_core_isolated_forbidden_components() -> None:
         "liburing-free forbidden components missing isolation entries: ",
         "liburing-free forbidden components contain unexpected entries: ",
     )
+    append_set_delta_errors(
+        errors,
+        runner_json_forbidden,
+        package_smoke_forbidden_components("json"),
+        "JSON standalone forbidden components missing isolation entries: ",
+        "JSON standalone forbidden components contain unexpected entries: ",
+    )
+    if 'package-smoke-forbidden-components.py" json' not in json_standalone:
+        errors.append("JSON standalone package smoke must derive forbidden components from the shared JSON policy")
     if errors:
         fail("\n".join(errors))
 

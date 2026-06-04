@@ -163,7 +163,7 @@ int main() { return 0; }
 				conflux_add_component_smoke(file_io_sync file_io_sync [[
 import conflux.file_io_sync;
 int main() {
-    auto text = read_text_file_nothrow("/definitely/not/a/conflux/package-smoke-file");
+    auto text = conflux::file_io_sync::read_text_file_nothrow("/definitely/not/a/conflux/package-smoke-file");
     return text.has_value() ? 1 : 0;
 }
 ]])
@@ -178,7 +178,7 @@ int main() { return 0; }
 				conflux_add_component_smoke(file_io_sync file_io_sync [[
 #include <conflux/file_io_sync.hpp>
 int main() {
-    auto text = read_text_file_nothrow("/definitely/not/a/conflux/package-smoke-file");
+    auto text = conflux::file_io_sync::read_text_file_nothrow("/definitely/not/a/conflux/package-smoke-file");
     return text.has_value() ? 1 : 0;
 }
 ]])

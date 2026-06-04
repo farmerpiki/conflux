@@ -37,6 +37,7 @@ require_structure_guard_markers() {
 [[ -f scripts/check-header-first-contact-smoke.sh ]] || fail "missing first-contact header smoke runner"
 [[ -f scripts/check-header-component-smoke.sh ]] || fail "missing full header component smoke runner"
 [[ -f scripts/check-package-smoke-liburing-free.sh ]] || fail "missing liburing-free package smoke lane"
+[[ -f scripts/check-package-smoke-json-standalone.sh ]] || fail "missing JSON standalone package smoke lane"
 [[ -f scripts/check-package-smoke-core-isolated.sh ]] || fail "missing core-isolated package smoke lane"
 [[ -f scripts/check-package-smoke-runtime.sh ]] || fail "missing runtime package smoke lane"
 [[ -f scripts/check-package-smoke-db.sh ]] || fail "missing DB package smoke lane"
