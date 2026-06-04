@@ -1168,7 +1168,7 @@ function(conflux_add_header_test_compile_targets)
         tests/h3_external
         tests/http3_test
         tests/http_core_test
-        tests/http_e2e
+        tests/http_protocol_e2e
         tests/http_facade_api_snapshot
         tests/http_facade_import_smoke
         tests/http_facade_test
@@ -1182,7 +1182,9 @@ function(conflux_add_header_test_compile_targets)
         tests/json_boundary_test
         tests/json_conformance_external
         tests/json_file_test
-        tests/json_test
+        tests/json_patch_test
+        tests/json_schema_test
+        tests/json_storage_test
         tests/json_testsuite_gate
         tests/jwt_test
         tests/libcurl_external

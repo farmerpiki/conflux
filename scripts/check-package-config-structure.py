@@ -1293,7 +1293,8 @@ def check_cmake_extraction_contracts() -> None:
             "PRIVATE conflux_options": "HTTP umbrella target must inherit generated include paths and build macros from conflux_options",
         },
         "tests/HttpFacadeTests.cmake": {
-            'set_source_files_properties(http_facade_test.cxx PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must stay scoped to the test source file",
+            'set_source_files_properties(\n            http_facade_test.cxx': "HTTP facade GCC LTO fallback must stay source-file scoped",
+            'http_facade_validation_test.cxx\n            PROPERTIES COMPILE_OPTIONS "-fno-lto")': "HTTP facade GCC LTO fallback must cover the split facade test sources",
         },
         "benchmarks/CMakeLists.txt": {
             "_conflux_bench_std26_disable_lto": "std::simd benchmark LTO fallback must be compiler-scoped",
@@ -2652,7 +2653,7 @@ def check_build_docs_guard_contracts() -> None:
         },
         "tests/MainTests.cmake": {
             "add_executable(conflux_tests)": "main test fragment must define the main test target",
-            "http_e2e_middleware.cxx": "main test fragment must keep middleware e2e source wiring",
+            "http_protocol_e2e.cxx": "main test fragment must keep protocol e2e source wiring",
             "target_include_directories(conflux_tests PRIVATE \"${CMAKE_SOURCE_DIR}/src/net\")": "main test fragment must keep net-private include path",
             "target_link_libraries(conflux_tests PRIVATE ZLIB::ZLIB)": "main test fragment must keep optional ZLIB edge",
         },
@@ -2772,7 +2773,6 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_discover_db_integration_tests(conflux_db_integration)": "test discovery fragment must register DB integration discovery",
         },
         "tests/JsonTests.cmake": {
-            "add_executable(conflux_json_tests json_test.cxx)": "JSON test fragment must define the main JSON test target",
             "add_executable(conflux_json_conformance_external json_conformance_external.cxx)": "JSON test fragment must define external conformance tests",
             "add_executable(conflux_json_testsuite_gate json_testsuite_gate.cxx)": "JSON test fragment must define JSONTestSuite gate target when available",
         },
