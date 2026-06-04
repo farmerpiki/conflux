@@ -15,6 +15,17 @@ using conflux::http::Config;
 using namespace conflux::tests;
 namespace chttp = conflux::http;
 
+namespace {
+
+std::string response_body(
+	std::string_view response) {
+	auto const body_start = response.find("\r\n\r\n");
+	REQUIRE(body_start != std::string_view::npos);
+	return std::string{response.substr(body_start + 4)};
+}
+
+} // namespace
+
 TEST_CASE(
 	"shutdown() stops run() and server becomes unreachable") {
 	Config cfg{};
@@ -66,6 +77,56 @@ TEST_CASE(
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 	REQUIRE(refused);
+}
+
+TEST_CASE(
+	"idle connection is closed after request_timeout_ms") {
+	Config cfg = mw_config();
+	cfg.request_timeout_ms = 1500;
+
+	conflux::http::Router router;
+	router.get("/ok", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	auto const timeout_port = srv.port();
+
+	LocalTcpClient client{timeout_port};
+	std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+	auto const close_state = recv_close_state(client.fd(), MSG_DONTWAIT);
+
+	REQUIRE(is_socket_closed(close_state));
+
+	auto resp = http_get_on(timeout_port, "/ok", "Connection: close\r\n");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+
+	srv.stop();
+}
+
+TEST_CASE(
+	"slow handler diagnostics: slow sync handler still serves response") {
+	Config cfg = mw_config();
+	cfg.slow_handler_diagnostics = true;
+	cfg.slow_handler_warn_ms = 1;
+
+	conflux::http::Router router;
+	router.get("/slow", [](conflux::http::OwnedRequest const &) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		return conflux::http::Response::text("slow-ok");
+	});
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	auto const port = srv.port();
+
+	auto const started = std::chrono::steady_clock::now();
+	auto resp = http_get_on(port, "/slow");
+	auto const elapsed_ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(response_body(resp) == "slow-ok");
+	REQUIRE(elapsed_ms >= 10);
+
+	srv.stop();
 }
 
 TEST_CASE(

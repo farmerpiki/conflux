@@ -156,3 +156,36 @@ TEST_CASE(
 	check_json_string_at(doc, "/app", "test");
 	check_json_string_at(doc, "/path", "/q\"");
 }
+
+TEST_CASE(
+	"conflux::http::make_access_log_middleware logs request lines via sink") {
+	std::vector<std::string> lines;
+	std::mutex lines_mtx;
+
+	Config cfg = mw_config();
+	conflux::http::Router router;
+	router.use(conflux::http::make_access_log_middleware([&](std::string const &line) {
+		std::scoped_lock lk{lines_mtx};
+		lines.push_back(line);
+	}));
+	router.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("pong"); });
+	router.get("/missing", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::not_found(req.path);
+	});
+
+	ScopedTestServer srv{cfg, std::move(router)};
+
+	auto _ = http_get_on(srv.port(), "/ping");
+	_ = http_get_on(srv.port(), "/missing");
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	srv.stop();
+
+	std::scoped_lock lk{lines_mtx};
+	auto has = [&](std::string_view sub) {
+		return std::ranges::any_of(lines, [&](std::string const &line) { return line.find(sub) != std::string::npos; });
+	};
+	REQUIRE(has("GET /ping 200"));
+	REQUIRE(has("GET /missing 404"));
+	REQUIRE(has("[20"));
+}
