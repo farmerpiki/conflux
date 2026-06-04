@@ -118,6 +118,9 @@ if(CONFLUX_BUILD_TESTS)
     conflux_add_python_check(docs/public-api-map
         scripts/check-public-api-map-docs.py
         "docs;public-api;release")
+    conflux_add_python_check(docs/cost-lifetime
+        scripts/check-cost-lifetime-docs.py
+        "docs;public-api;runtime")
     conflux_add_python_check(docs/package-docs
         scripts/check-package-docs.py
         "docs;package")

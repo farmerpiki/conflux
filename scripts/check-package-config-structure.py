@@ -2815,6 +2815,7 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_add_python_check(docs/release-docs": "missing release-docs CTest guard",
             "conflux_add_python_check(docs/release-skus": "missing release SKU CTest guard",
             "conflux_add_python_check(docs/public-api-map": "missing public API map docs CTest guard",
+            "conflux_add_python_check(docs/cost-lifetime": "missing cost/lifetime docs CTest guard",
             "conflux_add_python_check(docs/package-docs": "missing package-docs CTest guard",
             "conflux_add_python_check(docs/capability-report": "missing capability-report docs CTest guard",
             "conflux_add_python_check(docs/lifecycle": "missing lifecycle/backpressure docs CTest guard",
