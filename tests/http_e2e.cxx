@@ -38,7 +38,6 @@ import conflux.net.metrics;
 import conflux.net.rate_limit;
 import conflux.net.redirect;
 import conflux.net.router;
-import conflux.net.security;
 import conflux.net.trailing_slash;
 #if CONFLUX_HAS_TLS
 import conflux.net.jwt;
@@ -259,22 +258,6 @@ std::string http_get_with_header_on(
 	std::string_view path,
 	std::string_view header) {
 	return conflux::tests::http_get_on(port, path, header);
-}
-// ---------------------------------------------------------------------------
-// conflux::http::security_headers_middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_security_port = 0;
-void ensure_security_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::SecurityOptions sopts{};
-		sopts.hsts_only_on_tls = false;
-		conflux::http::Router router;
-		router.use(conflux::http::security_headers_middleware(sopts));
-		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
-		g_security_port = start_mw_server(mw_config(), std::move(router));
-	});
 }
 // ---------------------------------------------------------------------------
 // conflux::http::cors_middleware test server
