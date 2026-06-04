@@ -127,8 +127,54 @@ tar -C "$root" -cf - \
     tests \
     | tar -C "$stage_dir/source" -xf -
 
-cp "$build_dir/generated/bridge/module_header_bridge_manifest.json" \
-    "$stage_dir/artifacts/module-header-bridge-manifest.json"
+python3 - "$build_dir/generated/bridge/module_header_bridge_manifest.json" \
+    "$stage_dir/artifacts/module-header-bridge-manifest.json" \
+    "$root" "$build_dir" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+root = Path(sys.argv[3]).resolve()
+build_dir = Path(sys.argv[4]).resolve()
+bridge_root = build_dir / "generated" / "bridge"
+include_root = bridge_root / "include"
+
+def rewrite_path(value):
+    path = Path(value)
+    if not path.is_absolute():
+        return value
+    try:
+        return str(Path("source") / path.relative_to(root))
+    except ValueError:
+        pass
+    try:
+        return str(Path("source") / "include" / path.relative_to(include_root))
+    except ValueError:
+        pass
+    try:
+        return str(Path("artifacts") / "generated" / "bridge" / path.relative_to(bridge_root))
+    except ValueError:
+        pass
+    try:
+        return str(Path("build") / path.relative_to(build_dir))
+    except ValueError:
+        pass
+    return path.name
+
+def sanitize(value):
+    if isinstance(value, dict):
+        return {key: sanitize(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize(item) for item in value]
+    if isinstance(value, str):
+        return rewrite_path(value)
+    return value
+
+manifest = json.loads(source.read_text(encoding="utf-8"))
+dest.write_text(json.dumps(sanitize(manifest), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 cp "$root/docs/releases/evidence-template.md" "$stage_dir/evidence-template.md"
 cp -a "$stage_dir/install/include" "$stage_dir/source/include"
 mkdir -p "$stage_dir/source/examples/$release_sku"

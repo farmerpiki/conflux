@@ -29,6 +29,17 @@ def release_sku(manifest: dict[str, str]) -> str:
     return sku
 
 
+def reject_absolute_paths(value: object, path: str) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            reject_absolute_paths(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            reject_absolute_paths(item, f"{path}[{index}]")
+    elif isinstance(value, str) and value.startswith("/"):
+        fail(f"release artifact bridge manifest contains absolute path at {path}")
+
+
 def selected_names(paths: list[str], root: str, field: str, sku: str) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
@@ -125,6 +136,7 @@ def main(argv: list[str]) -> int:
 
     manifest_path = stage / "artifacts" / "module-header-bridge-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    reject_absolute_paths(manifest, "bridge_manifest")
     bridge = manifest.get("bridge")
     if not isinstance(bridge, dict):
         fail("bridge manifest does not expose bridge metadata")

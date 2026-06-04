@@ -3312,6 +3312,8 @@ def check_release_artifact_staging_contract() -> None:
         "release-sku-field.py": "release artifact staging must read selected docs/examples from the SKU manifest",
         'CONFLUX_FEATURE_SET="$feature_set"': "release artifact staging explicit build path must pass the selected feature-set",
         "module-header-bridge-manifest.json": "release artifact staging must include the bridge manifest",
+        "rewrite_path": "release artifact staging must sanitize bridge manifest paths",
+        'Path("artifacts") / "generated" / "bridge"': "release artifact staging must rewrite generated bridge paths to artifact-relative paths",
         "CMakePresets.json": "release artifact staging must include CMake presets",
         "CHANGELOG.md": "release artifact staging must include the changelog",
         "NOTICE": "release artifact staging must include the notice file",
@@ -3339,6 +3341,8 @@ def check_release_artifact_staging_contract() -> None:
     for marker in ("printf 'source_root=", "printf 'build_dir=", "printf 'stage_dir="):
         if marker in staging:
             fail("release artifact staging must not write local path metadata")
+    if 'reject_absolute_paths(manifest, "bridge_manifest")' not in guard:
+        fail("release artifact checker must reject absolute paths in the bridge manifest")
     if 'package-smoke-forbidden-components.py" json' not in bootstrap:
         fail("bootstrap check must derive release-json forbidden package components from the shared policy helper")
     if 'package-smoke-forbidden-components.py" http' not in bootstrap:
