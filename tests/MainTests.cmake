@@ -16,6 +16,7 @@ target_sources(conflux_tests
         http_fields_test.cxx
         http_router_unit_test.cxx
         http1_parser_test.cxx
+        http_auth_rate_limit_e2e.cxx
         http_compress_e2e.cxx
         http_cors_e2e.cxx
         http_security_headers_e2e.cxx

@@ -23,7 +23,6 @@ import conflux.crypto;
 import conflux.json;
 import conflux.http.extended;
 import conflux.net.app;
-import conflux.net.auth;
 import conflux.net.cache_control;
 import conflux.net.compress;
 import conflux.net.config;
@@ -34,7 +33,6 @@ import conflux.net.http.static_files;
 import conflux.net.http_server;
 import conflux.net.ip_filter;
 import conflux.net.metrics;
-import conflux.net.rate_limit;
 import conflux.net.redirect;
 import conflux.net.router;
 import conflux.net.trailing_slash;
@@ -257,74 +255,6 @@ std::string http_get_with_header_on(
 	std::string_view path,
 	std::string_view header) {
 	return conflux::tests::http_get_on(port, path, header);
-}
-// auth middleware test server
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_auth_port = 0;
-void ensure_auth_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::basic_auth_middleware([](std::string_view u, std::string_view p) {
-			return u == "testuser" && p == "testpass";
-		}));
-		router.get("/protected", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("secret");
-		});
-		g_auth_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-std::uint16_t g_bearer_port = 0;
-void ensure_bearer_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(
-			conflux::http::bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
-		router.get("/protected", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::text("secret");
-		});
-		g_bearer_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-// ---------------------------------------------------------------------------
-// conflux::http::rate_limit_middleware test server (2 req per 60s window)
-// ---------------------------------------------------------------------------
-
-std::uint16_t g_rate_port = 0;
-std::uint16_t g_rate_zero_clients_port = 0;
-void ensure_rate_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(conflux::http::rate_limit_middleware({.requests = 2, .window = std::chrono::seconds{60}}));
-		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
-		g_rate_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-std::uint16_t g_rate_burst_port = 0;
-void ensure_rate_burst_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		// 1 base + 2 burst = 3 total capacity
-		router.use(
-			conflux::http::rate_limit_middleware({.requests = 1, .window = std::chrono::seconds{60}, .burst = 2}));
-		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
-		g_rate_burst_port = start_mw_server(mw_config(), std::move(router));
-	});
-}
-void ensure_rate_zero_clients_server() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		conflux::http::Router router;
-		router.use(
-			conflux::http::rate_limit_middleware(
-				{.requests = 1, .window = std::chrono::seconds{60}, .max_clients = 0}));
-		router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
-		g_rate_zero_clients_port = start_mw_server(mw_config(), std::move(router));
-	});
 }
 // ---------------------------------------------------------------------------
 // conflux::http::forwarded_middleware helpers
