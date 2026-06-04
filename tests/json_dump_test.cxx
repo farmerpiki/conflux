@@ -43,3 +43,70 @@ TEST_CASE(
 	REQUIRE(d.has_value());
 	CHECK(d->find('\n') != std::string::npos);
 }
+
+TEST_CASE(
+	"json: dump sort_object_keys produces stable key order",
+	"[json][dump][examples]") {
+	auto doc = parse(R"({"z":3,"a":1,"m":2})");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.sort_object_keys = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(*d == R"({"a":1,"m":2,"z":3})");
+}
+
+TEST_CASE(
+	"json: dump ascii_only escapes non-ASCII code points",
+	"[json][dump][examples]") {
+	auto doc = parse(R"("café")");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.ascii_only = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(d->find("\\u") != std::string::npos);
+	auto reparsed = parse(*d);
+	REQUIRE(reparsed.has_value());
+	CHECK(*reparsed->root().as_string() == "café");
+}
+
+TEST_CASE(
+	"json: dump ascii_only escapes surrogate-pair code point",
+	"[json][dump][examples]") {
+	auto doc = parse(R"("😀")");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.ascii_only = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(d->find("\\ud83d") != std::string::npos);
+	auto reparsed = parse(*d);
+	REQUIRE(reparsed.has_value());
+	CHECK(*reparsed->root().as_string() == "\xF0\x9F\x98\x80");
+}
+
+TEST_CASE(
+	"json: dump ascii_only escapes high-byte boundaries",
+	"[json][dump]") {
+	auto doc = parse(R"(["aaaaaaaaaaaaaaaaé","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé","oké"])");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.ascii_only = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(*d == R"(["aaaaaaaaaaaaaaaa\u00e9","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u00e9","ok\u00e9"])");
+}
+
+TEST_CASE(
+	"json: dump pretty with custom indent width",
+	"[json][dump][examples]") {
+	auto doc = parse(R"({"k":1})");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.pretty = true;
+	opts.indent = 4;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(d->find("    \"k\"") != std::string::npos);
+}
