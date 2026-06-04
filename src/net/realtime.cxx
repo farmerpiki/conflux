@@ -771,11 +771,18 @@ private:
 	std::jthread keepalive_thread_{};
 	std::vector<std::function<void()>> close_callbacks_{};
 	std::string buf_;
+	std::size_t buf_pos_{};
 	std::optional<Opcode> frag_opcode_{};
 	std::string frag_payload_{};
+	[[nodiscard]] std::size_t buffered_size() const noexcept { return buf_.size() - buf_pos_; }
+	[[nodiscard]] char const *buffered_data() const noexcept { return buf_.data() + buf_pos_; }
 	bool fill(
 		std::size_t n) {
-		while (buf_.size() < n) {
+		while (buffered_size() < n) {
+			if (buf_pos_ > 0 && (buf_pos_ >= 4096 || buf_pos_ * 2 >= buf_.size())) {
+				buf_.erase(0, buf_pos_);
+				buf_pos_ = 0;
+			}
 			std::array<char, 4096> tmp{};
 #if CONFLUX_HAS_TLS
 			if (ssl_) {
@@ -797,10 +804,14 @@ private:
 	}
 	void consume(
 		std::size_t n) {
-		buf_.erase(0, n);
+		buf_pos_ += n;
+		if (buf_pos_ >= buf_.size()) {
+			buf_.clear();
+			buf_pos_ = 0;
+		}
 	}
 	void emit_ws_protocol_close() {
-		auto const b0 = static_cast<std::uint8_t>(buf_[0]);
+		auto const b0 = static_cast<std::uint8_t>(buf_[buf_pos_]);
 		if ((b0 & 0x70U) != 0) {
 			close(1002, "rsv bits set");
 		} else if (std::uint8_t const op = b0 & 0x0FU; (op >= 0x3U && op <= 0x7U) || op >= 0xBU) {
@@ -814,7 +825,7 @@ private:
 		if (!fill(2)) {
 			return false;
 		}
-		auto const pre = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), 2}), hdr);
+		auto const pre = detail::parse_frame_header(std::as_bytes(std::span{buffered_data(), 2}), hdr);
 		if (pre == detail::FrameParseStatus::ProtocolError) {
 			emit_ws_protocol_close();
 			return false;
@@ -823,13 +834,13 @@ private:
 			close(1002, "invalid control frame");
 			return false;
 		}
-		auto const b1 = static_cast<std::uint8_t>(buf_[1]);
+		auto const b1 = static_cast<std::uint8_t>(buf_[buf_pos_ + 1]);
 		std::uint64_t const len7 = b1 & 0x7FU;
 		std::size_t const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
 		if (!fill(header_needed)) {
 			return false;
 		}
-		auto const status = detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
+		auto const status = detail::parse_frame_header(std::as_bytes(std::span{buffered_data(), header_needed}), hdr);
 		if (status != detail::FrameParseStatus::Ok) {
 			if (status == detail::FrameParseStatus::ProtocolError) {
 				close(1002, "invalid frame header");
@@ -855,7 +866,7 @@ private:
 		if (!fill(static_cast<std::size_t>(plen))) {
 			return std::nullopt;
 		}
-		std::string payload(buf_.data(), static_cast<std::size_t>(plen));
+		std::string payload(buffered_data(), static_cast<std::size_t>(plen));
 		consume(static_cast<std::size_t>(plen));
 		unmask_ws_payload(payload, hdr.mask);
 		return payload;

@@ -392,14 +392,17 @@ RecvUntilResult recv_until(
 	std::size_t max_size) {
 	RecvUntilResult result;
 	result.bytes.reserve(std::min<std::size_t>(4096, max_size));
+	std::size_t search_from = 0;
 	while (result.bytes.size() < max_size) {
 		bool closed = false;
+		auto const previous_size = result.bytes.size();
 		switch (recv_some_status(conn, result.bytes, timeout_sec)) {
 		case RecvSomeStatus::data           : break;
 		case RecvSomeStatus::timeout        : result.timed_out = true; return result;
 		case RecvSomeStatus::closed_or_error: closed = true; break;
 		}
-		if (result.bytes.find(delim) != std::string::npos) {
+		search_from = previous_size > delim.size() ? previous_size - delim.size() + 1 : 0;
+		if (result.bytes.find(delim, search_from) != std::string::npos) {
 			break;
 		}
 		if (closed) {

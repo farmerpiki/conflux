@@ -126,47 +126,52 @@ export bool match_segments(
 	std::vector<Segment> const &pattern,
 	std::string_view path,
 	conflux::http::HttpFieldsView &out_params) {
+	out_params.clear();
+	out_params.reserve(pattern.size());
+
+	auto fail = [&out_params]() noexcept {
+		out_params.clear();
+		return false;
+	};
+
 	// Wildcard tail: last segment {*name} matches everything remaining.
 	if (!pattern.empty() && pattern.back().is_wildcard) {
 		// Match all non-wildcard leading segments first.
 		auto prefix_count = pattern.size() - 1;
 		std::size_t pos = 0;
-		conflux::http::HttpFieldsView tmp;
 		for (std::size_t i = 0; i < prefix_count; ++i) {
 			if (pos >= path.size()) {
-				return false;
+				return fail();
 			}
 			auto next = path.find('/', pos);
 			auto part = (next == std::string_view::npos) ? path.substr(pos) : path.substr(pos, next - pos);
 			if (next == std::string_view::npos && i + 1 < prefix_count) {
-				return false;
+				return fail();
 			}
 			if (pattern[i].is_param) {
-				add_path_param(tmp, pattern[i].value, part);
+				add_path_param(out_params, pattern[i].value, part);
 			} else if (pattern[i].value != part) {
-				return false;
+				return fail();
 			}
 			pos = (next == std::string_view::npos) ? path.size() : next + 1;
 		}
 		// Capture the remainder (may be empty for trailing slash).
-		add_path_param(tmp, pattern.back().value, path.substr(pos));
-		out_params = std::move(tmp);
+		add_path_param(out_params, pattern.back().value, path.substr(pos));
 		return true;
 	}
 
 	std::size_t pos = 0;
 	std::size_t i = 0;
-	conflux::http::HttpFieldsView tmp;
 	while (true) {
 		if (i >= pattern.size()) {
-			return false;
+			return fail();
 		}
 		auto next = path.find('/', pos);
 		auto part = (next == std::string_view::npos) ? path.substr(pos) : path.substr(pos, next - pos);
 		if (pattern[i].is_param) {
-			add_path_param(tmp, pattern[i].value, part);
+			add_path_param(out_params, pattern[i].value, part);
 		} else if (pattern[i].value != part) {
-			return false;
+			return fail();
 		}
 		++i;
 		if (next == std::string_view::npos) {
@@ -176,9 +181,8 @@ export bool match_segments(
 	}
 
 	if (i != pattern.size()) {
-		return false;
+		return fail();
 	}
-	out_params = std::move(tmp);
 	return true;
 }
 

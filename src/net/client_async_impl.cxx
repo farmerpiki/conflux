@@ -136,9 +136,11 @@ wroot::Task<std::string> async_recv_until(
 	TP deadline) {
 	std::string buf;
 	buf.reserve(std::min<std::size_t>(4096, max_size));
+	std::size_t search_from = 0;
 	std::array<std::uint8_t, 4096> tmp{};
 	while (buf.size() < max_size) {
 		std::size_t n;
+		auto const previous_size = buf.size();
 		try {
 			if (deadline == TP::max()) {
 				n = co_await t.recv(std::span<std::uint8_t>{tmp.data(), tmp.size()}, std::chrono::milliseconds{0});
@@ -158,7 +160,8 @@ wroot::Task<std::string> async_recv_until(
 			break;
 		}
 		buf.append(reinterpret_cast<char const *>(tmp.data()), n);
-		if (buf.find(delim) != std::string::npos) {
+		search_from = previous_size > delim.size() ? previous_size - delim.size() + 1 : 0;
+		if (buf.find(delim, search_from) != std::string::npos) {
 			break;
 		}
 	}

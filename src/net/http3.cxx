@@ -552,6 +552,7 @@ void dispatch_stream(
 		s.response_body_buf = "HTTP/3 does not support this response kind yet\n";
 	}
 	std::vector<nghttp3_nv> nva;
+	nva.reserve(3 + s.response.headers.size() + s.response.set_cookies.size());
 	s.status_str = std::to_string(s.response.status);
 	nva.push_back(
 		{reinterpret_cast<std::uint8_t const *>(":status"),

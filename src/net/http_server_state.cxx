@@ -215,6 +215,7 @@ struct H2Stream {
 	// SSE streaming state (non-null → H2 SSE stream):
 	std::shared_ptr<conflux::http::SseChannel> sse_channel{};
 	std::string h2_sse_buf{}; // overflow: drained SSE data not yet framed
+	std::size_t h2_sse_off{};
 };
 struct H2ConnCtx {
 	Ring *ring;

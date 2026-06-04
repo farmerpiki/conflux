@@ -401,19 +401,27 @@ ssize_t Ring::h2_read_cb(
 
 	// SSE streaming path: drain from the channel, defer when empty.
 	if (stream.sse_channel) {
-		if (stream.h2_sse_buf.empty()) {
+		if (stream.h2_sse_off >= stream.h2_sse_buf.size()) {
 			stream.h2_sse_buf = stream.sse_channel->drain();
+			stream.h2_sse_off = 0;
 		}
-		if (stream.h2_sse_buf.empty()) {
+		if (stream.h2_sse_off >= stream.h2_sse_buf.size()) {
+			stream.h2_sse_buf.clear();
+			stream.h2_sse_off = 0;
 			if (stream.sse_channel->is_closed()) {
 				*data_flags |= NGHTTP2_DATA_FLAG_EOF;
 				return 0;
 			}
 			return NGHTTP2_ERR_DEFERRED;
 		}
-		auto to_copy = std::min(stream.h2_sse_buf.size(), length);
-		std::copy_n(stream.h2_sse_buf.data(), to_copy, buf);
-		stream.h2_sse_buf.erase(0, to_copy);
+		auto const remaining = stream.h2_sse_buf.size() - stream.h2_sse_off;
+		auto const to_copy = std::min(remaining, length);
+		std::copy_n(stream.h2_sse_buf.data() + stream.h2_sse_off, to_copy, buf);
+		stream.h2_sse_off += to_copy;
+		if (stream.h2_sse_off >= stream.h2_sse_buf.size()) {
+			stream.h2_sse_buf.clear();
+			stream.h2_sse_off = 0;
+		}
 		// Don't set EOF — channel may produce more events.
 		return static_cast<ssize_t>(to_copy);
 	}
@@ -471,32 +479,31 @@ void Ring::h2_submit_response(
 	bool const is_sse_resp = resp.is_sse();
 	std::string const status_str = std::to_string(resp.status);
 	std::string const clen_str = std::to_string(resp.content_length());
-	std::vector<std::pair<std::string, std::string>> nv_storage;
-	nv_storage.reserve(3 + resp.headers.size() + resp.set_cookies.size());
-	nv_storage.emplace_back(":status", status_str);
-	nv_storage.emplace_back("content-type", resp.content_type);
+	auto const has_alt_svc =
+		conn.h2_ctx != nullptr && conn.h2_ctx->ring != nullptr && !conn.h2_ctx->ring->alt_svc_header.empty();
+	std::vector<nghttp2_nv> nva;
+	nva.reserve(2 + (!is_sse_resp ? 1U : 0U) + resp.headers.size() + resp.set_cookies.size() + (has_alt_svc ? 1U : 0U));
+	auto push_nv = [&nva](std::string_view name, std::string_view value, std::uint8_t flags = NGHTTP2_NV_FLAG_NONE) {
+		nva.push_back(
+			{reinterpret_cast<std::uint8_t *>(const_cast<char *>(name.data())),
+			 reinterpret_cast<std::uint8_t *>(const_cast<char *>(value.data())),
+			 name.size(),
+			 value.size(),
+			 flags});
+	};
+	push_nv(":status", status_str, NGHTTP2_NV_FLAG_NO_COPY_NAME);
+	push_nv("content-type", resp.content_type, NGHTTP2_NV_FLAG_NO_COPY_NAME);
 	if (!is_sse_resp) {
-		nv_storage.emplace_back("content-length", clen_str);
+		push_nv("content-length", clen_str, NGHTTP2_NV_FLAG_NO_COPY_NAME);
 	}
 	for (auto const &[k, v]: resp.headers) {
-		nv_storage.emplace_back(k, v);
+		push_nv(k, v);
 	}
 	for (auto const &sc: resp.set_cookies) {
-		nv_storage.emplace_back("set-cookie", sc);
+		push_nv("set-cookie", sc, NGHTTP2_NV_FLAG_NO_COPY_NAME);
 	}
-	if (conn.h2_ctx != nullptr && conn.h2_ctx->ring != nullptr && !conn.h2_ctx->ring->alt_svc_header.empty()) {
-		nv_storage.emplace_back("alt-svc", conn.h2_ctx->ring->alt_svc_header);
-	}
-
-	std::vector<nghttp2_nv> nva;
-	nva.reserve(nv_storage.size());
-	for (auto &[n, v]: nv_storage) {
-		nva.push_back(
-			{reinterpret_cast<std::uint8_t *>(n.data()),
-			 reinterpret_cast<std::uint8_t *>(v.data()),
-			 n.size(),
-			 v.size(),
-			 NGHTTP2_NV_FLAG_NONE});
+	if (has_alt_svc) {
+		push_nv("alt-svc", conn.h2_ctx->ring->alt_svc_header, NGHTTP2_NV_FLAG_NO_COPY_NAME);
 	}
 
 	stream.response_body = resp.take_text_body();
@@ -512,6 +519,8 @@ void Ring::h2_submit_response(
 		conn.sse_efd = stream.sse_channel->eventfd_fd();
 		conn.sse_channel = stream.sse_channel;
 		conn.h2_sse_stream_id = stream_id;
+		stream.h2_sse_buf.clear();
+		stream.h2_sse_off = 0;
 		conn.h2_sse_pending_wait = true;
 	}
 
