@@ -1,5 +1,7 @@
 add_executable(conflux_json_tests json_test.cxx)
 target_link_libraries(conflux_json_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+add_executable(conflux_json_parse_scalar_tests json_parse_scalar_test.cxx)
+target_link_libraries(conflux_json_parse_scalar_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
 if(_conflux_simd_selection STREQUAL "RUNTIME" AND CONFLUX_JSON_STDSIMD_IFUNC AND TARGET conflux_json)
     add_executable(conflux_json_simd_ifunc_test json_simd_ifunc_test.cxx)
