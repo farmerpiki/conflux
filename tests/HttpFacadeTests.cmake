@@ -2,6 +2,9 @@ if(TARGET conflux_net_http)
     add_executable(conflux_http_facade_tests http_facade_test.cxx)
     target_link_libraries(conflux_http_facade_tests
         PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
+    add_executable(conflux_http_facade_extractors_tests http_facade_extractors_test.cxx)
+    target_link_libraries(conflux_http_facade_extractors_tests
+        PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
     add_executable(conflux_http_facade_observability_tests http_facade_observability_test.cxx)
     target_link_libraries(conflux_http_facade_observability_tests
         PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
@@ -18,6 +21,7 @@ if(TARGET conflux_net_http)
         # GCC 16 ICEs during LTO for these facade test TUs; keep the fallback to the sources that trigger it.
         set_source_files_properties(
             http_facade_test.cxx
+            http_facade_extractors_test.cxx
             http_facade_observability_test.cxx
             http_facade_openapi_test.cxx
             http_facade_routes_test.cxx
