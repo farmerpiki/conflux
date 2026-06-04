@@ -27,6 +27,9 @@ PATTERN = re.compile(
     r"|Config::benchmark\(\)"
     r"|req\.params\[[^\]]+\]"
 )
+QUICKSTART_ALLOWED_LEAF_IMPORTS = {
+    "import conflux.json.reflect;",
+}
 
 
 def files() -> list[pathlib.Path]:
@@ -62,6 +65,12 @@ def main() -> int:
             if PATTERN.search(line):
                 rel = path.relative_to(ROOT)
                 failures.append(f"{rel}:{line_no}: {line.strip()}")
+            if ROOT / "examples" / "quickstart" in path.parents:
+                if stripped.startswith("import conflux.") and stripped not in QUICKSTART_ALLOWED_LEAF_IMPORTS:
+                    rel = path.relative_to(ROOT)
+                    failures.append(
+                        f"{rel}:{line_no}: quickstart examples must not import advanced leaves: {stripped}",
+                    )
 
     if failures:
         print("first-contact public dialect check failed:", file=sys.stderr)

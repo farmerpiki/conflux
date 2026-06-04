@@ -1069,11 +1069,6 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_h3_server examples/advanced/h3_server HTTP_IMPLS)
     endif()
 
-    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_DB STREQUAL "true")
-        conflux_add_header_example_from_id(conflux_quickstart_postgres examples/quickstart/postgres_json
-            HTTP_IMPLS
-            IMPLS conflux_header_impl_json conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
-    endif()
     if(CONFLUX_HAS_DB STREQUAL "true")
         conflux_add_header_example_from_id(conflux_db_basic examples/advanced/db_basic
             IMPLS conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
@@ -1081,6 +1076,11 @@ function(conflux_add_header_examples_from_source_ids)
             IMPLS conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
         conflux_add_header_example_from_id(conflux_advanced_postgres examples/advanced/postgres
             IMPLS conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
+    endif()
+    if(_conflux_has_header_http_facade AND CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_DB STREQUAL "true")
+        conflux_add_header_example_from_id(conflux_advanced_postgres_json examples/advanced/postgres_json
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json conflux_header_impl_runtime conflux_header_impl_socket_io conflux_header_impl_pg)
     endif()
 
     if(CONFLUX_JSON_REFLECT)

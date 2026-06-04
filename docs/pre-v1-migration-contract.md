@@ -63,7 +63,6 @@ Default easy HTTP examples:
 - `examples/quickstart/sse.cxx`
 - `examples/quickstart/websocket.cxx`
 - `examples/quickstart/openapi.cxx`
-- `examples/quickstart/postgres_json.cxx`
 
 Top-level HTTP examples remain public-facing, but `examples/quickstart/` is the
 first-contact path for new users.
@@ -78,6 +77,7 @@ Advanced runtime/feature examples:
 - `examples/advanced/db_basic.cxx`
 - `examples/advanced/db_pool.cxx`
 - `examples/advanced/postgres.cxx`
+- `examples/advanced/postgres_json.cxx`
 
 ## Default vs Advanced Handler Shapes
 

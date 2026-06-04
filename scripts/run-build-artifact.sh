@@ -23,10 +23,10 @@ valid_root_example() {
 			conflux_json_config_example|conflux_json_diagnostics_example|conflux_json_example|\
 			conflux_http_client_json_example|conflux_http_explicit_offload_example|\
 			conflux_json_stream_ingest_example|conflux_json_transform_example|\
-			conflux_middleware|conflux_process_run_example|conflux_quickstart_hello|\
+			conflux_advanced_postgres_json|conflux_middleware|conflux_process_run_example|conflux_quickstart_hello|\
 			conflux_quickstart_json_crud|conflux_quickstart_middleware|\
 			conflux_quickstart_openapi|conflux_quickstart_sse|conflux_quickstart_static_files|\
-			conflux_quickstart_postgres|conflux_quickstart_websocket|conflux_sse|conflux_static|\
+			conflux_quickstart_websocket|conflux_sse|conflux_static|\
 			conflux_template_pages_example|conflux_vhost_openapi_example|conflux_work_join_all_example|\
 			conflux_api_typed_json_example)
 			return 0

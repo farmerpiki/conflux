@@ -35,12 +35,6 @@ if(TARGET conflux)
         target_link_libraries(conflux_quickstart_json_reflect_crud PRIVATE conflux conflux_json_reflect conflux_options)
     endif()
 
-    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_pg)
-        add_executable(conflux_quickstart_postgres ${_conflux_examples_root}/quickstart/postgres_json.cxx)
-        target_link_libraries(conflux_quickstart_postgres
-            PRIVATE conflux conflux_pg conflux_file_io conflux_work conflux_options)
-    endif()
-
     # Easy HTTP examples (first-contact / v1-facing)
     add_executable(conflux_hello ${_conflux_examples_root}/public/hello.cxx)
     target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
@@ -119,6 +113,12 @@ if(TARGET conflux)
 
     add_executable(conflux_work_race_first_responder_example ${_conflux_examples_root}/advanced/work_race_first_responder.cxx)
     target_link_libraries(conflux_work_race_first_responder_example PRIVATE conflux conflux_options)
+
+    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_pg)
+        add_executable(conflux_advanced_postgres_json ${_conflux_examples_root}/advanced/postgres_json.cxx)
+        target_link_libraries(conflux_advanced_postgres_json
+            PRIVATE conflux conflux_pg conflux_file_io conflux_work conflux_options)
+    endif()
 
     if(CONFLUX_WANT_TEMPLATES AND TARGET conflux_template)
         add_executable(conflux_template_pages_example ${_conflux_examples_root}/advanced/template_pages.cxx)

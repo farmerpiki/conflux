@@ -457,7 +457,7 @@ def check_header_http_impls_do_not_pull_json() -> None:
         "examples/quickstart/json_crud",
         "examples/quickstart/json_reflect_crud",
         "examples/quickstart/openapi",
-        "examples/quickstart/postgres_json",
+        "examples/advanced/postgres_json",
         "examples/public/static",
         "examples/public/gzip",
     }
