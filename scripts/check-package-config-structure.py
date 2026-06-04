@@ -2834,6 +2834,7 @@ def check_build_docs_guard_contracts() -> None:
             "conflux_add_python_check(docs/security-posture": "missing security posture docs CTest guard",
             "conflux_add_python_check(docs/route-openapi": "missing route/OpenAPI docs CTest guard",
             "conflux_add_python_check(docs/observability": "missing observability docs CTest guard",
+            "conflux_add_python_check(docs/http-response-helper-policy": "missing HTTP response helper policy CTest guard",
             "conflux_add_python_check(docs/release-notes": "missing release-notes CTest guard",
         },
         "tests/TestHelpers.cmake": {
@@ -3615,6 +3616,8 @@ def check_release_sku_guard_contract() -> None:
     build_docs_required = {
         "docs/release-sku-examples": "Build/docs CTest fragment must register the release SKU examples guard",
         "scripts/check-release-sku-examples.py": "Build/docs CTest fragment must run the release SKU examples guard",
+        "docs/http-response-helper-policy": "Build/docs CTest fragment must register the HTTP response helper policy guard",
+        "scripts/check-http-response-helper-policy.py": "Build/docs CTest fragment must run the HTTP response helper policy guard",
     }
     release_docs_required = {
         '"docs/release-skus.json"': "release docs guard must read the release SKU manifest",
