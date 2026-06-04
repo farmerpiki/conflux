@@ -34,7 +34,7 @@ template<class Arg>
 					   .member("kind", kind)
 					   .member("detail", err.message);
 #ifndef NDEBUG
-	builder.member("target", typeid(Arg).name());
+	builder.member("target", "unavailable");
 #endif
 	return Response::problem_json(std::move(builder).finish(), kHttpBadRequest, "Bad Request");
 }

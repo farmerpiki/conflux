@@ -118,10 +118,24 @@ int main() { return 0; }
 #if !CONFLUX_SURFACE_HAS_HTTP_FACADE
 #error "conflux::http package target must publish CONFLUX_SURFACE_HAS_HTTP_FACADE=1"
 #endif
+#include <string_view>
 import conflux.http;
 int main() {
-    auto app = conflux::http::app();
-    app.get("/health", [] { return conflux::http::text("ok"); }).name("health.check");
+    auto app = conflux::http::app(conflux::http::Config::public_server());
+    app.get("/health", [](conflux::http::RequestView const&) { return conflux::http::text("ok"); }).name("health.check");
+    app.get("/items/{id}",
+        [](conflux::http::Path<"id"> id,
+           conflux::http::OptionalQuery<"q"> q,
+           conflux::http::OptionalHeader<"x-trace-id"> trace_id,
+           conflux::http::OptionalCookie<"session"> session) {
+            if (id.get().empty()) {
+                return conflux::http::Response::bad_request("missing id");
+            }
+            if (q.get().has_value() || trace_id.get().has_value() || session.get().has_value()) {
+                return conflux::http::html("<p>ok</p>");
+            }
+            return conflux::http::text(std::string_view{"ok"});
+        }).name("items.show");
     return app.routes().empty() ? 1 : 0;
 }
 ]])
@@ -138,12 +152,26 @@ int main() { return 0; }
             if(_conflux_package_smoke_linked_apis)
                 conflux_add_component_smoke(http http [[
 #include <conflux/http.hpp>
+#include <string_view>
 #if !CONFLUX_SURFACE_HAS_HTTP_FACADE
 #error "conflux::http package target must publish CONFLUX_SURFACE_HAS_HTTP_FACADE=1"
 #endif
 int main() {
-    auto app = conflux::http::app();
-    app.get("/health", [] { return conflux::http::text("ok"); }).name("health.check");
+    auto app = conflux::http::app(conflux::http::Config::public_server());
+    app.get("/health", [](conflux::http::RequestView const&) { return conflux::http::text("ok"); }).name("health.check");
+    app.get("/items/{id}",
+        [](conflux::http::Path<"id"> id,
+           conflux::http::OptionalQuery<"q"> q,
+           conflux::http::OptionalHeader<"x-trace-id"> trace_id,
+           conflux::http::OptionalCookie<"session"> session) {
+            if (id.get().empty()) {
+                return conflux::http::Response::bad_request("missing id");
+            }
+            if (q.get().has_value() || trace_id.get().has_value() || session.get().has_value()) {
+                return conflux::http::html("<p>ok</p>");
+            }
+            return conflux::http::text(std::string_view{"ok"});
+        }).name("items.show");
     return app.routes().empty() ? 1 : 0;
 }
 ]])
