@@ -562,6 +562,7 @@ router.post("/echo", [](http::RequestView const& req) -> root::Task<http::Respon
 });
 
 // Explicit worker placement for blocking/heavy work.
+// Requires import conflux.http.extended.
 auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
 router.get("/slow", [pool](http::RequestView const&) -> http::Response {
     return http::offload(pool, [] {
