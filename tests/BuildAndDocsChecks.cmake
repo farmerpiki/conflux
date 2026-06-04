@@ -115,6 +115,9 @@ if(CONFLUX_BUILD_TESTS)
     conflux_add_python_check(docs/first-contact-public-dialect
         scripts/check-first-contact-public-dialect.py
         "docs;lint;public-api")
+    conflux_add_python_check(docs/public-api-naming
+        scripts/check-public-api-naming.py
+        "docs;lint;public-api")
     conflux_add_python_check(docs/public-api-map
         scripts/check-public-api-map-docs.py
         "docs;public-api;release")
