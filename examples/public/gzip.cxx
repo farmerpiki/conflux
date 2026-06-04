@@ -4,7 +4,7 @@
 //   curl -si -H "Accept-Encoding: gzip" http://localhost:9093/ | head -8
 //   curl -s  -H "Accept-Encoding: gzip" http://localhost:9093/     | gunzip
 //   curl -s                              http://localhost:9093/api/data  # uncompressed
-import conflux.extended;
+import conflux;
 import conflux.net.compress;
 import std;
 
