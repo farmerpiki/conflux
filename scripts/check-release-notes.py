@@ -18,6 +18,8 @@ def fail(message: str) -> None:
 
 
 text = NOTES.read_text(encoding="utf-8")
+lower_text = text.lower()
+normalized_lower_text = " ".join(lower_text.split())
 release_skus = json.loads((ROOT / "docs/release-skus.json").read_text(encoding="utf-8"))
 if not isinstance(release_skus, dict):
     fail("docs/release-skus.json must be a JSON object")
@@ -55,5 +57,13 @@ for sku_name, sku in sorted(release_skus.items()):
 for phrase in ["modules-first", "Generated headers are staged release artifacts", "stage-release-artifacts.sh"]:
     if phrase not in text:
         fail(f"release notes must document modules-first release artifacts: {phrase}")
+
+for phrase in ["compatibility re-export", "compatibility aliases are available", "compatibility aliases remain"]:
+    if phrase in lower_text:
+        fail(f"release notes must not advertise deprecated compatibility aliases: {phrase}")
+
+for phrase in ["deprecated compatibility aliases are not part of the advertised surface", "`db` is not an advertised preview package component"]:
+    if phrase not in normalized_lower_text:
+        fail(f"release notes must state preview alias/package cleanup policy: {phrase}")
 
 print("check-release-notes: ok")
