@@ -14,6 +14,9 @@ if(TARGET conflux_net_http)
     add_executable(conflux_http_facade_routes_tests http_facade_routes_test.cxx)
     target_link_libraries(conflux_http_facade_routes_tests
         PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
+    add_executable(conflux_http_facade_response_tests http_facade_response_test.cxx)
+    target_link_libraries(conflux_http_facade_response_tests
+        PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
     add_executable(conflux_http_facade_validation_tests http_facade_validation_test.cxx)
     target_link_libraries(conflux_http_facade_validation_tests
         PRIVATE conflux_net_http conflux_options Catch2::Catch2WithMain)
@@ -24,6 +27,7 @@ if(TARGET conflux_net_http)
             http_facade_extractors_test.cxx
             http_facade_observability_test.cxx
             http_facade_openapi_test.cxx
+            http_facade_response_test.cxx
             http_facade_routes_test.cxx
             http_facade_validation_test.cxx
             PROPERTIES COMPILE_OPTIONS "-fno-lto")
