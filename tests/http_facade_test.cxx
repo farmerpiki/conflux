@@ -54,10 +54,13 @@ TEST_CASE(
 	auto owned = std::make_shared<std::string>("owned");
 	auto const *owned_ptr = owned.get();
 	app.state(owned);
-	CHECK(app.state<std::string>().value == owned_ptr);
-	CHECK(*app.state<std::string>() == "owned");
-	REQUIRE(app.state<std::shared_ptr<std::string>>().value != nullptr);
-	CHECK(*app.state<std::shared_ptr<std::string>>().get() == "owned");
+	auto owned_state = app.state<std::string>();
+	REQUIRE(owned_state.value != nullptr);
+	CHECK(owned_state.value == owned_ptr);
+	CHECK(owned_state.get() == "owned");
+	auto shared_state = app.state<std::shared_ptr<std::string>>();
+	REQUIRE(shared_state.value != nullptr);
+	CHECK(*shared_state.get() == "owned");
 }
 
 TEST_CASE(
@@ -71,11 +74,15 @@ TEST_CASE(
 	CHECK(app.state<int>().get() == 11);
 
 	app.state_owned(std::string{"owned"});
-	CHECK(app.state<std::string>().get() == "owned");
+	auto owned_state = app.state<std::string>();
+	REQUIRE(owned_state.value != nullptr);
+	CHECK(owned_state.get() == "owned");
 
 	auto shared = std::make_shared<double>(2.5);
 	app.state_shared(shared);
-	CHECK(app.state<std::shared_ptr<double>>().get() == shared);
+	auto shared_state = app.state<std::shared_ptr<double>>();
+	REQUIRE(shared_state.value != nullptr);
+	CHECK(shared_state.get() == shared);
 }
 
 TEST_CASE(
