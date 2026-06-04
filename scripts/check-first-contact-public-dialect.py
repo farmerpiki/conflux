@@ -30,6 +30,13 @@ PATTERN = re.compile(
 QUICKSTART_ALLOWED_LEAF_IMPORTS = {
     "import conflux.json.reflect;",
 }
+QUICKSTART_SOURCE_FORBIDDEN = re.compile(
+    r"\b(?:Router|HttpServer|RequestContext|ContextHandler)\b"
+    r"|conflux::work::Task"
+    r"|http::Task"
+    r"|(?<![A-Za-z0-9_])(?:offload|defer)(?![A-Za-z0-9_])"
+    r"|import conflux\.(?:extended|http\.extended);"
+)
 
 
 def check_http_server_api_order(failures: list[str]) -> None:
@@ -95,6 +102,11 @@ def main() -> int:
                     rel = path.relative_to(ROOT)
                     failures.append(
                         f"{rel}:{line_no}: quickstart examples must not import advanced leaves: {stripped}",
+                    )
+                if path.suffix == ".cxx" and QUICKSTART_SOURCE_FORBIDDEN.search(line):
+                    rel = path.relative_to(ROOT)
+                    failures.append(
+                        f"{rel}:{line_no}: quickstart source must not teach advanced HTTP escape hatches: {stripped}",
                     )
 
     if failures:
