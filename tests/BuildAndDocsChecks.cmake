@@ -118,6 +118,9 @@ if(CONFLUX_BUILD_TESTS)
     conflux_add_python_check(docs/package-docs
         scripts/check-package-docs.py
         "docs;package")
+    conflux_add_python_check(docs/cancellation
+        scripts/check-cancellation-docs.py
+        "docs;runtime;http")
     conflux_add_python_check(docs/security-posture
         scripts/check-security-posture-docs.py
         "docs;http;security")
