@@ -866,6 +866,10 @@ Precompressed serving: if `Accept-Encoding: gzip` is present and `file.gz` exist
 body completion where the response carries a `StreamedFile`. The callback runs
 once with `StreamedFileResult::completed` after the file body is delivered, or
 `StreamedFileResult::failed` if the stream is abandoned or the send path fails.
+Cancelling a streamed static response stops future response work owned by the
+server, but already-submitted async file reads, sends, or zero-copy notifications
+may still complete and are handled through the response/connection state. Drain
+and request deadlines own timeout behavior for this path.
 
 ---
 

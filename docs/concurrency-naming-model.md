@@ -17,6 +17,11 @@ Current executor families:
 
 New task APIs may add adapters or new executor backends, but they must keep task
 progress executor-owned and must not introduce a second non-executor task model.
+User-task cancellation is cooperative unless an awaitable or provider installs
+a cancellation hook. A request made before admission may complete the task as
+cancelled; a running task observes cancellation through its task control,
+`Cancellation` parameter, child-await binding, or provider hook. A terminal
+success, failure, or cancellation result wins once committed.
 
 ## HTTP handler placement
 

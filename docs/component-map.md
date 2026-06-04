@@ -111,12 +111,12 @@ Recommended starting components: `json`, `json_file`, `http`, and `umbrella`.
 | `uring_timeout` | `conflux::uring_timeout` | `conflux.uring.timeout` | complete | `tests/uring_flow_test.cxx` |
 | `file_io_sync` | `conflux::file_io_sync` | `conflux.file_io_sync` | extended | `examples/advanced/file_io.cxx`, `tests/file_io_sync_test.cxx` |
 | `file_map` | `conflux::file_map` | `conflux.file_map` | extended | `tests/file_io_sync_test.cxx` |
-| `file_io` | `conflux::file_io` | `conflux.file_io` umbrella plus `conflux.file_io.buffers`, `conflux.file_io.pipe_pool`, `conflux.file_io.reader`, `conflux.file_io.iopoll`, `conflux.file_io.driver` leaf modules | complete | `examples/advanced/file_io.cxx`, `tests/file_io_test.cxx` |
+| `file_io` | `conflux::file_io` | `conflux.file_io` umbrella plus `conflux.file_io.buffers`, `conflux.file_io.pipe_pool`, `conflux.file_io.reader`, `conflux.file_io.iopoll`, `conflux.file_io.driver` leaf modules | complete | `docs/file-io-api.md`, `examples/advanced/file_io.cxx`, `tests/file_io_test.cxx` |
 | `file_watch` | `conflux::file_watch` | `conflux.file_watch` | complete | `src/file_watch.cxx` |
 | `template` | `conflux::template` | `conflux.templates` | extended | `examples/advanced/template_pages.cxx`, `tests/template_test.cxx` |
 | `template_watch` | `conflux::template_watch` | `conflux.templates.watch` | extended | `examples/advanced/template_pages.cxx` |
 | `socket_io` | `conflux::socket_io` | `conflux.socket_io`, `conflux.socket_io.coro`, `conflux.socket_io.blocking` | complete | `tests/socket_task_ring_test.cxx`, `tests/tcp_listener_test.cxx` |
-| `dns` | `conflux::dns` | `conflux.net.dns` | complete | `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
+| `dns` | `conflux::dns` | `conflux.net.dns` | complete | `docs/dns-api.md`, `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
 | `dns_bridge` | `conflux::dns_bridge` | `conflux.dns_bridge` HTTP-client DNS bridge provider | complete | `examples/advanced/http_client_builder.cxx` |
 | `process` | `conflux::process` | `conflux.process` | extended | `examples/advanced/process_run.cxx`, `tests/process_test.cxx` |
 | `pg` | `conflux::pg` | `conflux.pg` PostgreSQL API | extended | `docs/db-api.md`, `examples/advanced/db_basic.cxx`, `examples/advanced/db_pool.cxx` |

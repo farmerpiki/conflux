@@ -461,7 +461,12 @@ conflux::http::async_send(
     ClientRequest const& req);
 ```
 
-Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine; do not destroy them while the task is suspended.
+Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all
+outlive the coroutine; do not destroy them while the task is suspended.
+Cancellation is routed through `SocketTaskRing` and is best effort for
+already-submitted DNS, connect, TLS, write, and read work. Once `async_send`
+has produced a terminal `ClientResult` or error, later cancellation does not
+rewrite that result.
 
 **Features:**
 
