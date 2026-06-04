@@ -116,7 +116,7 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::RequestView const &req,
 	conflux::http::HttpFieldsView const &matched_params,
 	std::string const &route_pattern,
-	bool observe_route) {
+	[[maybe_unused]] bool observe_route) {
 	auto all_params = req.params;
 	for (auto const &[k, v]: matched_params) {
 		if (!all_params.get(k)) {
