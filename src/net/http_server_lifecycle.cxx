@@ -249,7 +249,7 @@ void Ring::submit_fd_shutdown_or_defer(
 
 void Ring::handle_fd_shutdown(
 	int fd,
-	int res,
+	[[maybe_unused]] int res,
 	std::uint32_t gen) {
 	HTTP_TRACE(
 		std::format(
@@ -264,7 +264,6 @@ void Ring::handle_fd_shutdown(
 		return;
 	}
 	submit_conn_close_or_defer(fd, gen);
-	(void)res;
 }
 
 void Ring::queue_close(
