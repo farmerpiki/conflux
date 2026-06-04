@@ -15,7 +15,6 @@ run_smoke() {
     printf 'header-component-smoke: configure %s (%s)\n' "$name" "$feature_set"
     cmake -S . -B "$build_dir" \
         -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
-        -DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON \
         -DCONFLUX_FEATURE_SET="$feature_set" \
         -DCONFLUX_BUILD_TESTS=OFF \
         -DCONFLUX_BUILD_BENCHMARKS=OFF \

@@ -17,4 +17,4 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     --feature-set http-minimal \
     --interface-mode HEADER_INTERFACE \
     --generator Ninja \
-    -- -DCONFLUX_POSTGRES_PROVIDER=OFF -DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON
+    -- -DCONFLUX_POSTGRES_PROVIDER=OFF

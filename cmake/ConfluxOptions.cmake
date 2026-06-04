@@ -10,8 +10,6 @@ set(CONFLUX_USE_IMPORT_STD "AUTO" CACHE STRING
 set_property(CACHE CONFLUX_USE_IMPORT_STD PROPERTY STRINGS AUTO ON OFF)
 option(CONFLUX_ROUTER_LAZY_ROUTE_METADATA
     "Skip internal route-pattern param injection unless route observation requests it" ON)
-option(CONFLUX_HEADER_INTERFACE_WITH_SOURCES
-    "Attach generated non-module implementation sources to conflux::headers; experimental" OFF)
 option(CONFLUX_HEADER_FAST_COMPILE
     "Compile generated header-mode implementation and smoke targets without optimization or module scanning" ON)
 option(CONFLUX_HEADER_USE_IMPORT_STD
@@ -531,11 +529,10 @@ else()
 endif()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"
-        AND CONFLUX_HEADER_INTERFACE_WITH_SOURCES
         AND _conflux_simd_selection_runtime)
     message(FATAL_ERROR
         "conflux: CONFLUX_SIMD_SELECTION=RUNTIME is not supported with "
-        "HEADER_INTERFACE_WITH_SOURCES yet; use DIRECT or MODULE_INTERFACE")
+        "HEADER_INTERFACE yet; use DIRECT or MODULE_INTERFACE")
 endif()
 
 set(_conflux_cpu_feature_probes_runtime OFF)

@@ -423,8 +423,7 @@ function(conflux_link_existing_header_impls_private target)
 endfunction()
 
 function(conflux_define_header_impl_targets)
-    if(NOT CONFLUX_HEADER_INTERFACE_WITH_SOURCES
-            OR NOT DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
+    if(NOT DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)
         return()
     endif()
 
@@ -549,7 +548,7 @@ function(conflux_define_header_impl_targets)
         target_link_libraries(conflux_header_impl INTERFACE ${_impl_targets})
     else()
         message(STATUS
-            "conflux: HEADER_INTERFACE_WITH_SOURCES selected no implementation sources")
+            "conflux: HEADER_INTERFACE selected no implementation sources")
     endif()
 endfunction()
 
@@ -636,7 +635,7 @@ function(conflux_add_header_example_from_id target source_id)
             "conflux_add_header_example_from_id(${target}) got unexpected arguments: "
             "${CONFLUX_HEADER_EXAMPLE_UNPARSED_ARGUMENTS}")
     endif()
-    if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND CONFLUX_HEADER_LINK_EXAMPLES)
+    if(CONFLUX_HEADER_LINK_EXAMPLES)
         conflux_add_executable_from_id(${target} "${source_id}")
     else()
         conflux_add_object_from_id(${target} "${source_id}")
@@ -657,7 +656,6 @@ endfunction()
 
 function(conflux_add_header_link_smoke_targets)
     if(NOT CONFLUX_HEADER_LINK_SMOKE
-            OR NOT CONFLUX_HEADER_INTERFACE_WITH_SOURCES
             OR NOT CONFLUX_WANT_HTTP_SERVER)
         return()
     endif()
@@ -1119,7 +1117,7 @@ function(conflux_add_header_consumer_compile_target aggregate target_prefix enab
     foreach(_source_id IN LISTS ARGN)
         conflux_source_id_to_target_suffix(_target_suffix "${_source_id}")
         set(_target "${target_prefix}_${_target_suffix}")
-        if(aggregate STREQUAL "conflux_header_benchmarks" AND CONFLUX_HEADER_INTERFACE_WITH_SOURCES)
+        if(aggregate STREQUAL "conflux_header_benchmarks")
             conflux_add_executable_from_id(${_target} "${_source_id}")
         else()
             conflux_add_object_from_id(${_target} "${_source_id}")

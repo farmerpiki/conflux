@@ -1540,7 +1540,7 @@ def render_cmake_fragment(manifest: dict[str, object]) -> str:
         "    else()",
         "        target_compile_features(${target} INTERFACE cxx_std_23)",
         "    endif()",
-        "    if(CONFLUX_HEADER_INTERFACE_WITH_SOURCES AND DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)",
+        "    if(DEFINED CONFLUX_BRIDGE_HEADER_IMPL_SOURCES)",
         "        set(_conflux_header_impl_target ${target}_impl)",
         "        add_library(${_conflux_header_impl_target} STATIC ${CONFLUX_BRIDGE_HEADER_IMPL_SOURCES})",
         "        target_include_directories(${_conflux_header_impl_target} PRIVATE \"${CONFLUX_GENERATED_INCLUDE_DIR}\" \"${CONFLUX_SRC_ROOT}\")",

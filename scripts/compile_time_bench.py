@@ -69,7 +69,6 @@ def configure_args(source: pathlib.Path, build: pathlib.Path, ns: argparse.Names
         "-B",
         str(build),
         f"-DCONFLUX_INTERFACE_MODE={ns.interface_mode}",
-        "-DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON",
         f"-DCONFLUX_FEATURE_SET={ns.feature_set}",
         "-DCONFLUX_BUILD_TESTS=OFF",
         "-DCONFLUX_BUILD_BENCHMARKS=OFF",

@@ -14,7 +14,6 @@ fi
 printf 'header-first-contact-smoke: configure http-api\n'
 cmake -S . -B "$build_root" \
     -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE \
-    -DCONFLUX_HEADER_INTERFACE_WITH_SOURCES=ON \
     -DCONFLUX_FEATURE_SET=http-api \
     -DCONFLUX_BUILD_TESTS=OFF \
     -DCONFLUX_BUILD_BENCHMARKS=OFF \

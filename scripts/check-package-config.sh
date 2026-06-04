@@ -119,6 +119,7 @@ package metadata generator must reject component partition drift|package-config 
 check_build_docs_guard_contracts|package-config structure guard must verify build/docs guard contracts
 compile-fail checks must stay compile-time OBJECT target checks|package-config structure guard must keep compile-fail CTest contract
 check_header_interface_contracts|package-config structure guard must verify header interface contracts
+header-interface implementation sources must not be optional|package-config structure guard must keep header implementation sources mandatory
 release-header-artifacts must pin release-json feature set|package-config structure guard must keep release-header-artifacts preset checks
 check_header_http_impls_do_not_pull_json|package-config structure guard must protect header HTTP/JSON implementation isolation
 header example registration must parse explicit implementation deps|package-config structure guard must require explicit header example implementation dependency parsing

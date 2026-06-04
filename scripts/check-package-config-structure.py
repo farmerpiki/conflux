@@ -688,6 +688,26 @@ def check_header_public_components_use_registry_exports() -> None:
 
 
 def check_header_interface_contracts() -> None:
+    forbidden = {
+        "cmake/ConfluxOptions.cmake": {
+            "CONFLUX_HEADER_INTERFACE_WITH_SOURCES": "header-interface implementation sources must not be optional",
+        },
+        "cmake/ConfluxInterfaceMode.cmake": {
+            "CONFLUX_HEADER_INTERFACE_WITH_SOURCES": "header-interface implementation sources must not be optional",
+        },
+        "scripts/module_header_bridge.py": {
+            "CONFLUX_HEADER_INTERFACE_WITH_SOURCES": "header bridge must always attach generated implementation sources",
+        },
+    }
+    failures = [
+        f"{path}: {message}"
+        for path, markers in forbidden.items()
+        for marker, message in markers.items()
+        if marker in read(path)
+    ]
+    if failures:
+        fail("\n".join(failures))
+
     checks = {
         "cmake/ConfluxOptions.cmake": {
             "CONFLUX_PACKAGE_SMOKE_COMPONENTS": "missing package smoke component cache variable",

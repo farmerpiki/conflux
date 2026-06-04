@@ -220,10 +220,8 @@ outside the tracked source tree.
   selected aggregate lane; core/json-only builds use explicit leaf imports because
   aggregate re-exports are feature-lane dependent and not used to gate component
   visibility.
-- `CONFLUX_HEADER_INTERFACE_WITH_SOURCES=OFF` remains only as migration-era
-  include/declaration smoke scaffolding. Remove it before public preview; the
-  released header interface must always ship implementation sources or stop
-  advertising implementation-backed components.
+- Header-interface release artifacts always include generated implementation
+  sources for implementation-backed public components.
 - `scripts/check-package-smoke-runtime.sh` passes or skips explicitly based on
   real `liburing` availability. It is the lane that requests
   `core;json;http;file_io_sync;work`.
