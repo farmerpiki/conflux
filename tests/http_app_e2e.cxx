@@ -14,7 +14,7 @@ import conflux.work;
 namespace {
 namespace chttp = conflux::http;
 
-chttp::Task<void> short_async_test_delay() {
+conflux::work::Task<void> short_async_test_delay() {
 	auto task_source = conflux::work::root::make_task_source<int>();
 	auto gate = std::move(std::get<0>(task_source));
 	auto source = std::move(std::get<1>(task_source));
@@ -25,13 +25,13 @@ chttp::Task<void> short_async_test_delay() {
 	auto _ = co_await std::move(gate);
 }
 
-chttp::Task<chttp::Response> async_body_text_echo(
+conflux::work::Task<chttp::Response> async_body_text_echo(
 	chttp::BodyText const &body) {
 	co_await short_async_test_delay();
 	co_return chttp::text(body.get());
 }
 
-chttp::Task<chttp::Response> async_request_view_echo(
+conflux::work::Task<chttp::Response> async_request_view_echo(
 	chttp::RequestView req) {
 	co_await short_async_test_delay();
 	co_return chttp::text(std::format("{}:{}", req.header("x-check"), req.body));
@@ -189,7 +189,7 @@ TEST_CASE(
 		"/async-timeout",
 		timeout,
 		[&observed_reason](conflux::http::RequestView const &, chttp::RequestContext const &)
-			-> chttp::Task<chttp::Response> {
+			-> conflux::work::Task<chttp::Response> {
 			auto source_slot = std::make_shared<std::optional<root::TaskSource<chttp::Response>>>();
 			auto [task, source] = root::make_cancellable_task_source<chttp::Response>(
 				[&observed_reason, source_slot](root::CancelReason reason) noexcept {
@@ -221,7 +221,7 @@ TEST_CASE(
 	app.use(
 		[](chttp::RequestView req,
 		   chttp::RequestContext const &ctx,
-		   chttp::AsyncNext const &next) -> chttp::Task<chttp::Response> {
+		   auto const &next) -> conflux::work::Task<chttp::Response> {
 			auto task_source = conflux::work::root::make_task_source<int>();
 			auto gate = std::move(std::get<0>(task_source));
 			auto source = std::move(std::get<1>(task_source));

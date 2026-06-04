@@ -2,6 +2,7 @@
 #include <coroutine>
 
 import conflux.http;
+import conflux.work;
 
 namespace http = conflux::http;
 
@@ -10,5 +11,5 @@ void invalid_use_async_member() {
 	app.use_async(
 		[](http::RequestView const &,
 		   http::RequestContext const &,
-		   http::AsyncNext const &next) -> http::Task<http::Response> { co_return http::text("bad"); });
+		   auto const &next) -> conflux::work::Task<http::Response> { co_return http::text("bad"); });
 }

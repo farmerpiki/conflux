@@ -174,9 +174,9 @@ TEST_CASE(
 	"[http.facade]") {
 	auto app = http::app();
 	app.get("/before", [] { return http::no_content(); });
-	app.use([](http::RequestView const &req, http::Next const &next) { return next(req); });
+	app.use([](http::RequestView const &req, auto const &next) { return next(req); });
 	app.get("/after-one", [] { return http::no_content(); });
-	app.use([](http::RequestView const &req, http::Next const &next) { return next(req); });
+	app.use([](http::RequestView const &req, auto const &next) { return next(req); });
 	app.get("/after-two", [] { return http::no_content(); });
 
 	auto routes = app.routes();
@@ -196,7 +196,7 @@ TEST_CASE(
 	app.use(
 		[](http::RequestView const &req,
 		   http::RequestContext const &ctx,
-		   http::AsyncNext const &next) -> http::Task<http::Response> {
+		   auto const &next) -> conflux::work::Task<http::Response> {
 			auto response = co_await next(req, ctx);
 			response.headers.set("x-async-middleware", "1");
 			co_return response;
@@ -216,7 +216,7 @@ TEST_CASE(
 	auto close_count = std::make_shared<int>(0);
 	auto channel = std::make_shared<http::SseChannel>();
 
-	app.use([close_count](http::RequestView const &req, http::Next const &next) {
+	app.use([close_count](http::RequestView const &req, auto const &next) {
 		auto response = next(req);
 		if (response.is_sse()) {
 			response.sse_channel_ptr()->on_close([close_count] { ++*close_count; });
@@ -240,9 +240,11 @@ TEST_CASE(
 	"http facade: ordinary verbs accept context handlers",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get("/context", [](http::RequestView const &, http::RequestContext const &) -> http::Task<http::Response> {
-		co_return http::text("context");
-	});
+	app.get(
+		"/context",
+		[](http::RequestView const &, http::RequestContext const &) -> conflux::work::Task<http::Response> {
+			co_return http::text("context");
+		});
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
@@ -260,7 +262,7 @@ TEST_CASE(
 	std::string value = "async-state";
 	app.state(value);
 
-	app.get("/async-state", [](http::State<std::string> state) -> http::Task<http::Json<FacadeAnswer>> {
+	app.get("/async-state", [](http::State<std::string> state) -> conflux::work::Task<http::Json<FacadeAnswer>> {
 		co_return http::json(FacadeAnswer{.value = state.get()});
 	});
 
@@ -282,12 +284,12 @@ TEST_CASE(
 		group.use(
 			[](http::RequestView const &req,
 			   http::RequestContext const &ctx,
-			   http::AsyncNext const &next) -> http::Task<http::Response> {
+			   auto const &next) -> conflux::work::Task<http::Response> {
 				auto response = co_await next(req, ctx);
 				response.headers.set("x-async-group", "api");
 				co_return response;
 			});
-		(void)group.get("/async-state", [](http::State<std::string> state) -> http::Task<http::Response> {
+		(void)group.get("/async-state", [](http::State<std::string> state) -> conflux::work::Task<http::Response> {
 			co_return http::text(state.get());
 		});
 	});
@@ -364,7 +366,7 @@ TEST_CASE(
 	"[http.facade]") {
 	auto app = http::app();
 	app.group("/api", [](auto &group) {
-		group.use([](http::RequestView const &req, http::Next const &next) {
+		group.use([](http::RequestView const &req, auto const &next) {
 			auto response = next(req);
 			response.headers.set("x-group", "api");
 			return response;

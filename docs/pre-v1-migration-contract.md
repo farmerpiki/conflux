@@ -42,7 +42,7 @@ Current HTTP direction:
 
 - Keep synchronous handlers supported, but they run on ring threads and must stay
   short, bounded, and non-blocking.
-- Prefer facade async handlers (`http::Task<http::Response>`) when the work
+- Prefer facade async handlers (`conflux::work::Task<http::Response>`) when the work
   has explicit suspension points.
 - Use explicit executor handoff for executor-owned chains. Reserve
   `blocking_*` names for raw syscall-style helpers that can block the calling
@@ -110,11 +110,11 @@ int main() {
 		return http::text("ok");
 	});
 
-	app.get("/task", [](http::RequestView const &) -> http::Task<http::Response> {
+	app.get("/task", [](http::RequestView const &) -> conflux::work::Task<http::Response> {
 		co_return http::text("task-ok");
 	});
 
-	app.get("/context", [](http::RequestView const &, http::RequestContext const &) -> http::Task<http::Response> {
+	app.get("/context", [](http::RequestView const &, http::RequestContext const &) -> conflux::work::Task<http::Response> {
 		co_return http::text("context-ok");
 	});
 
@@ -132,7 +132,7 @@ that can stall must not be hidden inside ordinary sync handlers.
 
 Preferred explicit options:
 
-- Return `http::Task<http::Response>` when the handler naturally
+- Return `conflux::work::Task<http::Response>` when the handler naturally
   composes with coroutine/task suspension. The task still progresses through an
   executor; there is no non-executor task path.
 - Use a caller-owned executor/work pool for blocking callables where that is the

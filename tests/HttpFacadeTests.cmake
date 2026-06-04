@@ -399,6 +399,30 @@ if(TARGET conflux_net_http)
         EXPECT "conflux_http_facade_unexpected_router_alias_visible")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_task_alias
+        SOURCE http_facade_compile_fail_task_alias.cxx
+        TEST http-facade/compile-fail-task-alias
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "Task")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_next_alias
+        SOURCE http_facade_compile_fail_next_alias.cxx
+        TEST http-facade/compile-fail-next-alias
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "Next")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_http_facade_compile_fail_async_next_alias
+        SOURCE http_facade_compile_fail_async_next_alias.cxx
+        TEST http-facade/compile-fail-async-next-alias
+        LINK conflux_net_http conflux_options
+        LABELS http compile-fail
+        EXPECT "AsyncNext")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_http_facade_compile_fail_route_policy_internal
         SOURCE http_facade_compile_fail_route_policy_internal.cxx
         TEST http-facade/compile-fail-route-policy-internal

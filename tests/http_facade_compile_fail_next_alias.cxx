@@ -1,0 +1,7 @@
+// Intentionally invalid: Next shorthand is extended-only.
+import conflux.http;
+
+int main() {
+	namespace http = conflux::http;
+	static_assert(requires { typename http::Next; }, "conflux_http_facade_unexpected_next_alias_visible");
+}

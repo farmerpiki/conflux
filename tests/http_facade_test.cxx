@@ -16,7 +16,6 @@ using namespace conflux::http;
 using conflux::http::SecretSource;
 using conflux::http::SecretSourceKind;
 
-static_assert(std::same_as<http::Task<http::Response>, conflux::work::Task<http::Response>>);
 static_assert(std::same_as<http::Config, conflux::http::Config>);
 static_assert(std::same_as<http::HttpPressureMetrics, conflux::http::HttpPressureMetrics>);
 

@@ -33,7 +33,7 @@ Supported handler shapes:
 | Shape | Placement | Intended use |
 |---|---|---|
 | `http::Response` from `http::RequestView` or `http::Request` | ring thread | short, bounded, non-blocking work |
-| `http::Task<http::Response>` from normalized `http::RequestView` or owning `http::Request` | executor-owned task progress | workflows with explicit suspension points |
+| `conflux::work::Task<http::Response>` from normalized `http::RequestView` or owning `http::Request` | executor-owned task progress | workflows with explicit suspension points |
 | deferred/streaming response | ring-owned response handle plus explicit async writer task | chunked output, SSE-style response bodies, delayed completion |
 | explicit `http::offload(pool, ...)` or equivalent caller-owned executor handoff | chosen worker/executor | blocking or CPU-heavy work made visible at the call site |
 

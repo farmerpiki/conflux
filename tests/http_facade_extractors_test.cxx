@@ -223,8 +223,9 @@ TEST_CASE(
 	"http facade: fixed typed routes support task handlers",
 	"[http.facade]") {
 	auto app = http::app();
-	app.get<"/async-todos/{id:i64}">(
-		[](std::int64_t id) -> http::Task<http::Response> { co_return http::text(std::format("todo={}", id)); });
+	app.get<"/async-todos/{id:i64}">([](std::int64_t id) -> conflux::work::Task<http::Response> {
+		co_return http::text(std::format("todo={}", id));
+	});
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);

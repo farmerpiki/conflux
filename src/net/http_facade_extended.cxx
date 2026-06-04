@@ -21,6 +21,10 @@ using WorkPoolOptions = conflux::work::WorkPoolOptions;
 using WorkPoolQueueMode = conflux::work::WorkPoolQueueMode;
 using WorkPoolQueueStats = conflux::work::WorkPoolQueueStats;
 using Router = std::remove_reference_t<decltype(router(std::declval<App &>()))>;
+template<class T>
+using Task = conflux::work::Task<T>;
+using Next = Router::Handler;
+using AsyncNext = Router::AsyncNext;
 
 #if !defined(CONFLUX_INTERFACE_HEADER)
 template<class F>

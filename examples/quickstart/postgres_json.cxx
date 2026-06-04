@@ -1,5 +1,6 @@
 import conflux;
 import conflux.pg;
+import conflux.work;
 import std;
 
 namespace http = conflux::http;
@@ -36,7 +37,7 @@ int main() {
 	});
 	app.state_shared(pool);
 
-	app.get("/db/status", [](http::State<pg::Pool> pool) -> http::Task<http::Json<DbStatus>> {
+	app.get("/db/status", [](http::State<pg::Pool> pool) -> conflux::work::Task<http::Json<DbStatus>> {
 		auto lease = co_await pool->acquire();
 		auto rows =
 			co_await lease->query("SELECT current_database() AS database, pg_backend_pid()::int8 AS backend_pid");

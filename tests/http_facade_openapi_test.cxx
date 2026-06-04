@@ -204,7 +204,7 @@ TEST_CASE(
 	"http facade: app openapi spec includes route-local policy metadata",
 	"[http.facade]") {
 	auto app = http::app();
-	app.use([](http::RequestView const &req, http::Next const &next) { return next(req); });
+	app.use([](http::RequestView const &req, auto const &next) { return next(req); });
 	app.post("/upload", [](http::BodyText) { return http::no_content(); })
 		.timeout(std::chrono::seconds{5})
 		.rate_limit("uploads")

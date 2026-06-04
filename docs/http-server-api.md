@@ -739,7 +739,7 @@ public:
 them to an SSE response returned through the facade path:
 
 ```cpp
-app.use([](http::RequestView const& req, http::Next const& next) {
+app.use([](http::RequestView const& req, auto const& next) {
     auto response = next(req);
     if (response.is_sse()) {
         response.sse_channel_ptr()->on_close([] {
@@ -751,7 +751,7 @@ app.use([](http::RequestView const& req, http::Next const& next) {
 
 app.use([](http::RequestView const& req,
            http::RequestContext const& ctx,
-           http::AsyncNext const& next) -> http::Task<http::Response> {
+           auto const& next) -> conflux::work::Task<http::Response> {
     auto response = co_await next(req, ctx);
     response.headers["x-async-middleware"] = "1";
     co_return response;

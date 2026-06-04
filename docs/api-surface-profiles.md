@@ -132,7 +132,9 @@ the selected aggregate profile.
 
 `conflux.http` keeps route registration,
 request/response helpers, typed extractors, JSON response helpers, common middleware
-helper functions, and coroutine handler spelling. Lower-level WorkPool-based offload helpers,
-blocking file helpers, OpenAPI route-handler mounting, named middleware concept aliases,
-and raw-router access are intentionally outside the curated façade; use `import conflux.http.extended`,
-`import conflux.extended`, or explicit leaf imports for those escape hatches.
+helper functions, and coroutine handler support through the explicit
+`conflux::work::Task` type. Lower-level WorkPool-based offload helpers, blocking
+file helpers, OpenAPI route-handler mounting, named middleware concept aliases,
+raw-router access, and shorthand task/next aliases are intentionally outside the
+curated façade; use `import conflux.http.extended`, `import conflux.extended`, or
+explicit leaf imports for those escape hatches.

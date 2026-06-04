@@ -1,6 +1,7 @@
 // Compile-only API snapshot for the public HTTP facade.
 import std;
 import conflux.http;
+import conflux.work;
 
 namespace http_snapshot {
 
@@ -85,7 +86,7 @@ void middleware_forms_compile() {
 	app.use(http::tracing({.propagate_in_response = false}));
 	app.use(http::trace_context({.propagate_in_response = false}));
 	app.use(http::security_headers({.hsts_max_age = 0}));
-	app.use([](http::RequestView const &req, http::Next const &next) {
+	app.use([](http::RequestView const &req, auto const &next) {
 		auto response = next(req);
 		response.headers.set("x-sync-middleware", "1");
 		return response;
@@ -93,7 +94,7 @@ void middleware_forms_compile() {
 	app.use(
 		[](http::RequestView const &req,
 		   http::RequestContext const &ctx,
-		   http::AsyncNext const &next) -> http::Task<http::Response> {
+		   auto const &next) -> conflux::work::Task<http::Response> {
 			auto response = co_await next(req, ctx);
 			response.headers.set("x-async-middleware", "1");
 			co_return response;
@@ -102,14 +103,16 @@ void middleware_forms_compile() {
 		group.use(
 			[](http::RequestView const &req,
 			   http::RequestContext const &ctx,
-			   http::AsyncNext const &next) -> http::Task<http::Response> {
+			   auto const &next) -> conflux::work::Task<http::Response> {
 				auto response = co_await next(req, ctx);
 				response.headers.set("x-group-async-middleware", "1");
 				co_return response;
 			});
-		(void)group.get("/", [](http::RequestView const &, http::RequestContext const &) -> http::Task<http::Response> {
-			co_return http::text("ok");
-		});
+		(void)group.get(
+			"/",
+			[](http::RequestView const &, http::RequestContext const &) -> conflux::work::Task<http::Response> {
+				co_return http::text("ok");
+			});
 	});
 }
 
