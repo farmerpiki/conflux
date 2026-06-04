@@ -208,6 +208,8 @@ outside the tracked source tree.
 - Runtime docs still state that `io_uring` is a hard requirement for runtime,
   HTTP server/client components, async file I/O, socket I/O, and tests or
   benchmarks that exercise those surfaces.
+- `docs/execution-model.md` cancellation semantics match async task, socket,
+  TLS, `send_zc`, async file, DNS, and DB behavior when those surfaces change.
 - New optional fast paths are capability-gated and have a fallback or clear
   startup diagnostic.
 - Blocking wait or raw syscall-style surfaces use `blocking_*`; executor-owned

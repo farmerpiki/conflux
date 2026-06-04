@@ -48,6 +48,25 @@ connections, lets active responses finish until the deadline when requested, and
 then forces remaining connections closed. It does not silently offload handler
 work or create a second execution model for shutdown.
 
+## Cancellation semantics
+
+Cancellation is a request, not proof that already-submitted kernel or provider
+work disappeared. Public cancellation APIs must wake the owning executor and
+stop future work they own. In-flight io_uring, TLS, DNS, DB, and user-task work
+may still produce a completion or result, so the owning state machine must treat
+late completions as ordinary races and ignore stale generations or already
+terminal operations.
+
+| Boundary | Before submit / admission | In flight | After CQE / result | Timeout support |
+|---|---|---|---|---|
+| User task (`root::Task`, `TaskControl`) | Cancellation requested before admission completes the task as cancelled when the task has not started. | Running tasks observe cancellation cooperatively, or through a cancellation hook installed by the awaitable/provider. | Once a task has produced a terminal value, error, or cancellation, that terminal state wins. Later cancel requests do not rewrite it. | Deadline helpers and caller-owned races are the supported timeout shape. |
+| Socket read/write (`SocketTaskRing`, HTTP receive/send) | A queued operation may be removed or skipped by closing/waking the owning ring state before submission. | Submitted socket operations are best effort to cancel; close, shutdown, or explicit ring wakeups stop future progress but a CQE may still arrive. | Connection fd/generation and terminal-state checks decide whether a late CQE still belongs to the live operation. Stale CQEs are ignored. | Server, client, drain, and request surfaces own their configured timeouts. |
+| TLS | Cancellation before handshake or record I/O closes/wakes the owning transport state. | OpenSSL has no separate hard cancellation primitive here; cancellation interrupts the transport path and future TLS work. | Late transport/TLS outcomes are accepted only if the connection generation and state still match. | TLS sniff, handshake, request, and drain timeouts are owned by the HTTP/client surfaces that expose them. |
+| `send_zc` and async file-backed send | Cancellation before admission prevents the response/send path from queuing more work. | Already-submitted `send_zc` sends and notifications can still complete; cancellation closes or stops the owning response path. | Late send completions or zero-copy notifications are handled through response/connection state and ignored after the owner is terminal. | Response, drain, and caller-owned deadline paths provide timeout behavior; `send_zc` itself is not a hidden timer. |
+| Async file read | Cancellation before admission prevents the response/task from issuing the read. | Submitted reads are best effort to cancel and may still complete through the ring. | The owning task or response state decides whether a late read result is still usable. | File read timeouts are supplied by the calling task/response surface rather than an implicit file-layer deadline. |
+| DNS resolve | A cancelled queued waiter completes as cancelled before it is attached to live resolver work. | Cancelling one coalesced waiter does not necessarily cancel the shared UDP query; native UDP receive cancellation is best effort. | Late DNS responses update only live waiters that still own the query state. Cancelled waiters stay cancelled. | Resolver query and total timeout options own DNS timeout behavior. |
+| DB acquire/query | A queued pool acquire can be cancelled before a connection is assigned. | Active libpq-backed work uses the DB cancellation APIs such as `cancel_inflight`; provider cancellation remains best effort. | A completed query/acquire keeps its terminal result. Late provider outcomes must not revive cancelled caller state. | Pool acquire timeout and query/provider options own DB timeout behavior. |
+
 ## Public naming model
 
 The long-term public naming model is prefix-based:
