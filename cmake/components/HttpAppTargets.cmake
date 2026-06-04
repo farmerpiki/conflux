@@ -14,6 +14,8 @@ target_sources(conflux_http_app
             ${CONFLUX_SRC_ROOT}/net/app_traits.cxx
             ${CONFLUX_SRC_ROOT}/net/app_types.cxx
             ${CONFLUX_SRC_ROOT}/net/app.cxx
+    PRIVATE
+        ${CONFLUX_SRC_ROOT}/net/app_runtime.cxx
 )
 target_link_libraries(conflux_http_app
     PRIVATE conflux_options
