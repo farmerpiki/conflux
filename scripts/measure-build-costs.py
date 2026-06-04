@@ -50,6 +50,23 @@ def compiler_info(build_dir: pathlib.Path) -> dict[str, str]:
     return info
 
 
+def release_sku_feature_set(root: pathlib.Path, sku: str) -> str | None:
+    if sku == "unknown":
+        return None
+    manifest_path = root / "docs" / "release-skus.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"measure-build-costs: failed to read release SKU manifest: {exc}") from exc
+    sku_entry = manifest.get(sku) if isinstance(manifest, dict) else None
+    if not isinstance(sku_entry, dict):
+        raise SystemExit(f"measure-build-costs: unknown release SKU: {sku}")
+    feature_set = sku_entry.get("feature_set")
+    if not isinstance(feature_set, str) or not feature_set:
+        raise SystemExit(f"measure-build-costs: {sku}.feature_set must be a non-empty string")
+    return feature_set
+
+
 BINARY_TARGETS: list[tuple[str, str]] = [
     ("hello", "examples/conflux_hello"),
     ("production-showcase", "examples/conflux_production_showcase_example"),
@@ -77,12 +94,21 @@ def main() -> int:
 
     build = pathlib.Path(args.build_dir).resolve()
     root = pathlib.Path(__file__).resolve().parents[1]
+    compiler = compiler_info(build)
+    expected_feature_set = release_sku_feature_set(root, args.sku)
+    actual_feature_set = compiler.get("CONFLUX_FEATURE_SET")
+    if expected_feature_set is not None and actual_feature_set != expected_feature_set:
+        raise SystemExit(
+            "measure-build-costs: "
+            f"--sku {args.sku} expects CONFLUX_FEATURE_SET={expected_feature_set}, "
+            f"but {build} has {actual_feature_set or 'unknown'}"
+        )
 
     record: dict = {
         "conflux_commit": git_commit(root),
         "sku": args.sku,
         "build_dir": str(build),
-        "compiler": compiler_info(build),
+        "compiler": compiler,
         "binaries": {},
         "libraries": {},
     }

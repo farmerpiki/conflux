@@ -54,6 +54,8 @@ require_structure_guard_markers() {
 [[ -f scripts/check-release-docs.py ]] || fail "missing release-docs guard"
 [[ -f scripts/check-package-docs.py ]] || fail "missing package-docs guard"
 [[ -f scripts/check-release-notes.py ]] || fail "missing release-notes guard"
+[[ -f scripts/compile_time_bench.py ]] || fail "missing compile-time build-cost benchmark"
+[[ -f scripts/measure-build-costs.py ]] || fail "missing build-cost size baseline reporter"
 [[ -f tests/BuildAndDocsChecks.cmake ]] || fail "missing build/docs CTest registration fragment"
 [[ -f scripts/stage-release-artifacts.sh ]] || fail "missing release artifact staging script"
 [[ -f scripts/check-release-artifact.py ]] || fail "missing release artifact guard"
@@ -99,6 +101,8 @@ undeclared example targets|package-config structure guard must reject stale run-
 check_compile_time_bench_defaults|package-config structure guard must validate compile-time benchmark defaults
 compile-time benchmark default targets are not declared by CMake|package-config structure guard must reject stale compile-time benchmark targets
 compile-time benchmark incremental sources are missing|package-config structure guard must reject stale compile-time benchmark sources
+check_build_cost_release_evidence|package-config structure guard must validate release build-cost evidence wiring
+measure-build-costs.py|package-config structure guard must require the build-cost size reporter
 EOF
 python3 scripts/check-empty-catch-rationale.py . \
     || fail "empty-catch rationale guard failed"

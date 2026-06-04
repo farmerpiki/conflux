@@ -349,6 +349,38 @@ def check_compile_time_bench_defaults() -> None:
         fail("\n".join(errors))
 
 
+def check_build_cost_release_evidence() -> None:
+    checklist = read("docs/release-checklist.md")
+    package_check = read("scripts/check-package-config.sh")
+    reporter = read("scripts/measure-build-costs.py")
+    errors: list[str] = []
+    required_checklist = {
+        "scripts/compile_time_bench.py": "release checklist must require compile-time build-cost evidence",
+        "scripts/measure-build-costs.py --json": "release checklist must require JSON build-size evidence",
+        "Record-only for first preview": "release checklist must keep build-cost evidence record-only",
+        "--sku release-http-api": "release checklist must show SKU-scoped build-cost reporting",
+    }
+    required_package_check = {
+        "[[ -f scripts/compile_time_bench.py ]]": "package config check must require the compile-time benchmark script",
+        "[[ -f scripts/measure-build-costs.py ]]": "package config check must require the build-cost size reporter",
+    }
+    required_reporter = {
+        "def release_sku_feature_set": "build-cost reporter must derive expected feature set from the release SKU manifest",
+        "actual_feature_set != expected_feature_set": "build-cost reporter must reject SKU/build feature-set mismatches",
+        '"conflux_commit"': "build-cost reporter must record the Conflux commit",
+        '"sku": args.sku': "build-cost reporter must record the selected SKU",
+        '"compiler": compiler': "build-cost reporter must record compiler/build metadata",
+        '"binaries": {}': "build-cost reporter must record binary sizes",
+        '"libraries": {}': "build-cost reporter must record library sizes",
+        "first-preview baseline": "build-cost reporter must stay record-only for first preview",
+    }
+    errors.extend(message for marker, message in required_checklist.items() if marker not in checklist)
+    errors.extend(message for marker, message in required_package_check.items() if marker not in package_check)
+    errors.extend(message for marker, message in required_reporter.items() if marker not in reporter)
+    if errors:
+        fail("\n".join(errors))
+
+
 def check_header_bridge_optional_inputs() -> None:
     text = read("cmake/ConfluxInterfaceMode.cmake")
     if "function(conflux_append_optional_bridge_inputs args_out roots_out)" not in text:
@@ -3463,6 +3495,7 @@ def main() -> int:
     check_provider_policy_scenarios_are_isolated()
     check_run_build_artifact_root_examples_are_declared()
     check_compile_time_bench_defaults()
+    check_build_cost_release_evidence()
     check_header_bridge_optional_inputs()
     check_header_http_impls_do_not_pull_json()
     check_header_impl_lists_have_no_duplicates()

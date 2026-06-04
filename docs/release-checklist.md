@@ -19,6 +19,7 @@ bundle, or security-sensitive surface is added.
 | Package/install | `build/package-config`, install prefix, package-smoke component list | Keep `docs/component-map.md` synchronized with installed components. |
 | Docs/migration | List of public API docs touched or reason none changed | Required for public API, migration, config/default, or security-impacting changes. |
 | Cost/lifetime docs | Confirmation that `docs/cost-lifetime-model.md` still matches changed HTTP, JSON, file, or runtime behavior | Required when ownership, copying, allocation, blocking, or zero-copy behavior changes. |
+| Build-cost / size baseline | `scripts/compile_time_bench.py` JSON output and `scripts/measure-build-costs.py --json` output for the selected SKU build | Record-only for first preview; do not treat as a performance claim or pass/fail budget. |
 | Benchmarks | Same-machine benchmark artifact path and raw-run summary | Required only for claimed performance changes; use perf presets only. Final public performance proof is out of scope for the prerelease documentation cleanup. |
 | Security review | Affected component and corpus/regression tests | Required for auth/session/password/token, parser, path traversal, proxy, TLS, DB, DNS, and process-spawn surfaces. |
 | Alias cleanup | Remaining aliases or confirmation none remain | Confirm no deprecated public compatibility aliases are advertised for the preview surface. |
@@ -50,6 +51,27 @@ ctest --preset release-clang-libcxx --output-on-failure
 scripts/run-install-tree-smoke.sh \
   --interface-mode MODULE_INTERFACE \
   --components 'core;json;http;work'
+python3 scripts/compile_time_bench.py \
+  --build /tmp/gcc-16/compile-time-bench \
+  --feature-set release-http-api \
+  --interface-mode MODULE_INTERFACE \
+  --pretty
+cmake -S . -B /tmp/gcc-16/release-http-api-cost-baseline -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=/usr/lib/llvm/21/bin/clang++ \
+  -DCMAKE_C_COMPILER=/usr/lib/llvm/21/bin/clang \
+  -DCONFLUX_FEATURE_SET=release-http-api \
+  -DCONFLUX_INTERFACE_MODE=MODULE_INTERFACE \
+  -DCONFLUX_ENABLE_LTO=ON \
+  -DCONFLUX_LTO_MODE=THIN \
+  -DCONFLUX_BUILD_TESTS=OFF \
+  -DCONFLUX_BUILD_EXAMPLES=ON \
+  -DCONFLUX_BUILD_BENCHMARKS=ON
+cmake --build /tmp/gcc-16/release-http-api-cost-baseline
+python3 scripts/measure-build-costs.py \
+  /tmp/gcc-16/release-http-api-cost-baseline \
+  --sku release-http-api \
+  --json
 ```
 
 Generated-header artifact build and install:
