@@ -17,7 +17,8 @@ fi
 
 invalid_leaf_imports=$(grep -R -n -E '^import conflux\.' "$root" \
 	| grep -v -E '/json_reflect_crud\.cxx:[0-9]+:import conflux\.json\.reflect;$' \
-	| grep -v -E '/postgres_json\.cxx:[0-9]+:import conflux\.pg;$' || true)
+	| grep -v -E '/postgres_json\.cxx:[0-9]+:import conflux\.pg;$' \
+	| grep -v -E '/postgres_json\.cxx:[0-9]+:import conflux\.work;$' || true)
 if [[ -n "$invalid_leaf_imports" ]]; then
 	printf '%s\n' "$invalid_leaf_imports" >&2
 	printf 'quickstart examples must use `import conflux;` plus only feature-specific leaf imports\n' >&2
