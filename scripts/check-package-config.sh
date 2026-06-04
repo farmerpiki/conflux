@@ -147,6 +147,7 @@ check_install_tree_smoke_runner_contract|package-config structure guard must ver
 install-tree smoke runner must reject support components|package-config structure guard must keep install-tree smoke runner support-component rejection
 check_install_tree_ctest_helpers|package-config structure guard must verify install-tree smoke CTest helper wiring
 mixed-module-header-smoke>|package-config structure guard must reject empty-argument generator expressions in install-tree smoke CTests
+nested feature set must match docs/release-skus.json|package-config structure guard must keep release install-tree smoke presets SKU-aligned
 check_package_smoke_wrapper_contracts|package-config structure guard must verify package smoke wrapper contracts
 core-isolated package smoke must force the external JSON hash provider|package-config structure guard must keep core-isolated provider-noise coverage
 external dependency token helper must read the registry token list|package-config structure guard must keep package smoke external-token policies registry-derived

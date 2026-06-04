@@ -918,6 +918,7 @@ def check_install_smoke_presets() -> None:
             for key, expected in required_cache.items():
                 if cache.get(key) != expected:
                     errors.append(f"install-smoke preset {name} must set {key}={expected}")
+            smoke_feature_set = cache.get("CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET")
             components = configure[name].get("cacheVariables", {}).get("CONFLUX_PACKAGE_SMOKE_COMPONENTS")
             if not isinstance(components, str) or not components:
                 errors.append(f"install-smoke preset {name} must set non-empty CONFLUX_PACKAGE_SMOKE_COMPONENTS")
@@ -930,15 +931,25 @@ def check_install_smoke_presets() -> None:
                 sku_name = name.removesuffix("-install-smoke")
                 sku = release_skus.get(sku_name)
                 if isinstance(sku, dict):
+                    expected_feature_set = sku.get("feature_set")
+                    if smoke_feature_set != expected_feature_set:
+                        errors.append(
+                            f"install-smoke preset {name} nested feature set must match docs/release-skus.json",
+                        )
                     expected = sku.get("components")
                     if isinstance(expected, list) and components != ";".join(expected):
                         errors.append(
                             f"install-smoke preset {name} components must match docs/release-skus.json",
                         )
-                elif name == "release-header-artifacts-install-smoke" and components != release_sku_components("release-json"):
-                    errors.append(
-                        "install-smoke preset release-header-artifacts-install-smoke components must match release-json",
-                    )
+                elif name == "release-header-artifacts-install-smoke":
+                    if smoke_feature_set != "release-json":
+                        errors.append(
+                            "install-smoke preset release-header-artifacts-install-smoke nested feature set must match release-json",
+                        )
+                    if components != release_sku_components("release-json"):
+                        errors.append(
+                            "install-smoke preset release-header-artifacts-install-smoke components must match release-json",
+                        )
         if build.get(name, {}).get("configurePreset") != name:
             errors.append(f"missing build preset mapped to configure preset: {name}")
         test_preset = test.get(name)
