@@ -183,6 +183,25 @@ def package_smoke_component_branches(text: str) -> set[str]:
     return set(re.findall(r"_component STREQUAL \"([A-Za-z0-9_]+)\"", text))
 
 
+def release_sku_component_set() -> set[str]:
+    release_skus = json.loads(read("docs/release-skus.json"))
+    if not isinstance(release_skus, dict):
+        fail("release SKU manifest must be an object")
+    components: set[str] = set()
+    for sku_name, sku in release_skus.items():
+        if not isinstance(sku, dict):
+            fail(f"release SKU entry must be an object: {sku_name}")
+        sku_components = sku.get("components")
+        if not isinstance(sku_components, list) or not all(
+            isinstance(component, str) and component for component in sku_components
+        ):
+            fail(f"release SKU {sku_name} must declare string components")
+        components.update(sku_components)
+    if not components:
+        fail("release SKU manifest must select at least one component")
+    return components
+
+
 def append_set_delta_errors(
     errors: list[str],
     expected: set[str],
@@ -2019,6 +2038,28 @@ def check_package_smoke_project_contract() -> None:
             "package smoke default wrapper components missing component smoke branches: "
             + ";".join(missing_component_smokes),
         )
+    release_component_markers = {
+        "core": ("import conflux.types;", "#include <conflux/config.hpp>"),
+        "json": ("import conflux.json;", "#include <conflux/json.hpp>"),
+        "file_io_sync": ("import conflux.file_io_sync;", "#include <conflux/file_io_sync.hpp>"),
+        "http": ("import conflux.http;", "#include <conflux/http.hpp>"),
+    }
+    release_components = release_sku_component_set()
+    missing_marker_components = sorted(release_components - set(release_component_markers))
+    if missing_marker_components:
+        fail(
+            "release SKU package components missing module/header smoke marker policy: "
+            + ";".join(missing_marker_components),
+        )
+    marker_errors: list[str] = []
+    for component in sorted(release_components):
+        module_marker, header_marker = release_component_markers[component]
+        if module_marker not in component_smokes:
+            marker_errors.append(f"{component}: missing module package smoke marker {module_marker}")
+        if header_marker not in component_smokes:
+            marker_errors.append(f"{component}: missing header package smoke marker {header_marker}")
+    if marker_errors:
+        fail("\n".join(marker_errors))
 
 
 def check_package_smoke_runner_contract() -> None:
