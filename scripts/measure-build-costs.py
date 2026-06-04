@@ -12,6 +12,8 @@ import argparse
 import json
 import os
 import pathlib
+import platform
+import shutil
 import subprocess
 import sys
 
@@ -31,6 +33,41 @@ def git_commit(root: pathlib.Path) -> str:
         ).decode().strip()
     except Exception:
         return "unknown"
+
+
+def tool_version(args: list[str]) -> str:
+    exe = shutil.which(args[0])
+    if exe is None:
+        return "unavailable"
+    try:
+        out = subprocess.check_output(args, text=True, stderr=subprocess.STDOUT).splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable"
+    return out[0] if out else "unavailable"
+
+
+def ram_bytes() -> int | None:
+    meminfo = pathlib.Path("/proc/meminfo")
+    try:
+        for line in meminfo.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("MemTotal:"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return int(parts[1]) * 1024
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def cpu_model() -> str:
+    cpuinfo = pathlib.Path("/proc/cpuinfo")
+    try:
+        for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.lower().startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor() or "unknown"
 
 
 def compiler_info(build_dir: pathlib.Path) -> dict[str, str]:
@@ -109,6 +146,22 @@ def main() -> int:
         "sku": args.sku,
         "build_dir": str(build),
         "compiler": compiler,
+        "host": {
+            "platform": platform.platform(),
+            "kernel": platform.release(),
+            "machine": platform.machine(),
+            "cpu_model": cpu_model(),
+            "ram_bytes": ram_bytes(),
+        },
+        "tools": {
+            "cmake": tool_version(["cmake", "--version"]),
+            "ninja": tool_version(["ninja", "--version"]),
+            "python": sys.version.split()[0],
+        },
+        "environment": {
+            "ccache": tool_version(["ccache", "--version"]),
+            "sccache": tool_version(["sccache", "--version"]),
+        },
         "binaries": {},
         "libraries": {},
     }
@@ -137,6 +190,8 @@ def main() -> int:
     mode = record["compiler"].get("CONFLUX_INTERFACE_MODE", "?")
     fset = record["compiler"].get("CONFLUX_FEATURE_SET", "?")
     print(f"conflux {commit}  sku={sku}  compiler={os.path.basename(cxx)}  type={btype}  lto={lto}  mode={mode}  feature_set={fset}")
+    print(f"host {record['host']['machine']}  kernel={record['host']['kernel']}  ram={record['host']['ram_bytes'] or 'unknown'} bytes")
+    print(f"tools cmake={record['tools']['cmake']}  ninja={record['tools']['ninja']}")
     print()
     print(f"{'Binary':<30} {'Bytes':>12}  {'KB':>8}")
     print("-" * 55)
