@@ -3245,8 +3245,14 @@ def check_release_artifact_staging_contract() -> None:
     runner_json_forbidden = package_smoke_forbidden_components("json")
     if 'package-smoke-forbidden-components.py" json' not in bootstrap:
         fail("bootstrap check must derive release-json forbidden package components from the shared policy helper")
+    if 'package-smoke-forbidden-components.py" http' not in bootstrap:
+        fail("bootstrap check must derive release-http-api forbidden package components from the shared policy helper")
+    if 'release-web-server)' not in bootstrap or 'forbid_components="pg;db"' not in bootstrap:
+        fail("bootstrap check must forbid DB components from the release-web-server package smoke")
     if '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbid_components"' not in bootstrap:
-        fail("bootstrap check must assert release-json forbidden package components")
+        fail("bootstrap check must assert SKU forbidden package components")
+    if '-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="$forbid_external_deps"' not in bootstrap:
+        fail("bootstrap check must assert SKU forbidden external dependencies")
     bootstrap_json_forbidden = package_smoke_forbidden_components("json")
     if bootstrap_json_forbidden != runner_json_forbidden:
         fail(

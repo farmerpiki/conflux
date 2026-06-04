@@ -12,6 +12,21 @@ bootstrap_prefix="$work_root/prefix"
 package_smoke_build="$work_root/package-smoke"
 feature_set="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" feature_set)"
 sku_components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" components)"
+forbid_components=""
+forbid_external_deps=""
+
+case "$release_sku" in
+    release-json)
+        forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" json)"
+        forbid_external_deps="$(python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --policy json)"
+        ;;
+    release-http-api)
+        forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" http)"
+        ;;
+    release-web-server)
+        forbid_components="pg;db"
+        ;;
+esac
 
 "$source_root/scripts/stage-release-artifacts.sh" \
     --stage-dir "$stage_dir" \
@@ -44,15 +59,11 @@ package_smoke_configure=(
     -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="$sku_components"
     -DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE=HEADER_INTERFACE
 )
-if [[ "$release_sku" == "release-json" ]]; then
-    forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" json)"
-    forbid_external_deps_without_json_hash="$(
-        python3 "$source_root/scripts/external-dependency-tokens.py" "$source_root" --policy json
-    )"
-    package_smoke_configure+=(
-        -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbid_components"
-        -DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="$forbid_external_deps_without_json_hash"
-    )
+if [[ -n "$forbid_components" ]]; then
+    package_smoke_configure+=(-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbid_components")
+fi
+if [[ -n "$forbid_external_deps" ]]; then
+    package_smoke_configure+=(-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_EXTERNAL_DEPS="$forbid_external_deps")
 fi
 "${package_smoke_configure[@]}"
 cmake --build "$package_smoke_build"
