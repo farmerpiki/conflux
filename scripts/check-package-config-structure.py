@@ -3249,6 +3249,7 @@ def check_release_artifact_staging_contract() -> None:
         '-DCONFLUX_FEATURE_SET="$feature_set"': "bootstrap check must configure the selected release SKU",
         "-DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE": "bootstrap check must configure header mode",
         "-DCONFLUX_INTERFACE_MODE=MODULE_INTERFACE": "bootstrap check must configure module mode",
+        "-DCONFLUX_USE_IMPORT_STD=OFF": "bootstrap module check must avoid toolchain-fragile import std",
         "cmake --build": "bootstrap check must build the staged source",
         'cmake --install "$header_build" --prefix "$bootstrap_prefix"': "bootstrap check must install the staged source header build",
         '"$bootstrap_source/cmake/package-smoke"': "bootstrap check must consume the installed package from staged source package smoke",
