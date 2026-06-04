@@ -6,6 +6,7 @@ import conflux.types;
 import conflux.net.http.realtime;
 
 using namespace std;
+namespace ws_detail = conflux::http::detail;
 extern "C" int LLVMFuzzerTestOneInput(
 	std::uint8_t const *data,
 	std::size_t size) {

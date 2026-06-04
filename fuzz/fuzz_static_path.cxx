@@ -5,7 +5,6 @@
 //   - percent-decoded route captures cannot escape the static root
 //   - contained open rejects symlinks, magic links, and absolute/traversal paths
 
-module;
 #include <fcntl.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -19,6 +18,8 @@ import conflux.file_io_sync;
 import conflux.net.http.static_core;
 
 using namespace std;
+namespace http_detail = conflux::http::detail;
+namespace file_sync = conflux::file_io_sync;
 
 namespace {
 
@@ -43,7 +44,7 @@ void check_normalized_path(
 
 void exercise_normalize(
 	std::string_view raw) {
-	auto const normalized = normalize_static_path(raw);
+	auto const normalized = http_detail::normalize_static_path(raw);
 	if (normalized) {
 		check_normalized_path(*normalized);
 	}
@@ -93,8 +94,9 @@ std::string synthesize_path(
 		auto const b = bytes.empty() ? std::uint8_t{} : bytes[i % bytes.size()];
 		auto const seg = segments[b % segments.size()];
 		if (encoded && (b & 0x20U) != 0U) {
-			for (unsigned char const c: seg) {
-				out += percent_encode_byte(c);
+			for (char const c: seg) {
+				auto const byte = static_cast<std::uint8_t>(static_cast<unsigned char>(c));
+				out += percent_encode_byte(byte);
 			}
 		} else {
 			out.append(seg.data(), seg.size());
@@ -108,7 +110,7 @@ std::string synthesize_path(
 
 struct StaticPathFixture {
 	std::string dir;
-	UniqueFd root;
+	file_sync::UniqueFd root;
 	ino_t safe_ino{};
 	dev_t safe_dev{};
 	ino_t nested_ino{};
@@ -129,19 +131,19 @@ struct StaticPathFixture {
 		(void)::symlink("safe.txt", (dir + "/symlink-safe").c_str());
 		(void)::symlink("/etc/passwd", (dir + "/dir/symlink-escape").c_str());
 		(void)::symlink("/etc/passwd", (dir + "/symlink-escape").c_str());
-		auto fd = blocking_open_directory(dir);
+		auto fd = file_sync::blocking_open_directory(dir);
 		if (fd) {
 			root = std::move(*fd);
 		}
 		if (root) {
-			if (auto safe = blocking_openat_contained(root.fd(), "safe.txt", O_RDONLY); safe) {
+			if (auto safe = file_sync::blocking_openat_contained(root.fd(), "safe.txt", O_RDONLY); safe) {
 				struct ::stat st{};
 				if (::fstat(safe->fd(), &st) == 0) {
 					safe_ino = st.st_ino;
 					safe_dev = st.st_dev;
 				}
 			}
-			if (auto nested = blocking_openat_contained(root.fd(), "dir/nested.txt", O_RDONLY); nested) {
+			if (auto nested = file_sync::blocking_openat_contained(root.fd(), "dir/nested.txt", O_RDONLY); nested) {
 				struct ::stat st{};
 				if (::fstat(nested->fd(), &st) == 0) {
 					nested_ino = st.st_ino;
@@ -188,7 +190,7 @@ void exercise_contained_open(
 	if (!fx.root) {
 		return;
 	}
-	auto normalized = normalize_static_path(raw);
+	auto normalized = http_detail::normalize_static_path(raw);
 	if (!normalized) {
 		return;
 	}
@@ -200,7 +202,7 @@ void exercise_contained_open(
 	if (rel.empty()) {
 		return;
 	}
-	auto opened = blocking_openat_contained(fx.root.fd(), rel, O_RDONLY);
+	auto opened = file_sync::blocking_openat_contained(fx.root.fd(), rel, O_RDONLY);
 	if (!opened) {
 		return;
 	}
@@ -224,7 +226,7 @@ void exercise_contained_open(
 void exercise_case(
 	std::string_view raw) {
 	exercise_normalize(raw);
-	auto const decoded = url_decode_path(raw);
+	auto const decoded = conflux::utils::url_decode_path(raw);
 	exercise_normalize(decoded);
 	exercise_contained_open(raw);
 	exercise_contained_open(decoded);

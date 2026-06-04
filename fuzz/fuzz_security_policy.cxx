@@ -19,6 +19,7 @@ import conflux.net.forwarded;
 import conflux.net.security;
 
 using namespace std;
+using namespace conflux::http;
 
 namespace {
 
@@ -73,11 +74,11 @@ struct Cursor {
 	}
 }
 
-[[nodiscard]] Request make_request(
+[[nodiscard]] OwnedRequest make_request(
 	Cursor &cur,
 	string method,
 	string remote = "127.0.0.1") {
-	Request req;
+	OwnedRequest req;
 	req.method = std::move(method);
 	req.path = "/fuzz";
 	req.version = "HTTP/1.1";
@@ -115,13 +116,11 @@ void check_forwarded(
 	req.headers["X-Real-IP"] = xri;
 
 	bool const trust_loopback = cur.bit();
-	auto mw = forwarded_middleware({
-		.trusted_proxies = trust_loopback ? vector<string>{"127.0.0.1/32", "::1/128"}
-            : vector<string>{},
-		.use_x_forwarded_for = cur.bit(),
-		.use_x_real_ip = true,
-		.strict_mode = true,
-	});
+	ForwardedOptions opts;
+	opts.trusted_proxies = trust_loopback ? vector<string>{"127.0.0.1/32", "::1/128"} : vector<string>{};
+	opts.use_x_forwarded_for = cur.bit();
+	opts.use_x_real_ip = true;
+	auto mw = forwarded_middleware(std::move(opts));
 	NextHandler next = [](RequestView const &seen) {
 		Response resp = Response::text(string{seen.remote_addr});
 		resp.headers["X-Seen-XFF"] = string{seen.headers["x-forwarded-for"]};
@@ -130,7 +129,8 @@ void check_forwarded(
 	};
 	auto resp = mw(RequestView{req}, next);
 
-	if (!trust_loopback || req.remote_addr != "127.0.0.1") {
+	auto const trusted_loopback = trust_loopback && (req.remote_addr == "127.0.0.1" || req.remote_addr == "::1");
+	if (!trusted_loopback) {
 		if (!resp.headers["X-Seen-XFF"].empty() || !resp.headers["X-Seen-XRI"].empty()) {
 			__builtin_trap();
 		}
@@ -143,7 +143,7 @@ void check_cors(
 	auto origin = cur.bit() ? string{"https://example.test"} : safe_string(cur, 96);
 	req.headers["Origin"] = origin;
 	if (req.method == "OPTIONS" || cur.bit()) {
-		req.headers["Access-Control-Request-Method"] = cur.bit() ? "POST" : safe_string(cur, 24);
+		req.headers["Access-Control-Request-Method"] = cur.bit() ? string{"POST"} : safe_string(cur, 24);
 	}
 
 	CorsOptions opts;
@@ -157,7 +157,7 @@ void check_cors(
 	NextHandler next = [&cur](RequestView const &) { return base_response(cur); };
 	auto resp = mw(RequestView{req}, next);
 
-	if (req.method == "OPTIONS" && !req.headers["access-control-request-method"].empty()) {
+	if (req.method == "OPTIONS" && !req.headers["origin"].empty() && !req.headers["access-control-request-method"].empty()) {
 		if (resp.status != kHttpNoContent) {
 			__builtin_trap();
 		}
@@ -200,7 +200,7 @@ void check_cache_and_etag(
 	Cursor &cur) {
 	auto req = make_request(cur, "GET");
 	if (cur.bit()) {
-		req.headers["If-None-Match"] = cur.bit() ? "*" : safe_string(cur, 64);
+		req.headers["If-None-Match"] = cur.bit() ? string{"*"} : safe_string(cur, 64);
 	}
 	CacheControlOptions opts{
 		.rules =

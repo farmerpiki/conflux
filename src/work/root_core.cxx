@@ -23,14 +23,30 @@ module;
 #if CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE
 	#include <sys/mman.h>
 #endif
+#include <algorithm>
 #include <atomic>
+#include <concepts>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <functional>
 #include <memory>
+#include <memory_resource>
 #include <mutex>
+#include <optional>
+#include <source_location>
+#include <stdexcept>
+#include <stop_token>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
 export module conflux.work.root:core;
 
-import std;
 import conflux.types;
 import conflux.small_function;
 

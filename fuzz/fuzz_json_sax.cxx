@@ -23,19 +23,19 @@ struct FuzzHandler {
 		return {};
 	}
 	expected<void, JsonError> on_key(
-		SV) {
+		std::string_view) {
 		return {};
 	}
 	expected<void, JsonError> on_string(
-		SV) {
+		std::string_view) {
 		return {};
 	}
 	expected<void, JsonError> on_i64(
-		i64) {
+		std::int64_t) {
 		return {};
 	}
 	expected<void, JsonError> on_u64(
-		u64) {
+		std::uint64_t) {
 		return {};
 	}
 	expected<void, JsonError> on_double(

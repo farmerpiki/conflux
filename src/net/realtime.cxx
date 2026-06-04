@@ -12,11 +12,7 @@ module;
 
 export module conflux.net.http.realtime;
 
-#ifdef CONFLUX_BUILD_FUZZ
-	#define CONFLUX_FUZZ_EXPORT export
-#else
-	#define CONFLUX_FUZZ_EXPORT
-#endif
+#define CONFLUX_FUZZ_EXPORT
 
 import std;
 import conflux.types;

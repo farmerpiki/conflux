@@ -86,9 +86,10 @@ This lane configures `fuzz-clang-stdcxx`, builds the libFuzzer harnesses, and
 runs only bounded seed-corpus CTest entries labeled `fuzz-smoke`. Normal tests
 and benchmarks stay disabled in the fuzz preset, so this lane validates harness
 reachability without turning fuzz builds into another full correctness matrix.
-The preset intentionally uses the `json` feature set plus HTTP core/realtime
-parser helpers only; it does not require the io_uring server runtime, TLS,
-HTTP/2, HTTP/3, or PostgreSQL client dependencies.
+The preset intentionally uses the dependency-minimal `http-api` feature set for
+HTTP parser, static-path, auth/policy, realtime, and JSON fuzz helpers; it does
+not require the io_uring server runtime, TLS, HTTP/2, HTTP/3, or PostgreSQL
+client dependencies.
 
 Equivalent direct CTest invocation after configuring/building the preset:
 

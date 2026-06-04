@@ -80,12 +80,12 @@ assert_fuzz_cache() {
             "$PRESET" "$fuzz" "$fuzz_smoke" >&2
         return 1
     }
-    [[ "$feature_set" == json && "$runtime" == AUTO ]] || {
-        printf '%s expected dependency-minimal json feature set with runtime AUTO, got feature_set=%s runtime=%s.\n' \
+    [[ "$feature_set" == http-api && "$runtime" == AUTO ]] || {
+        printf '%s expected dependency-minimal http-api feature set with runtime AUTO, got feature_set=%s runtime=%s.\n' \
             "$PRESET" "$feature_set" "$runtime" >&2
         return 1
     }
-    [[ "$http_core" == ON && "$http_realtime" == ON && "$crypto" == ON ]] || {
+    [[ "$http_core" != OFF && "$http_realtime" == ON && "$crypto" != OFF ]] || {
         printf '%s expected HTTP parser/realtime fuzz helpers enabled, got http_core=%s http_realtime=%s crypto=%s.\n' \
             "$PRESET" "$http_core" "$http_realtime" "$crypto" >&2
         return 1

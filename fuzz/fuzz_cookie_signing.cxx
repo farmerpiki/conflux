@@ -8,6 +8,7 @@ import conflux.types;
 import conflux.net.cookie_signing;
 
 using namespace std;
+using namespace conflux::http;
 
 extern "C" int LLVMFuzzerTestOneInput(
 	std::uint8_t const *data,
@@ -38,16 +39,16 @@ extern "C" int LLVMFuzzerTestOneInput(
 			size - 2U - value_size - secret_size};
 	}
 
-	auto const signed_value = sign_cookie(value, secret);
-	auto const verified = verify_cookie(signed_value, secret);
+	auto const signed_value = sign_cookie_unchecked(value, secret);
+	auto const verified = verify_cookie_unchecked(signed_value, secret);
 	if (!verified || *verified != value) {
 		__builtin_trap();
 	}
-	auto const rejected = verify_cookie(signed_value, std::string_view{"different-secret"});
+	auto const rejected = verify_cookie_unchecked(signed_value, std::string_view{"different-secret"});
 	if (rejected) {
 		__builtin_trap();
 	}
-	auto const arbitrary_verified = verify_cookie(arbitrary, secret);
+	auto const arbitrary_verified = verify_cookie_unchecked(arbitrary, secret);
 	if (arbitrary_verified && arbitrary.find('.') == std::string_view::npos) {
 		__builtin_trap();
 	}

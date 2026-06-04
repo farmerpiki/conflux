@@ -14,6 +14,7 @@ import conflux.net.http.server_types;
 import conflux.net.http_server_helpers;
 
 using namespace std;
+using namespace conflux::http;
 
 namespace {
 

@@ -9,6 +9,7 @@ import conflux.types;
 import conflux.net.http.parse_helpers;
 
 using namespace std;
+using namespace conflux::http;
 extern "C" int LLVMFuzzerTestOneInput(
 	std::uint8_t const *data,
 	std::size_t size) {

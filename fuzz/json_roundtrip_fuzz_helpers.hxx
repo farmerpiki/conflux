@@ -5,7 +5,7 @@ namespace conflux::fuzz {
 inline int json_parse_dump_roundtrip(
 	std::uint8_t const *data,
 	std::size_t size,
-	::JsonParseOptions opts) {
+	conflux::json::JsonParseOptions opts) {
 	if (size == 0) {
 		return 0;
 	}
@@ -21,9 +21,9 @@ inline int json_parse_dump_roundtrip(
 		return 0;
 	}
 
-	::NodeRef const root = res->root();
+	conflux::json::NodeRef const root = res->root();
 	if (auto arr = root.as_array()) {
-		for (::NodeRef const e: arr->elements()) {
+		for (conflux::json::NodeRef const e: arr->elements()) {
 			(void)e.kind();
 		}
 	} else if (auto obj = root.as_object()) {
@@ -41,7 +41,7 @@ inline int json_parse_dump_roundtrip(
 	if (!res2) {
 		return 0;
 	}
-	if (!::is_value_equal(root, res2->root())) {
+	if (!conflux::json::is_value_equal(root, res2->root())) {
 		__builtin_trap();
 	}
 	return 0;
