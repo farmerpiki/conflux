@@ -11,7 +11,17 @@ Conflux exposes runtime configuration diagnostics without changing startup defau
 
 `examples/advanced/capability_report.cxx` is the minimal executable pattern for printing the build summary and runtime capability report before starting an HTTP service.
 
-`Config::development()` keeps non-strict INI compatibility. `Config::public_server()` enables `strict_config` and slow-handler diagnostics; strict checked loads report structured `ConfigIssue` values such as `config.unknown_key` with file, line, section, key, value, and hints where available.
+## Presets
+
+| Preset | Intended use | Main differences |
+|---|---|---|
+| `Config::public_server()` | Default web-facing app/server configuration | Bounded request/body/header limits, request and TLS/plain sniff timeouts, `strict_config`, slow-handler diagnostics, explicit fallback diagnostics. |
+| `Config::development()` | Local development with compatible config parsing | Keeps non-strict INI compatibility, enables slow-handler diagnostics and startup banner. |
+| `Config::low_latency()` | Bounded low-latency tuning | Smaller rings, explicit taskrun/cooperative ring flags, and fail-fast feature fallback while keeping parser/body limits bounded. |
+| `Config::benchmark()` | Measurement-only mode | Starts from `low_latency()`, disables startup banner and request/sniff timeouts to keep measurements explicit. |
+| `Config::unsafe_max_speed()` | Unsafe opt-in throughput experiments | Raises parser/body caps and enables registered send buffers / SEND_ZC; `unsafe_config_issues(...)` reports these choices and this preset must not be a production default. |
+
+Strict checked loads report structured `ConfigIssue` values such as `config.unknown_key` with file, line, section, key, value, and hints where available.
 
 Fallback policy is explicit through `Config::feature_fallback`:
 
