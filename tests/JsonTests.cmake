@@ -108,10 +108,10 @@ if(CONFLUX_JSON_REFLECT)
 endif()
 
 add_executable(conflux_json_conformance_external json_conformance_external.cxx)
-target_link_libraries(conflux_json_conformance_external PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+target_link_libraries(conflux_json_conformance_external PRIVATE conflux_types conflux_json conflux_options Catch2::Catch2WithMain)
 
 if(CONFLUX_HAS_JSON_TESTSUITE)
     add_executable(conflux_json_testsuite_gate json_testsuite_gate.cxx)
-    target_link_libraries(conflux_json_testsuite_gate PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+    target_link_libraries(conflux_json_testsuite_gate PRIVATE conflux_types conflux_json conflux_options Catch2::Catch2WithMain)
     target_compile_definitions(conflux_json_testsuite_gate PRIVATE "JSONTESTSUITE_DIR=\"${JSONTESTSUITE_DIR}\"")
 endif()
