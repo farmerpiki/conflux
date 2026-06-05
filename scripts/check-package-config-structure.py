@@ -3454,6 +3454,7 @@ def check_release_artifact_staging_contract() -> None:
     bootstrap = read("scripts/check-release-artifact-bootstrap.sh")
     offline_bootstrap = read("scripts/check-release-offline-bootstrap.sh")
     generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
+    pre_evidence = read("scripts/check-pre-evidence-release-closure.sh")
     runner_json_forbidden = package_smoke_forbidden_components("json")
     for marker in ("printf 'source_root=", "printf 'build_dir=", "printf 'stage_dir="):
         if marker in staging:
@@ -3552,11 +3553,26 @@ def check_release_artifact_staging_contract() -> None:
         "generated_header_artifact=install/include/conflux": "generated headers policy must require install generated-header manifest metadata",
         "source_generated_header_artifact=source/include/conflux": "generated headers policy must require source generated-header manifest metadata",
     }
+    pre_evidence_required = {
+        "check-pre-evidence-release-closure": "release closure checks must include the pre-evidence aggregate entrypoint",
+        "CONFLUX_RELEASE_SOURCE_ARCHIVE_SKU": "pre-evidence aggregate must run selected SKU source archive checks",
+        "check-release-generated-headers-policy.sh": "pre-evidence aggregate must run generated header policy checks",
+        "check-release-offline-bootstrap.sh": "pre-evidence aggregate must run offline bootstrap checks",
+        "check-release-artifact-bootstrap.sh": "pre-evidence aggregate must run staged artifact bootstrap checks",
+        "check-package-smoke-api-surfaces.sh": "pre-evidence aggregate must run installed API surface package smoke for HTTP API",
+        "check-package-smoke-json-standalone.sh": "pre-evidence aggregate must run standalone JSON package smoke",
+        "compile_time_bench.py": "pre-evidence aggregate must produce build-cost scratch output",
+        "measure-build-costs.py": "pre-evidence aggregate must produce binary-size scratch output",
+        "conflux_capability_report_example": "pre-evidence aggregate must build/run the capability report example",
+        "refusing to write under ../evidence": "pre-evidence aggregate must refuse final evidence output paths",
+        "--skip-heavy": "pre-evidence aggregate must expose a light structural mode for docs/package CI guards",
+    }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     missing.extend(message for marker, message in source_required.items() if marker not in source_archive)
     missing.extend(message for marker, message in bootstrap_required.items() if marker not in bootstrap)
     missing.extend(message for marker, message in offline_bootstrap_required.items() if marker not in offline_bootstrap)
     missing.extend(message for marker, message in generated_headers_required.items() if marker not in generated_headers_policy)
+    missing.extend(message for marker, message in pre_evidence_required.items() if marker not in pre_evidence)
     guard_required = {
         "python_version": "release artifact guard must validate bridge python metadata",
         'stage / "source" / "CMakePresets.json"': "release artifact guard must require CMake presets",

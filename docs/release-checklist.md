@@ -130,6 +130,18 @@ Installed API-surface parity smoke for the preview HTTP API package. This runs
 scripts/check-package-smoke-api-surfaces.sh
 ```
 
+Aggregate pre-evidence closure. This is the scratch gate before generating any
+final `../evidence` payloads. It stages the selected release SKU, checks
+governance/docs/SKU consistency, validates source archive and generated-header
+policy, and in full mode runs bootstrap/package-smoke, build-cost, and
+capability-report checks under `/tmp/gcc-16/pre-evidence`.
+
+```sh
+scripts/check-pre-evidence-release-closure.sh --sku release-json
+scripts/check-pre-evidence-release-closure.sh --sku release-http-api
+scripts/check-pre-evidence-release-closure.sh --sku release-web-server
+```
+
 Runtime package smoke, only on hosts with real liburing discoverable through
 `pkg-config` and a non-mock install:
 
