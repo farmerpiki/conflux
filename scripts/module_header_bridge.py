@@ -146,6 +146,7 @@ STD_HEADER_BY_TOKEN: dict[str, set[str]] = {
     "shared_ptr": {"memory"},
     "shared_lock": {"shared_mutex"},
     "shared_mutex": {"shared_mutex"},
+    "size_t": {"cstddef"},
     "sort": {"algorithm"},
     "stop_source": {"stop_token"},
     "stop_token": {"stop_token"},
