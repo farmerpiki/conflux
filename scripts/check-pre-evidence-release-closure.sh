@@ -90,6 +90,52 @@ cleanup_success() {
 }
 trap cleanup_success EXIT
 
+prepare_marked_dir() {
+    local dir="$1"
+    local marker="$dir/.conflux-closure-evidence"
+    if [[ -d "$dir" && ! -f "$marker" ]]; then
+        printf 'check-pre-evidence-release-closure: refusing to clean unmarked evidence directory: %s\n' "$dir" >&2
+        exit 1
+    fi
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    touch "$marker"
+}
+
+copy_if_exists() {
+    local source="$1"
+    local dest="$2"
+    if [[ -e "$source" ]]; then
+        mkdir -p "$(dirname "$dest")"
+        cp -a "$source" "$dest"
+    fi
+}
+
+stage_closure_evidence() {
+    local dest="$1/$release_sku/closure"
+    prepare_marked_dir "$dest"
+
+    {
+        printf 'closure=pre-evidence-release\n'
+        printf 'result=success\n'
+        printf 'release_sku=%s\n' "$release_sku"
+        printf 'feature_set=%s\n' "$feature_set"
+        printf 'components=%s\n' "$components"
+        printf 'full_sanitizers=%s\n' "$full_sanitizers"
+        printf 'heavy_checks_skipped=%s\n' "$skip_heavy"
+        printf 'work_root=%s\n' "$work_root"
+        printf 'scratch_cleanup=success-removes-work-root\n'
+        printf 'build_cost=build-cost\n'
+        printf 'capabilities=capabilities/capability-report.txt\n'
+        printf 'logs=logs\n'
+    } > "$dest/closure-summary.txt"
+
+    copy_if_exists "$work_root/build-cost/compile-time.json" "$dest/build-cost/compile-time.json"
+    copy_if_exists "$work_root/build-cost/size.json" "$dest/build-cost/size.json"
+    copy_if_exists "$work_root/capabilities/capability-report.txt" "$dest/capabilities/capability-report.txt"
+    copy_if_exists "$work_root/logs" "$dest/logs"
+}
+
 feature_set="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" feature_set)"
 components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" components)"
 build_cost_target="conflux_quickstart_hello"
@@ -192,6 +238,7 @@ if [[ -n "$evidence_dir" ]]; then
             --stage-dir "$evidence_dir/$release_sku/stage" \
             --tarball "$evidence_dir/$release_sku/conflux-${release_sku}.tar.gz" \
             --release-sku "$release_sku"
+    stage_closure_evidence "$evidence_dir"
 fi
 
 printf 'check-pre-evidence-release-closure: ok (%s, %s, %s)\n' "$release_sku" "$components" "$work_root"
