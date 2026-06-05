@@ -301,6 +301,17 @@ def check_provider_policy_scenarios_are_isolated() -> None:
         missing = sorted(flag for flag in required_flags if flag not in body)
         if missing:
             errors.append(f"{match.group('var')} missing provider-policy isolation flags: {';'.join(missing)}")
+        if match.group("var") in {
+            "http_api_no_compression_dir",
+            "web_dir",
+            "web_all_dir",
+            "http3_off_dir",
+            "auth_runtime_dir",
+            "auth_auto_no_argon2_dir",
+            "auth_auto_system_dir",
+            "dev_exp_h3_dir",
+        } and "-DCONFLUX_USE_IMPORT_STD=OFF" not in body:
+            errors.append(f"{match.group('var')} must disable import std for GCC-stable HTTP provider-policy coverage")
 
     try:
         module_probe = text.split('cmake -S "$root" -B "$module_probe_dir"', 1)[1].split('>"$module_probe_log"', 1)[0]
@@ -3557,6 +3568,7 @@ def check_release_artifact_staging_contract() -> None:
         "check-pre-evidence-release-closure": "release closure checks must include the pre-evidence aggregate entrypoint",
         "CONFLUX_RELEASE_SOURCE_ARCHIVE_SKU": "pre-evidence aggregate must run selected SKU source archive checks",
         "check-release-generated-headers-policy.sh": "pre-evidence aggregate must run generated header policy checks",
+        "check-provider-policy-matrix.sh": "pre-evidence aggregate must run provider/dependency leakage checks",
         "check-release-offline-bootstrap.sh": "pre-evidence aggregate must run offline bootstrap checks",
         "check-release-artifact-bootstrap.sh": "pre-evidence aggregate must run staged artifact bootstrap checks",
         "check-package-smoke-api-surfaces.sh": "pre-evidence aggregate must run installed API surface package smoke for HTTP API",

@@ -131,6 +131,7 @@ cleanup_build "$json_no_xxhash_dir"
 
 http_api_no_compression_dir="$(run_configure http-api-no-compression \
 	-DCONFLUX_FEATURE_SET=http-api \
+	-DCONFLUX_USE_IMPORT_STD=OFF \
 	-DCONFLUX_GZIP_PROVIDER=OFF \
 	-DCONFLUX_BROTLI_PROVIDER=OFF \
 	-DCONFLUX_ZSTD_PROVIDER=OFF \
@@ -147,6 +148,7 @@ cleanup_build "$http_api_no_compression_dir"
 
 web_dir="$(run_configure web-auto \
 	-DCONFLUX_FEATURE_SET=web-server \
+	-DCONFLUX_USE_IMPORT_STD=OFF \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \
@@ -156,6 +158,7 @@ cleanup_build "$web_dir"
 
 web_all_dir="$(run_configure web-gzip-all \
 	-DCONFLUX_FEATURE_SET=web-server \
+	-DCONFLUX_USE_IMPORT_STD=OFF \
 	-DCONFLUX_GZIP_PROVIDER=ALL \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
@@ -166,6 +169,7 @@ cleanup_build "$web_all_dir"
 
 http3_off_dir="$(run_configure http3-off \
 	-DCONFLUX_FEATURE_SET=http-server-complete \
+	-DCONFLUX_USE_IMPORT_STD=OFF \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \
@@ -178,6 +182,7 @@ cleanup_build "$http3_off_dir"
 
 auth_runtime_dir="$(run_configure auth-runtime \
 	-DCONFLUX_FEATURE_SET=http-api \
+	-DCONFLUX_USE_IMPORT_STD=OFF \
 	-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=RUNTIME \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
@@ -188,6 +193,7 @@ cleanup_build "$auth_runtime_dir"
 
 auth_auto_no_argon2_dir="$(run_configure_no_argon2_pc auth-auto-no-argon2 \
 	-DCONFLUX_FEATURE_SET=http-api \
+	-DCONFLUX_USE_IMPORT_STD=OFF \
 	-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=AUTO \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
@@ -199,6 +205,7 @@ cleanup_build "$auth_auto_no_argon2_dir"
 if pkg-config --exists libargon2; then
 	auth_auto_system_dir="$(run_configure auth-auto-system-argon2 \
 		-DCONFLUX_FEATURE_SET=http-api \
+		-DCONFLUX_USE_IMPORT_STD=OFF \
 		-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=AUTO \
 		-DCONFLUX_BUILD_TESTS=OFF \
 		-DCONFLUX_BUILD_EXAMPLES=OFF \
@@ -210,6 +217,7 @@ fi
 
 dev_exp_h3_dir="$(run_configure dev-exp-http3 \
 	-DCONFLUX_FEATURE_SET=dev-exp-all \
+	-DCONFLUX_USE_IMPORT_STD=OFF \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \

@@ -92,6 +92,8 @@ CONFLUX_RELEASE_GENERATED_HEADERS_STAGE="$work_root/generated-headers/stage" \
     "$source_root/scripts/check-release-generated-headers-policy.sh"
 
 if ((skip_heavy == 0)); then
+    "$source_root/scripts/check-provider-policy-matrix.sh"
+
     CONFLUX_RELEASE_OFFLINE_SKU="$release_sku" \
     CONFLUX_RELEASE_OFFLINE_WORK="$work_root/offline-bootstrap" \
         "$source_root/scripts/check-release-offline-bootstrap.sh"
