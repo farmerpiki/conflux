@@ -15,3 +15,11 @@ should keep explicit leaf imports such as `conflux.file_io`, `conflux.work`, or
 Start with `examples/quickstart/` or the top-level HTTP examples when learning
 the selected curated umbrella surface. Use this directory when you need to
 customize internals or inspect lower-level building blocks.
+
+`production_showcase.cxx` is an advanced composition example, not a
+first-contact template. It combines typed JSON CRUD routes, SSE notifications,
+request IDs, metrics, security and cache-control middleware, rate limiting,
+explicit state offload through a work pool, protected metrics, and graceful
+drain so the production-facing boundaries are visible in one executable. New
+services should start from `quickstart/hello.cxx` or `quickstart/json_crud.cxx`
+and add these pieces only when the deployment needs them.
