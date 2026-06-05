@@ -33,6 +33,12 @@ http_request_duration_seconds_count{service,route,method}
 http_rejections_total{service,reason,status}
 ```
 
+Rejection reasons use the same stable taxonomy as
+`HttpServerMetrics::rejections`, for example
+`duplicate_content_length`, `content_length_with_transfer_encoding`,
+`header_block_too_large`, `too_many_headers`, `invalid_chunk`,
+`body_too_large`, `header_timeout`, and `body_timeout`.
+
 Query strings are never metric labels and are excluded from access logs by
 default. Header logging is also off by default; if enabled, redaction still
 applies.
@@ -65,6 +71,13 @@ app.use(conflux::http::observability(
 Work-pool metrics include `work_pool_queue_stats_enabled`. Queue depth,
 rejection, and completion counters are meaningful only when the build enables
 `CONFLUX_WORK_QUEUE_STATS`; otherwise those samples stay zero.
+
+Pressure exports use `http_pressure_events_total{kind}` with the server-owned
+capacity vocabulary from `HttpPressureMetrics`, including `accept_rejected`,
+`response_backpressure_events`, `websocket_closed_for_pressure`,
+`drain_forced_close`, and `cq_overflow` from the server metrics snapshot. Work
+pool exports use `work_pool_queue_depth` and `work_pool_rejected_total` with a
+stable `pool` label supplied by the application.
 
 Streaming responses are measured at response creation/header commit time. Export
 stream-close counters from the stream owner when tail duration is needed.
