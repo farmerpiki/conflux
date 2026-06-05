@@ -87,6 +87,7 @@ def main(argv: list[str]) -> int:
         stage / "install" / "include" / "conflux" / "json.hxx",
         stage / "install" / "include" / "conflux" / "features.hxx",
         stage / "artifacts" / "module-header-bridge-manifest.json",
+        stage / "artifacts" / "external-proof-tools.txt",
         stage / "evidence-template.md",
         stage / "release-artifact-manifest.txt",
     ]
@@ -119,6 +120,8 @@ def main(argv: list[str]) -> int:
         fail(f"release artifact must record {sku} selected examples")
     if release_manifest.get("selected_docs") != f"source/docs/{sku}":
         fail(f"release artifact must record {sku} selected docs")
+    if release_manifest.get("external_proof_tools") != "artifacts/external-proof-tools.txt":
+        fail("release artifact must record external proof tooling report")
     expected_docs = sku_entry.get("docs")
     if not isinstance(expected_docs, list) or not all(isinstance(item, str) and item for item in expected_docs):
         fail(f"staged release SKU manifest has invalid docs for {sku}")
@@ -147,6 +150,26 @@ def main(argv: list[str]) -> int:
         fail("bridge manifest must declare stdlib_only=true")
     if not manifest.get("interfaces"):
         fail("bridge manifest has no generated public interfaces")
+
+    tools_text = (stage / "artifacts" / "external-proof-tools.txt").read_text(encoding="utf-8")
+    required_tools = [
+        "h2spec",
+        "wstest",
+        "spectral",
+        "swagger-cli",
+        "redocly",
+        "openapi-generator-cli",
+        "swagger-codegen",
+        "wrk",
+        "wrk2",
+        "h2load",
+        "bombardier",
+    ]
+    for tool in required_tools:
+        if f"tool={tool}\tstatus=" not in tools_text:
+            fail(f"external proof tooling report missing {tool}")
+    if "missing tools mean the corresponding external proof lane is not attached" not in tools_text:
+        fail("external proof tooling report must state missing-tool evidence policy")
 
     print("check-release-artifact: ok")
     return 0

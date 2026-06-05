@@ -3599,6 +3599,8 @@ def check_release_artifact_staging_contract() -> None:
         'stage / "source" / "scripts" / "generate-public-header-include-smoke.py"': "release artifact guard must require generated header smoke helper",
         'stage / "source" / "scripts" / "module_header_bridge.py"': "release artifact guard must require module/header bridge helper",
         'stage / "source" / "scripts" / "release-sku-field.py"': "release artifact guard must require release SKU helper",
+        'stage / "artifacts" / "external-proof-tools.txt"': "release artifact guard must require external proof tooling report",
+        "external proof tooling report missing": "release artifact guard must validate external proof tooling report rows",
         "release_sku": "release artifact guard must validate selected SKU manifest metadata",
         "package_components": "release artifact guard must validate selected package component metadata",
         "sku_entry.get(\"examples\"": "release artifact guard must validate selected examples through the SKU manifest",
@@ -3607,6 +3609,7 @@ def check_release_artifact_staging_contract() -> None:
         "sku_entry.get(\"docs\"": "release artifact guard must validate selected docs through the SKU manifest",
         "staged release SKU manifest has invalid docs": "release artifact guard must validate staged SKU docs list shape",
         "selected_docs": "release artifact guard must validate selected docs manifest metadata",
+        "external_proof_tools": "release artifact guard must validate external proof tooling manifest metadata",
         "source_generated_header_artifact": "release artifact guard must validate source generated header manifest metadata",
     }
     generic_guard_required = {

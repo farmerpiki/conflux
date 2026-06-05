@@ -203,8 +203,12 @@ fi
     printf 'selected_examples=source/examples/%s\n' "$release_sku"
     printf 'selected_docs=source/docs/%s\n' "$release_sku"
     printf 'bridge_manifest=artifacts/module-header-bridge-manifest.json\n'
+    printf 'external_proof_tools=artifacts/external-proof-tools.txt\n'
     printf 'installed_package_config=%s\n' "${package_config#"$stage_dir/"}"
 } > "$stage_dir/release-artifact-manifest.txt"
+
+"$root/scripts/record-external-proof-tools.sh" \
+    --output "$stage_dir/artifacts/external-proof-tools.txt"
 
 python3 "$root/scripts/check-release-artifact.py" "$stage_dir"
 
