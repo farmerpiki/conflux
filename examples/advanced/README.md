@@ -1,7 +1,7 @@
 # Advanced examples
 
 These examples intentionally show extended, low-level, or specialized Conflux
-APIs: runtime work pools, explicit offload, protocol experiments, manual JSON
+APIs: runtime work pools, cost-model boundaries, explicit offload, protocol experiments, manual JSON
 mapping, observability policy stacks, production lifecycle composition,
 database primitives, process execution, templates, and crypto utilities.
 `postgres_json.cxx` shows the HTTP app facade combined with PostgreSQL

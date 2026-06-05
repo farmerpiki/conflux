@@ -38,7 +38,6 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_BUILD_SIMD_SELECTION="${_conflux_simd_selection}"
     CONFLUX_BUILD_CPU_FEATURE_PROBES_RUNTIME=$<BOOL:${_conflux_cpu_feature_probes_runtime}>
 )
-conflux_apply_api_surface_definitions(conflux_options INTERFACE)
 if(CONFLUX_ENABLE_EXPERIMENTAL)
     message(STATUS "conflux: experimental features enabled")
 else()

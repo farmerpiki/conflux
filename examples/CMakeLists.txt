@@ -96,6 +96,10 @@ if(TARGET conflux)
         add_executable(conflux_http_explicit_offload_example ${_conflux_examples_root}/advanced/explicit_offload.cxx)
         target_link_libraries(conflux_http_explicit_offload_example
             PRIVATE conflux conflux_work conflux_options)
+
+        add_executable(conflux_cost_model_example ${_conflux_examples_root}/advanced/cost_model.cxx)
+        target_link_libraries(conflux_cost_model_example
+            PRIVATE conflux conflux_work conflux_options)
     endif()
 
     if(TARGET conflux_http_native_json AND TARGET conflux_json)

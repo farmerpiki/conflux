@@ -1050,6 +1050,9 @@ function(conflux_add_header_examples_from_source_ids)
         conflux_add_header_example_from_id(conflux_http_explicit_offload_example examples/advanced/explicit_offload
             HTTP_IMPLS
             IMPLS conflux_header_impl_json conflux_header_impl_runtime)
+        conflux_add_header_example_from_id(conflux_cost_model_example examples/advanced/cost_model
+            HTTP_IMPLS
+            IMPLS conflux_header_impl_json conflux_header_impl_runtime)
         conflux_add_header_example_from_id(conflux_http_client_json_example examples/advanced/http_client_json
             HTTP_IMPLS
             IMPLS conflux_header_impl_json conflux_header_impl_http_client conflux_header_impl_http_proxy)
