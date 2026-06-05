@@ -10,6 +10,7 @@
 
 import std;
 import conflux.types;
+import conflux.net.compress;
 import conflux.net.http;
 import conflux.work;
 import bench_common;

@@ -8,6 +8,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#ifndef __has_feature
+	#define __has_feature(x) 0
+#endif
+
 import std;
 import conflux.types;
 import conflux.net.http;
@@ -30,17 +34,18 @@ std::atomic<std::uint64_t> g_allocations{0};
 std::atomic<std::uint64_t> g_allocated_bytes{0};
 std::atomic<std::uint64_t> g_sink{0};
 
+void reset_allocation_counters() noexcept {
+	g_allocations.store(0, std::memory_order_relaxed);
+	g_allocated_bytes.store(0, std::memory_order_relaxed);
+}
+
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
 void note_allocation(
 	std::size_t size) noexcept {
 	if (g_count_allocations.load(std::memory_order_relaxed)) {
 		g_allocations.fetch_add(1, std::memory_order_relaxed);
 		g_allocated_bytes.fetch_add(size, std::memory_order_relaxed);
 	}
-}
-
-void reset_allocation_counters() noexcept {
-	g_allocations.store(0, std::memory_order_relaxed);
-	g_allocated_bytes.store(0, std::memory_order_relaxed);
 }
 
 [[nodiscard]] void *allocate_counted(
@@ -71,6 +76,8 @@ void reset_allocation_counters() noexcept {
 	}
 	throw std::bad_alloc{};
 }
+
+#endif
 
 void use_sink(
 	std::uint64_t v) noexcept {
@@ -1164,6 +1171,7 @@ void print_usage() {
 
 } // namespace
 
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
 void *operator new(
 	std::size_t size) {
 	return allocate_counted(size);
@@ -1222,6 +1230,7 @@ void operator delete[](
 	std::align_val_t) noexcept {
 	std::free(p);
 }
+#endif
 
 int main(
 	int argc,

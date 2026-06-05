@@ -1,3 +1,7 @@
+#ifndef __has_feature
+	#define __has_feature(x) 0
+#endif
+
 import std;
 import conflux.json;
 import conflux.json.boundary;
@@ -15,6 +19,7 @@ std::atomic<std::uint64_t> g_alloc_bytes{0};
 
 } // namespace
 
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
 void *operator new(
 	std::size_t size) {
 	if (void *p = std::malloc(size)) {
@@ -48,6 +53,8 @@ void operator delete[](
 	std::size_t) noexcept {
 	::operator delete(p);
 }
+
+#endif
 
 namespace {
 

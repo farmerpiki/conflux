@@ -8,12 +8,39 @@ no_argon2_bin="$base/no-argon2-bin"
 mkdir -p "$empty_pc_dir"
 trap 'rm -rf "$base"' EXIT
 
+run_logged() {
+	local log_file="$1"
+	shift
+	mkdir -p "$(dirname "$log_file")"
+	"$@" >"$log_file" 2>&1
+}
+
+print_log_failures() {
+	local log_file="$1"
+	grep -Ei '(^FAILED:|fatal error:|error:|warning:|No space left on device)' "$log_file" | tail -80 >&2 || true
+}
+
+reject_log_warnings() {
+	local phase="$1"
+	local log_file="$2"
+	if grep -En '(^CMake Warning|(^|[[:space:]])warning:|(^|[[:space:]])WARNING:)' "$log_file" >/dev/null; then
+		printf 'provider-policy: %s emitted warnings; see %s\n' "$phase" "$log_file" >&2
+		grep -En '(^CMake Warning|(^|[[:space:]])warning:|(^|[[:space:]])WARNING:)' "$log_file" | head -40 >&2 || true
+		return 1
+	fi
+}
+
 run_configure() {
 	local name="$1"
 	shift
 	local build_dir="$base/$name"
+	local log_file="$base/logs/$name-configure.log"
 	printf 'provider-policy: configure %s\n' "$name" >&2
-	cmake -S "$root" -B "$build_dir" -G Ninja "$@" >&2
+	if ! run_logged "$log_file" cmake -S "$root" -B "$build_dir" -G Ninja -Wno-dev "$@"; then
+		print_log_failures "$log_file"
+		return 1
+	fi
+	reject_log_warnings "configure $name" "$log_file"
 	printf '%s\n' "$build_dir"
 }
 
@@ -21,9 +48,14 @@ run_configure_no_system_pc() {
 	local name="$1"
 	shift
 	local build_dir="$base/$name"
+	local log_file="$base/logs/$name-configure.log"
 	printf 'provider-policy: configure %s (empty pkg-config path)\n' "$name" >&2
-	PKG_CONFIG_LIBDIR="$empty_pc_dir" PKG_CONFIG_PATH= \
-		cmake -S "$root" -B "$build_dir" -G Ninja "$@" >&2
+	if ! PKG_CONFIG_LIBDIR="$empty_pc_dir" PKG_CONFIG_PATH= \
+		run_logged "$log_file" cmake -S "$root" -B "$build_dir" -G Ninja -Wno-dev "$@"; then
+		print_log_failures "$log_file"
+		return 1
+	fi
+	reject_log_warnings "configure $name" "$log_file"
 	printf '%s\n' "$build_dir"
 }
 
@@ -44,15 +76,20 @@ run_configure_no_argon2_pc() {
 			'exec "${CONFLUX_REAL_PKG_CONFIG:?}" "$@"' >"$wrapper"
 		chmod +x "$wrapper"
 	fi
+	local log_file="$base/logs/$name-configure.log"
 	printf 'provider-policy: configure %s (pkg-config without libargon2)\n' "$name" >&2
-	CONFLUX_REAL_PKG_CONFIG="$(command -v pkg-config)" PATH="$no_argon2_bin:$PATH" \
-		cmake -S "$root" -B "$build_dir" -G Ninja "$@" >&2
+	if ! CONFLUX_REAL_PKG_CONFIG="$(command -v pkg-config)" PATH="$no_argon2_bin:$PATH" \
+		run_logged "$log_file" cmake -S "$root" -B "$build_dir" -G Ninja -Wno-dev "$@"; then
+		print_log_failures "$log_file"
+		return 1
+	fi
+	reject_log_warnings "configure $name" "$log_file"
 	printf '%s\n' "$build_dir"
 }
 
 module_probe_dir="$base/module-interface-probe"
 module_probe_log="$base/module-interface-probe.log"
-if ! cmake -S "$root" -B "$module_probe_dir" -G Ninja \
+if ! cmake -S "$root" -B "$module_probe_dir" -G Ninja -Wno-dev \
 	-DCONFLUX_FEATURE_SET=core \
 	-DCONFLUX_BUILD_TESTS=OFF \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
@@ -70,8 +107,22 @@ rm -rf "$module_probe_dir" "$module_probe_log"
 run_build() {
 	local build_dir="$1"
 	shift
+	local log_file="$base/logs/$(basename "$build_dir")-build.log"
 	printf 'provider-policy: build %s %s\n' "$(basename "$build_dir")" "$*"
-	cmake --build "$build_dir" "$@"
+	if ! run_logged "$log_file" cmake --build "$build_dir" "$@"; then
+		print_log_failures "$log_file"
+		return 1
+	fi
+	reject_log_warnings "build $(basename "$build_dir")" "$log_file"
+}
+
+target_exists() {
+	local build_dir="$1"
+	local target="$2"
+	local log_file="$base/logs/$(basename "$build_dir")-targets.log"
+	run_logged "$log_file" cmake --build "$build_dir" --target help
+	reject_log_warnings "target help $(basename "$build_dir")" "$log_file"
+	grep -q "^... $target:" "$log_file"
 }
 
 cleanup_build() {
@@ -140,7 +191,7 @@ http_api_no_compression_dir="$(run_configure http-api-no-compression \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \
 	-DCONFLUX_FETCH_TEST_DEPS=OFF)"
 run_build "$http_api_no_compression_dir" --target conflux_http_auth
-if cmake --build "$http_api_no_compression_dir" --target help | grep -q '^... conflux_http_compression:'; then
+if target_exists "$http_api_no_compression_dir" conflux_http_compression; then
 	printf 'provider-policy: http-api no-compression scenario exposed compression target\n' >&2
 	exit 1
 fi
@@ -174,7 +225,7 @@ http3_off_dir="$(run_configure http3-off \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \
 	-DCONFLUX_FETCH_TEST_DEPS=OFF)"
-if cmake --build "$http3_off_dir" --target help | grep -q '^... conflux_http3:'; then
+if target_exists "$http3_off_dir" conflux_http3; then
 	printf 'provider-policy: HTTP/3 target exists without experimental gate\n' >&2
 	exit 1
 fi
@@ -222,7 +273,7 @@ dev_exp_h3_dir="$(run_configure dev-exp-http3 \
 	-DCONFLUX_BUILD_EXAMPLES=OFF \
 	-DCONFLUX_BUILD_BENCHMARKS=OFF \
 	-DCONFLUX_FETCH_TEST_DEPS=OFF)"
-if cmake --build "$dev_exp_h3_dir" --target help | grep -q '^... conflux_http3:'; then
+if target_exists "$dev_exp_h3_dir" conflux_http3; then
 	run_build "$dev_exp_h3_dir" --target conflux_http3
 	cleanup_build "$dev_exp_h3_dir"
 else

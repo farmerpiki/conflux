@@ -1,6 +1,10 @@
 #include <cstdlib>
 #include <new>
 
+#ifndef __has_feature
+	#define __has_feature(x) 0
+#endif
+
 import std;
 import conflux.types;
 import conflux.net.config;
@@ -60,6 +64,7 @@ public:
 
 } // namespace bench_alloc_detail
 
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
 void *operator new(
 	std::size_t size) {
 	bench_alloc_detail::record(size);
@@ -136,6 +141,8 @@ void *operator new[](
 	std::align_val_t) noexcept {
 	std::free(ptr);
 }
+
+#endif
 
 namespace {
 

@@ -74,13 +74,16 @@ public:
 
 	[[nodiscard]] http::Response list() {
 		return http::offload(pool_, [this] {
-			TodoList list;
-			{
-				std::scoped_lock lock{mutex_};
-				list.items = todos_;
-			}
-			return http::json(std::move(list));
-		});
+				TodoList list;
+				{
+					std::scoped_lock lock{mutex_};
+					list.items.reserve(todos_.size());
+					for (auto const &todo : todos_) {
+						list.items.push_back(todo);
+					}
+				}
+				return http::json(std::move(list));
+			});
 	}
 
 	[[nodiscard]] http::Response get(

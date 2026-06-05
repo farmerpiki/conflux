@@ -1,6 +1,7 @@
 import std;
 import conflux.types;
 
+import conflux.net.compress;
 import conflux.net.http;
 import bench_common;
 namespace benchmark_detail {

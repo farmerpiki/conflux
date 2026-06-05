@@ -220,36 +220,41 @@ export inline void bench_apply_sample_plan(
 }
 
 export template<typename F>
-BenchStats bench_measure_batched(
-	F &&fn,
-	BenchSamplePlan const &plan,
-	std::size_t bytes = 0) {
-	for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
-		for (std::size_t j = 0; j < plan.batch; ++j) {
-			fn();
+	BenchStats bench_measure_batched(
+		F &&fn,
+		BenchSamplePlan const &plan,
+		std::size_t bytes = 0) {
+		if (plan.samples == 0 || plan.batch == 0) {
+			throw std::invalid_argument{"benchmark sample plan must have nonzero samples and batch"};
 		}
-	}
-	std::vector<std::uint64_t> samples;
-	samples.reserve(plan.samples);
-	std::uint64_t total_ns = 0;
-	for (std::size_t i = 0; i < plan.samples; ++i) {
-		std::uint64_t const t0 = bench_now_ns();
-		for (std::size_t j = 0; j < plan.batch; ++j) {
-			fn();
+		for (std::size_t i = 0; i < plan.warmup_samples; ++i) {
+			for (std::size_t j = 0; j < plan.batch; ++j) {
+				fn();
+			}
 		}
-		std::uint64_t const elapsed = bench_now_ns() - t0;
-		total_ns += elapsed;
-		samples.push_back(elapsed);
-	}
-	std::ranges::sort(samples);
+		std::vector<std::uint64_t> samples(plan.samples);
+		std::uint64_t total_ns = 0;
+		for (std::size_t i = 0; i < plan.samples; ++i) {
+			std::uint64_t const t0 = bench_now_ns();
+			for (std::size_t j = 0; j < plan.batch; ++j) {
+				fn();
+			}
+			std::uint64_t const elapsed = bench_now_ns() - t0;
+			total_ns += elapsed;
+			samples[i] = elapsed;
+		}
+		if (samples.empty()) {
+			throw std::logic_error{"benchmark sample collection produced no samples"};
+		}
+		std::ranges::sort(samples);
 	auto percentile_ns = [&](std::size_t numerator, std::size_t denominator) {
 		std::size_t const last = samples.size() - 1;
 		std::size_t const index = (last * numerator + denominator - 1) / denominator;
 		return static_cast<double>(samples[index]) / static_cast<double>(plan.batch);
 	};
-	double const best_ns = static_cast<double>(samples.front()) / static_cast<double>(plan.batch);
-	double const p10_ns = percentile_ns(10, 100);
-	double const p50_ns = static_cast<double>(samples[plan.samples / 2]) / static_cast<double>(plan.batch);
+		double const best_ns = static_cast<double>(samples[0]) / static_cast<double>(plan.batch);
+		double const p10_ns = percentile_ns(10, 100);
+		double const p50_ns = static_cast<double>(samples[samples.size() / 2]) / static_cast<double>(plan.batch);
 	double const p99_ns = percentile_ns(99, 100);
 	double const mbs =
 		bytes > 0 && p50_ns > 0.0 ? static_cast<double>(bytes) / (p50_ns / 1e9) / (1024.0 * 1024.0) : 0.0;

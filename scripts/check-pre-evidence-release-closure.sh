@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    printf 'usage: %s [--sku release-json|release-http-api|release-web-server] [--work-root DIR] [--skip-heavy]\n' "$0" >&2
+    printf 'usage: %s [--sku release-json|release-http-api|release-web-server] [--work-root DIR] [--skip-heavy] [--full-sanitizers] [--evidence-dir DIR]\n' "$0" >&2
 }
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,6 +10,8 @@ release_sku="release-json"
 work_root="${TMPDIR:-/tmp}/gcc-16/pre-evidence/$release_sku"
 work_root_explicit=0
 skip_heavy=0
+full_sanitizers=0
+evidence_dir=""
 
 while (($# > 0)); do
     case "$1" in
@@ -37,6 +39,18 @@ while (($# > 0)); do
             skip_heavy=1
             shift
             ;;
+        --full-sanitizers)
+            full_sanitizers=1
+            shift
+            ;;
+        --evidence-dir)
+            if (($# < 2)); then
+                usage
+                exit 2
+            fi
+            evidence_dir="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -60,10 +74,21 @@ work_root="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).re
 evidence_root="$(python3 -c 'import pathlib, sys; print((pathlib.Path(sys.argv[1]).resolve().parent / "evidence").resolve())' "$source_root")"
 case "$work_root" in
     "$evidence_root"|"$evidence_root"/*)
-        printf 'check-pre-evidence-release-closure: refusing to write under ../evidence: %s\n' "$work_root" >&2
+        printf 'check-pre-evidence-release-closure: refusing to write under ../evidence for scratch output: %s\n' "$work_root" >&2
         exit 2
         ;;
 esac
+if [[ -n "$evidence_dir" ]]; then
+    evidence_dir="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$evidence_dir")"
+fi
+
+cleanup_success() {
+    local status=$?
+    if ((status == 0)); then
+        rm -rf "$work_root"
+    fi
+}
+trap cleanup_success EXIT
 
 feature_set="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" feature_set)"
 components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root" "$release_sku" components)"
@@ -73,7 +98,7 @@ if [[ "$release_sku" == "release-json" ]]; then
 fi
 
 rm -rf "$work_root"
-mkdir -p "$work_root/release-governance" "$work_root/source-archive" "$work_root/build-cost" "$work_root/capabilities"
+mkdir -p "$work_root/release-governance" "$work_root/source-archive" "$work_root/build-cost" "$work_root/capabilities" "$work_root/logs"
 
 python3 "$source_root/scripts/check-release-docs.py"
 python3 "$source_root/scripts/check-release-skus.py"
@@ -92,6 +117,13 @@ CONFLUX_RELEASE_GENERATED_HEADERS_STAGE="$work_root/generated-headers/stage" \
     "$source_root/scripts/check-release-generated-headers-policy.sh"
 
 if ((skip_heavy == 0)); then
+    if ((full_sanitizers == 1)); then
+        "$source_root/scripts/run-sanitizer-matrix.sh" \
+            --full-release-gate \
+            --log-root "$work_root/logs/full-sanitizers" \
+            --build-root "$work_root/full-sanitizers"
+    fi
+
     "$source_root/scripts/check-provider-policy-matrix.sh"
 
     CONFLUX_RELEASE_OFFLINE_SKU="$release_sku" \
@@ -151,6 +183,15 @@ fi
 if find "$work_root" -path "$evidence_root" -print -quit | grep -q .; then
     printf 'check-pre-evidence-release-closure: generated output escaped into ../evidence\n' >&2
     exit 1
+fi
+
+if [[ -n "$evidence_dir" ]]; then
+    mkdir -p "$evidence_dir"
+    CONFLUX_RELEASE_ARTIFACTS_STAGE="$evidence_dir/$release_sku/stage" \
+        "$source_root/scripts/stage-release-artifacts.sh" \
+            --stage-dir "$evidence_dir/$release_sku/stage" \
+            --tarball "$evidence_dir/$release_sku/conflux-${release_sku}.tar.gz" \
+            --release-sku "$release_sku"
 fi
 
 printf 'check-pre-evidence-release-closure: ok (%s, %s, %s)\n' "$release_sku" "$components" "$work_root"
