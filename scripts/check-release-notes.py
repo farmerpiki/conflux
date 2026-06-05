@@ -58,6 +58,16 @@ for phrase in ["modules-first", "Generated headers are staged release artifacts"
     if phrase not in text:
         fail(f"release notes must document modules-first release artifacts: {phrase}")
 
+for phrase in [
+    "Third-party protocol conformance",
+    "external OpenAPI validator results",
+    "Full JSONTestSuite classification",
+    "parser differential testing",
+    "public JSON benchmark proof",
+]:
+    if phrase.lower() not in normalized_lower_text:
+        fail(f"release notes must name unattached external proof gap: {phrase}")
+
 for phrase in ["compatibility re-export", "compatibility aliases are available", "compatibility aliases remain"]:
     if phrase in lower_text:
         fail(f"release notes must not advertise deprecated compatibility aliases: {phrase}")

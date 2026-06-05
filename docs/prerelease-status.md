@@ -52,6 +52,10 @@ release lanes; GCC 16 is the current reflection lane.
 Runtime and benchmark evidence belongs in release artifacts, not as bulk logs in
 this source tree. Use `docs/releases/evidence-template.md` for small manifests.
 
+Third-party protocol conformance, external OpenAPI validation, JSONTestSuite
+classification, parser differential testing, and public JSON benchmark proof are
+evidence lanes that must be attached separately before those claims are made.
+
 Final public benchmark capture is intentionally deferred until release-candidate
 source freeze. During normal prerelease churn, this page describes the evidence
 contract only; it is not a performance claim and should not point at stale
@@ -65,6 +69,8 @@ graphs from a source/API shape that will not be tagged.
 - arbitrary C++ module toolchains outside the checked GCC 15, GCC 16, and
   Clang 21 presets
 - benchmark claims without same-machine artifacts
+- protocol, OpenAPI, JSONTestSuite, differential-parser, or JSON benchmark
+  claims without attached external proof artifacts
 
 ## Cheap Checks
 

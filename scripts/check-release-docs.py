@@ -127,6 +127,11 @@ for phrase in [
     "MODULE_INTERFACE",
     "Generated headers are release artifacts",
     "stage-release-artifacts.sh",
+    "Third-party protocol conformance",
+    "external OpenAPI validation",
+    "JSONTestSuite",
+    "parser differential testing",
+    "public JSON benchmark proof",
 ]:
     if phrase not in status:
         fail(f"docs/prerelease-status.md must mention {phrase}")
