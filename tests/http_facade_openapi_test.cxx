@@ -9,6 +9,7 @@ import conflux.json.boundary;
 namespace http = conflux::http;
 using namespace conflux::http;
 using namespace conflux::json;
+using namespace std::literals;
 
 struct FacadeAnswer {
 	std::string value;
@@ -60,6 +61,55 @@ void check_json_u64_at(
 	CHECK(*value == expected);
 }
 
+bool is_openapi_method_key(
+	std::string_view name) {
+	static constexpr auto methods = std::array{
+		"get"sv,
+		"put"sv,
+		"post"sv,
+		"delete"sv,
+		"options"sv,
+		"head"sv,
+		"patch"sv,
+		"trace"sv,
+	};
+	return std::ranges::contains(methods, name);
+}
+
+void check_minimal_openapi_operation_shape(
+	conflux::json::Document const &doc) {
+	check_json_string_at(doc, "/openapi", "3.0.0");
+	REQUIRE(require_json_pointer(doc, "/info/title").as_string().has_value());
+	REQUIRE(require_json_pointer(doc, "/info/version").as_string().has_value());
+	auto paths_node = require_json_pointer(doc, "/paths");
+	auto paths = paths_node.as_object();
+	REQUIRE(paths.has_value());
+	for (auto const [path_name, path_item_node]: paths->members()) {
+		INFO(path_name);
+		auto path_item = path_item_node.as_object();
+		REQUIRE(path_item.has_value());
+		for (auto const [method_name, operation_node]: path_item->members()) {
+			INFO(method_name);
+			CHECK(is_openapi_method_key(method_name));
+			auto operation = operation_node.as_object();
+			REQUIRE(operation.has_value());
+			auto responses_node = operation->find_member("responses");
+			REQUIRE(responses_node.has_value());
+			auto responses = responses_node->as_object();
+			REQUIRE(responses.has_value());
+			CHECK(responses->size() > 0UZ);
+			for (auto const [status_name, response_node]: responses->members()) {
+				INFO(status_name);
+				auto response = response_node.as_object();
+				REQUIRE(response.has_value());
+				auto description = response->find_member("description");
+				REQUIRE(description.has_value());
+				REQUIRE(description->as_string().has_value());
+			}
+		}
+	}
+}
+
 TEST_CASE(
 	"http facade: app openapi spec uses route metadata",
 	"[http.facade]") {
@@ -73,6 +123,7 @@ TEST_CASE(
 
 	auto spec = app.openapi_spec("Facade API", "0.2.0");
 	auto doc = require_json_text(std::move(spec));
+	check_minimal_openapi_operation_shape(doc);
 	check_json_string_at(doc, "/info/title", "Facade API");
 	check_json_string_at(doc, "/info/version", "0.2.0");
 	check_json_string_at(doc, "/paths/~1users~1{id}/get/operationId", "users.show");
@@ -163,8 +214,27 @@ TEST_CASE(
 
 	auto spec = app.openapi_spec();
 	auto doc = require_json_text(std::move(spec));
+	check_minimal_openapi_operation_shape(doc);
 	check_json_string_at(doc, "/paths/~1items/get/operationId", "items.list");
 	check_json_string_at(doc, "/paths/~1items/post/operationId", "items.create");
+}
+
+TEST_CASE(
+	"http facade: app openapi spec has minimal operation shape for every method",
+	"[http.facade][openapi]") {
+	auto app = http::app();
+	app.get("/ready", [] { return http::text("ok"); }).name("ready");
+	app.post("/answers", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; }).name("answers.create");
+	app.route("PATCH", "/answers/{id:u64}", [](http::Path<"id", std::uint64_t>) { return http::no_content(); })
+		.name("answers.patch")
+		.require_bearer_token("user")
+		.rate_limit("answers");
+
+	auto spec = app.openapi_spec("Shape API", "1.0.0");
+	auto doc = require_json_text(std::move(spec));
+	check_minimal_openapi_operation_shape(doc);
+	check_json_string_at(doc, "/paths/~1answers~1{id:u64}/patch/responses/401/description", "Unauthorized");
+	check_json_string_at(doc, "/paths/~1answers~1{id:u64}/patch/responses/429/description", "Too Many Requests");
 }
 
 TEST_CASE(

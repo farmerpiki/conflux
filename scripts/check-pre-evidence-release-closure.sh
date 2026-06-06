@@ -131,7 +131,7 @@ stage_closure_evidence() {
     } > "$dest/closure-summary.txt"
 
     copy_if_exists "$work_root/build-cost/compile-time.json" "$dest/build-cost/compile-time.json"
-    copy_if_exists "$work_root/build-cost/size.json" "$dest/build-cost/size.json"
+    copy_if_exists "$work_root/build-cost/measure-build-costs.json" "$dest/build-cost/measure-build-costs.json"
     copy_if_exists "$work_root/capabilities/capability-report.txt" "$dest/capabilities/capability-report.txt"
     copy_if_exists "$work_root/logs" "$dest/logs"
 }
@@ -205,7 +205,7 @@ if ((skip_heavy == 0)); then
     python3 "$source_root/scripts/measure-build-costs.py" \
         "$work_root/artifact-bootstrap/header-build" \
         --sku "$release_sku" \
-        --json >"$work_root/build-cost/size.json"
+        --json >"$work_root/build-cost/measure-build-costs.json"
 
     cmake -S "$source_root" -B "$work_root/capabilities/build" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
