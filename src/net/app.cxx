@@ -1242,9 +1242,11 @@ public:
 		meta.path_param_types = std::move(pattern.param_types);
 		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
 		const auto contains_extractor = [&meta](std::string_view name) {
-			return std::ranges::any_of(meta.extractors, [name](const std::string &extractor) {
-				return extractor == name;
-			});
+			for (std::size_t i = 0; i < meta.extractors.size(); ++i) {
+				if (std::string_view{meta.extractors[i]} == name)
+					return true;
+			}
+			return false;
 		};
 		if (contains_extractor("RequiredBearerToken")) {
 			meta.openapi_auth_scheme = "bearer";

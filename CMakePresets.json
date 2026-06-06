@@ -292,7 +292,8 @@
         "CONFLUX_ENABLE_ASAN": "OFF",
         "CONFLUX_ENABLE_UBSAN": "OFF",
         "CONFLUX_BUILD_TESTS": "ON",
-        "CONFLUX_BUILD_BENCHMARKS": "OFF"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_USE_IMPORT_STD": "OFF"
       }
     },
     {

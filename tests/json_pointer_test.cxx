@@ -62,8 +62,8 @@ TEST_CASE(
 		auto path = JsonPath::from_pointer("/a~0b/c~1d");
 		REQUIRE(path.has_value());
 		CHECK(path->size() == 2UZ);
-		CHECK(get<JsonPathMember>(path->segment(0)).name == "a~b");
-		CHECK(get<JsonPathMember>(path->segment(1)).name == "c/d");
+		CHECK(std::get<JsonPathMember>(path->segment(0)).name == "a~b");
+		CHECK(std::get<JsonPathMember>(path->segment(1)).name == "c/d");
 		CHECK(path->to_pointer() == "/a~0b/c~1d");
 	}
 
@@ -99,8 +99,8 @@ TEST_CASE(
 		auto reparsed = JsonPath::from_pointer(ptr);
 		REQUIRE(reparsed.has_value());
 		CHECK(reparsed->size() == 1UZ);
-		CHECK(holds_alternative<JsonPathMember>(reparsed->segment(0)));
-		CHECK(get<JsonPathMember>(reparsed->segment(0)).name == "2");
+		CHECK(std::holds_alternative<JsonPathMember>(reparsed->segment(0)));
+		CHECK(std::get<JsonPathMember>(reparsed->segment(0)).name == "2");
 
 		auto doc = parse("[10,20,30]");
 		REQUIRE(doc.has_value());
