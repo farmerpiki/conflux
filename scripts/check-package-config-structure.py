@@ -3466,6 +3466,8 @@ def check_release_artifact_staging_contract() -> None:
     offline_bootstrap = read("scripts/check-release-offline-bootstrap.sh")
     generated_headers_policy = read("scripts/check-release-generated-headers-policy.sh")
     pre_evidence = read("scripts/check-pre-evidence-release-closure.sh")
+    finalize_evidence = read("scripts/finalize-release-evidence.sh")
+    release_checklist = read("docs/release-checklist.md")
     runner_json_forbidden = package_smoke_forbidden_components("json")
     for marker in ("printf 'source_root=", "printf 'build_dir=", "printf 'stage_dir="):
         if marker in staging:
@@ -3575,9 +3577,43 @@ def check_release_artifact_staging_contract() -> None:
         "check-package-smoke-json-standalone.sh": "pre-evidence aggregate must run standalone JSON package smoke",
         "compile_time_bench.py": "pre-evidence aggregate must produce build-cost scratch output",
         "measure-build-costs.py": "pre-evidence aggregate must produce binary-size scratch output",
+        "measure-build-costs.json": "pre-evidence aggregate must preserve the measure-build-costs JSON label",
         "conflux_capability_report_example": "pre-evidence aggregate must build/run the capability report example",
         "refusing to write under ../evidence": "pre-evidence aggregate must refuse final evidence output paths",
         "--skip-heavy": "pre-evidence aggregate must expose a light structural mode for docs/package CI guards",
+    }
+    finalize_evidence_required = {
+        "evidence-run-summary.txt": "final evidence script must write the top-level evidence summary",
+        "conflux_commit=%s": "final evidence summary must record the source commit SHA",
+        "environment.txt": "final evidence script must write environment metadata",
+        "kernel=%s": "final evidence environment must record the kernel",
+        "distro=%s": "final evidence environment must record the distro",
+        "cpu_model=%s": "final evidence environment must record CPU model",
+        "ram_bytes=%s": "final evidence environment must record RAM",
+        "compiler_version clang": "final evidence environment must record Clang version",
+        "compiler_version gcc16": "final evidence environment must record GCC 16 version",
+        "cmake_version": "final evidence environment must record CMake version",
+        "ninja_version": "final evidence environment must record Ninja version",
+        "python_version": "final evidence environment must record Python version",
+        "pkg_version liburing": "final evidence environment must record liburing version",
+        "pkg_version openssl": "final evidence environment must record OpenSSL version",
+        "pkg_version libnghttp2": "final evidence environment must record nghttp2 version",
+        "pkg_version zlib": "final evidence environment must record zlib version",
+        "commands.txt": "final evidence script must write exact run commands",
+        "checksums.txt": "final evidence script must write artifact checksums",
+        "sha256sum": "final evidence checksums must use SHA-256",
+        "zip_artifacts=none": "final evidence checksums must record absent zip artifacts",
+        "measure-build-costs.json": "final evidence script must copy measure-build-costs JSON outputs",
+        "warning-error-scan.txt": "final evidence script must write the warning/error scan result",
+    }
+    release_checklist_required = {
+        "Final evidence publication": "release checklist must document final evidence publication",
+        "scripts/finalize-release-evidence.sh": "release checklist must document the final evidence script",
+        "evidence-run-summary.txt": "release checklist must name the top-level evidence summary",
+        "environment.txt": "release checklist must name the environment evidence file",
+        "commands.txt": "release checklist must name the command runbook evidence file",
+        "checksums.txt": "release checklist must name the checksum evidence file",
+        "measure-build-costs.py --json": "release checklist must name measure-build-costs JSON evidence",
     }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     missing.extend(message for marker, message in source_required.items() if marker not in source_archive)
@@ -3585,6 +3621,8 @@ def check_release_artifact_staging_contract() -> None:
     missing.extend(message for marker, message in offline_bootstrap_required.items() if marker not in offline_bootstrap)
     missing.extend(message for marker, message in generated_headers_required.items() if marker not in generated_headers_policy)
     missing.extend(message for marker, message in pre_evidence_required.items() if marker not in pre_evidence)
+    missing.extend(message for marker, message in finalize_evidence_required.items() if marker not in finalize_evidence)
+    missing.extend(message for marker, message in release_checklist_required.items() if marker not in release_checklist)
     guard_required = {
         "python_version": "release artifact guard must validate bridge python metadata",
         'stage / "source" / "CMakePresets.json"': "release artifact guard must require CMake presets",

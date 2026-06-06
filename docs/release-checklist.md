@@ -142,6 +142,36 @@ scripts/check-pre-evidence-release-closure.sh --sku release-http-api
 scripts/check-pre-evidence-release-closure.sh --sku release-web-server
 ```
 
+Final evidence publication. Run this only after the selected SKU closure passes
+without warning/error/sanitizer/failure markers. Successful SKU work trees are
+removed by the closure script; failed or warning-emitting trees are retained for
+inspection. The finalizer copies the completed run log into `../evidence`,
+writes `evidence-run-summary.txt` with the source commit SHA, records
+`environment.txt`, `commands.txt`, `checksums.txt`, and copies per-SKU
+`measure-build-costs.py --json` output under `build-cost/`.
+
+```sh
+mkdir -p /tmp/gcc-16
+rm -rf /tmp/gcc-16/pre-evidence
+{
+  for sku in release-json release-http-api release-web-server; do
+    if [[ "$sku" == release-json ]]; then
+      scripts/check-pre-evidence-release-closure.sh \
+        --sku "$sku" \
+        --full-sanitizers \
+        --evidence-dir ../evidence
+    else
+      scripts/check-pre-evidence-release-closure.sh \
+        --sku "$sku" \
+        --evidence-dir ../evidence
+    fi
+  done
+} > /tmp/gcc-16/evidence-run-current.log 2>&1
+scripts/finalize-release-evidence.sh \
+  --evidence-dir ../evidence \
+  --log /tmp/gcc-16/evidence-run-current.log
+```
+
 Runtime package smoke, only on hosts with real liburing discoverable through
 `pkg-config` and a non-mock install:
 
