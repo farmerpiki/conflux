@@ -61,7 +61,7 @@ cp "$log_file" "$evidence_dir/logs/evidence-run.log"
 commit_sha="$(git -C "$source_root" rev-parse HEAD)"
 commit_short="$(git -C "$source_root" rev-parse --short HEAD)"
 
-scan_pattern='(^CMake Warning|(^|[[:space:]])warning:|(^|[[:space:]])WARNING:|(^|[[:space:]])error:|fatal error:|FAILED:|No space left on device|AddressSanitizer|ThreadSanitizer)'
+scan_pattern='(^CMake Warning|(^|[[:space:]])warning:|(^|[[:space:]])WARNING:|(^|[[:space:]])error:|fatal error:|FAILED:|TEST_FAIL|TEST_WARNING|BUILD_FAIL|BUILD_WARNING|PRESET_SHAPE_FAIL|[0-9]+ tests failed|The following tests FAILED|Errors while running CTest|No space left on device|AddressSanitizer|ThreadSanitizer)'
 if grep -En "$scan_pattern" "$evidence_dir/logs/evidence-run.log" >"$evidence_dir/warning-error-scan.txt"; then
     {
         printf 'warning_error_scan=matched\n'
@@ -151,7 +151,7 @@ pkg_version() {
 {
     printf 'conflux_commit=%s\n' "$commit_sha"
     printf '\nFull evidence regeneration:\n'
-    printf 'mkdir -p /tmp/gcc-16 && rm -rf /tmp/gcc-16/pre-evidence && { for sku in release-json release-http-api release-web-server; do if [[ "$sku" == release-json ]]; then scripts/check-pre-evidence-release-closure.sh --sku "$sku" --full-sanitizers --evidence-dir %q; else scripts/check-pre-evidence-release-closure.sh --sku "$sku" --evidence-dir %q; fi; done; } > %q 2>&1\n' "$evidence_dir" "$evidence_dir" "$log_file"
+    printf 'mkdir -p /tmp/gcc-16 && rm -rf /tmp/gcc-16/pre-evidence && { set -e; for sku in release-json release-http-api release-web-server; do if [[ "$sku" == release-json ]]; then scripts/check-pre-evidence-release-closure.sh --sku "$sku" --full-sanitizers --evidence-dir %q; else scripts/check-pre-evidence-release-closure.sh --sku "$sku" --evidence-dir %q; fi; done; } > %q 2>&1\n' "$evidence_dir" "$evidence_dir" "$log_file"
     printf '\nEvidence finalization:\n'
     printf 'scripts/finalize-release-evidence.sh --evidence-dir %q --log %q\n' "$evidence_dir" "$log_file"
 } >"$evidence_dir/commands.txt"

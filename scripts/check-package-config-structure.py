@@ -3605,6 +3605,8 @@ def check_release_artifact_staging_contract() -> None:
         "zip_artifacts=none": "final evidence checksums must record absent zip artifacts",
         "measure-build-costs.json": "final evidence script must copy measure-build-costs JSON outputs",
         "warning-error-scan.txt": "final evidence script must write the warning/error scan result",
+        "TEST_FAIL": "final evidence warning/error scan must reject sanitizer matrix test failures",
+        "Errors while running CTest": "final evidence warning/error scan must reject CTest failure summaries",
     }
     release_checklist_required = {
         "Final evidence publication": "release checklist must document final evidence publication",
@@ -3614,6 +3616,7 @@ def check_release_artifact_staging_contract() -> None:
         "commands.txt": "release checklist must name the command runbook evidence file",
         "checksums.txt": "release checklist must name the checksum evidence file",
         "measure-build-costs.py --json": "release checklist must name measure-build-costs JSON evidence",
+        "set -e": "release checklist final evidence loop must stop on the first failed SKU",
     }
     missing = sorted(message for marker, message in required.items() if marker not in staging)
     missing.extend(message for marker, message in source_required.items() if marker not in source_archive)

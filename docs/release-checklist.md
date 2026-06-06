@@ -154,6 +154,7 @@ writes `evidence-run-summary.txt` with the source commit SHA, records
 mkdir -p /tmp/gcc-16
 rm -rf /tmp/gcc-16/pre-evidence
 {
+  set -e
   for sku in release-json release-http-api release-web-server; do
     if [[ "$sku" == release-json ]]; then
       scripts/check-pre-evidence-release-closure.sh \
