@@ -173,6 +173,42 @@ scripts/finalize-release-evidence.sh \
   --log /tmp/gcc-16/evidence-run-current.log
 ```
 
+JSON parser external proof. This attaches the fetched JSONTestSuite accept/reject
+gate and the Node/Python strict differential smoke as parser correctness
+evidence. It is not public benchmark proof. The recorder refuses to publish
+logs with warning/error/sanitizer/failure markers and removes the successful
+work tree after copying the logs.
+
+```sh
+mkdir -p /tmp/gcc-16
+rm -rf /tmp/gcc-16/json-proof-clang-clean
+cmake -Wno-dev -S . -B /tmp/gcc-16/json-proof-clang-clean -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=/usr/lib/llvm/21/bin/clang++ \
+  -DCMAKE_CXX_FLAGS='-stdlib=libc++ -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0' \
+  -DCMAKE_EXE_LINKER_FLAGS='-stdlib=libc++' \
+  -DCMAKE_SHARED_LINKER_FLAGS='-stdlib=libc++' \
+  -DCONFLUX_FEATURE_SET=dev-json \
+  -DCONFLUX_BUILD_TESTS=ON \
+  -DCONFLUX_BUILD_EXAMPLES=OFF \
+  -DCONFLUX_BUILD_BENCHMARKS=OFF \
+  -DCONFLUX_FETCH_TEST_DEPS=ON \
+  -DCONFLUX_TEST_CATCH2_PROVIDER=FETCH \
+  -DCONFLUX_ENABLE_JSON_TESTSUITE=ON \
+  > /tmp/gcc-16/json-proof-clang-clean-configure.log 2>&1
+cmake --build /tmp/gcc-16/json-proof-clang-clean \
+  --target conflux_json_testsuite_gate conflux_json_differential_smoke \
+  > /tmp/gcc-16/json-proof-clang-clean-build.log 2>&1
+ctest --test-dir /tmp/gcc-16/json-proof-clang-clean \
+  --output-on-failure \
+  -R '^(JSONTestSuite:|json differential smoke:)' \
+  > /tmp/gcc-16/json-proof-clang-clean-ctest.log 2>&1
+scripts/record-json-proof-evidence.sh \
+  --evidence-dir ../evidence \
+  --build-dir /tmp/gcc-16/json-proof-clang-clean \
+  --log-prefix /tmp/gcc-16/json-proof-clang-clean
+```
+
 Runtime package smoke, only on hosts with real liburing discoverable through
 `pkg-config` and a non-mock install:
 
