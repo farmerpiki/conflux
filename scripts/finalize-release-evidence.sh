@@ -61,7 +61,7 @@ cp "$log_file" "$evidence_dir/logs/evidence-run.log"
 commit_sha="$(git -C "$source_root" rev-parse HEAD)"
 commit_short="$(git -C "$source_root" rev-parse --short HEAD)"
 
-scan_pattern='(^CMake Warning|(^|[[:space:]])warning:|(^|[[:space:]])WARNING:|(^|[[:space:]])error:|fatal error:|FAILED:|TEST_FAIL|TEST_WARNING|BUILD_FAIL|BUILD_WARNING|PRESET_SHAPE_FAIL|[0-9]+ tests failed|The following tests FAILED|Errors while running CTest|No space left on device|AddressSanitizer|ThreadSanitizer)'
+scan_pattern='(^CMake Warning|(^|[[:space:]])warning:|(^|[[:space:]])WARNING:|(^|[[:space:]])error:|fatal error:|FAILED:|TEST_FAIL|TEST_WARNING|BUILD_FAIL|BUILD_WARNING|PRESET_SHAPE_FAIL|[1-9][0-9]* tests failed|The following tests FAILED|Errors while running CTest|No space left on device|AddressSanitizer|ThreadSanitizer)'
 if grep -En "$scan_pattern" "$evidence_dir/logs/evidence-run.log" >"$evidence_dir/warning-error-scan.txt"; then
     {
         printf 'warning_error_scan=matched\n'

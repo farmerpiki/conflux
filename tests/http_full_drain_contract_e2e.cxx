@@ -30,6 +30,7 @@ chttp::Config drain_contract_cfg() {
 	cfg.taskrun_flag = true;
 	cfg.request_timeout_ms = 0;
 	cfg.tls_sniff_timeout_ms = 0;
+	cfg.direct_accept = false;
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
 	cfg.send_buffer_slabs = 0;
