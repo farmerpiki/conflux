@@ -11,7 +11,7 @@ set_property(CACHE CONFLUX_USE_IMPORT_STD PROPERTY STRINGS AUTO ON OFF)
 option(CONFLUX_ROUTER_LAZY_ROUTE_METADATA
     "Skip internal route-pattern param injection unless route observation requests it" ON)
 option(CONFLUX_HEADER_FAST_COMPILE
-    "Compile generated header-mode implementation and smoke targets without optimization or module scanning" ON)
+    "Compile generated header-mode implementation and smoke targets without optimization or module scanning" OFF)
 option(CONFLUX_HEADER_USE_IMPORT_STD
     "Use import std inside generated header-mode compatibility headers" OFF)
 option(CONFLUX_HEADER_USE_IMPORT_STD_COMPAT

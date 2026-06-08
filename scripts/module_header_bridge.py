@@ -229,6 +229,7 @@ STD_SAFETY_NET_HEADERS = {
     "system_error",
     "tuple",
     "type_traits",
+    "typeinfo",
     "utility",
     "variant",
     "vector",
@@ -1215,6 +1216,8 @@ def module_source_import_prelude(lines: list[str]) -> tuple[list[str], list[str]
 def source_standard_include_block(unit: ModuleUnit, text: str, include_own_header: bool) -> list[str]:
     out: list[str] = [f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n"]
     headers = set(infer_standard_headers(text, uses_std_compat=unit.uses_std_compat))
+    # GCC 15 requires <typeinfo>/<new> before <bits/shared_ptr_base.h>.
+    headers.update({"new", "typeinfo"})
     for token in set(STD_TOKEN_RE.findall(text)) & STD_STREAM_TOKENS:
         headers.add(STREAM_TOKEN_HEADER[token])
     if "std::println" in text or "std::print" in text:
@@ -1277,7 +1280,7 @@ def transform_to_module_no_import_consumer(path: Path) -> str:
         f"{GENERATED_BANNER}\n",
         f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n",
     ]
-    for header in sorted(set(infer_standard_headers(text, uses_std_compat="import std.compat;" in text)) | stream_headers):
+    for header in sorted(set(infer_standard_headers(text, uses_std_compat="import std.compat;" in text)) | stream_headers | {"new", "typeinfo"}):
         out.append(f"#include <{header}>\n")
     if "std::println" in text or "std::print" in text:
         out.append("#include <print>\n")
@@ -1307,7 +1310,7 @@ def transform_to_header_mode_consumer(path: Path, local_imports: dict[str, str] 
         f"{GENERATED_BANNER}\n",
         f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n",
     ]
-    for header in sorted(set(infer_standard_headers(text, uses_std_compat=False)) | stream_headers):
+    for header in sorted(set(infer_standard_headers(text, uses_std_compat=False)) | stream_headers | {"new", "typeinfo"}):
         out.append(f"#include <{header}>\n")
     if "std::println" in text or "std::print" in text:
         out.append("#include <print>\n")
