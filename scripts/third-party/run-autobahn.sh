@@ -74,3 +74,59 @@ cat >"$tmp_dir/fuzzingclient.json" <<JSON
 JSON
 
 wstest -m fuzzingclient -s "$tmp_dir/fuzzingclient.json"
+
+index="$tmp_dir/reports/index.json"
+if [[ ! -f "$index" ]]; then
+	printf 'wstest did not produce index.json\n' >&2
+	exit 1
+fi
+
+failed=$(python3 - "$index" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+agent = next(iter(data))
+cases = data[agent]
+bad = [k for k, v in cases.items() if v.get("behavior") in ("FAILED", "WRONG")]
+for k in bad:
+    print(f"  CASE {k}: {cases[k].get('behavior')}")
+print(len(bad))
+PY
+)
+count="${failed##*$'\n'}"
+details="${failed%$'\n'*}"
+if [[ "$count" == "$failed" ]]; then
+	details=""
+fi
+
+ok=$(python3 - "$index" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+agent = next(iter(data))
+cases = data[agent]
+print(sum(1 for v in cases.values() if v.get("behavior") in ("OK", "INFORMATIONAL", "NON-STRICT")))
+PY
+)
+unimpl=$(python3 - "$index" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+agent = next(iter(data))
+cases = data[agent]
+print(sum(1 for v in cases.values() if v.get("behavior") == "UNIMPLEMENTED"))
+PY
+)
+total=$(python3 - "$index" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+agent = next(iter(data))
+print(len(data[agent]))
+PY
+)
+
+printf 'autobahn: total=%s ok=%s unimplemented=%s failed=%s\n' \
+    "$total" "$ok" "$unimpl" "$count"
+
+if [[ "$count" -gt 0 ]]; then
+	[[ -n "$details" ]] && printf '%s\n' "$details" >&2
+	printf 'autobahn: %s FAILED/WRONG cases\n' "$count" >&2
+	exit 1
+fi
