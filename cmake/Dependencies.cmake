@@ -120,6 +120,10 @@ function(conflux_pkg_provider_from_registry token required)
             "conflux_pkg_provider_from_registry(${token}): external dependency is not pkg-config based")
     endif()
     conflux_pkg_provider("${token}" "${required}" ${CONFLUX_EXTERNAL_DEPENDENCY_PACKAGES_${token}})
+    # PARENT_SCOPE inside conflux_pkg_provider only reaches this function's scope.
+    # Re-propagate so the caller (Dependencies.cmake file scope) sees the result.
+    set(${token}_FOUND "${${token}_FOUND}" PARENT_SCOPE)
+    set(${token}_VERSION "${${token}_VERSION}" PARENT_SCOPE)
 endfunction()
 
 if(CONFLUX_BUILD_TESTS)
