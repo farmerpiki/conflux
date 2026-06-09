@@ -150,10 +150,12 @@ pkg_version() {
 
 {
     printf 'conflux_commit=%s\n' "$commit_sha"
-    printf '\nFull evidence regeneration:\n'
-    printf 'mkdir -p /tmp/gcc-16 && rm -rf /tmp/gcc-16/pre-evidence && { set -e; for sku in release-json release-http-api release-web-server; do if [[ "$sku" == release-json ]]; then scripts/check-pre-evidence-release-closure.sh --sku "$sku" --full-sanitizers --evidence-dir %q; else scripts/check-pre-evidence-release-closure.sh --sku "$sku" --evidence-dir %q; fi; done; } > %q 2>&1\n' "$evidence_dir" "$evidence_dir" "$log_file"
+    printf '\nFull evidence regeneration (set EVIDENCE_DIR and SCRATCH_DIR env vars first):\n'
+    printf 'cd <conflux-source> && { set -e; for sku in release-json release-http-api release-web-server; do if [[ "$sku" == release-json ]]; then scripts/check-pre-evidence-release-closure.sh --sku "$sku" --full-sanitizers --evidence-dir "$EVIDENCE_DIR"; else scripts/check-pre-evidence-release-closure.sh --sku "$sku" --evidence-dir "$EVIDENCE_DIR"; fi; done; } > "$SCRATCH_DIR/evidence-run.log" 2>&1\n'
     printf '\nEvidence finalization:\n'
-    printf 'scripts/finalize-release-evidence.sh --evidence-dir %q --log %q\n' "$evidence_dir" "$log_file"
+    printf 'scripts/finalize-release-evidence.sh --evidence-dir "$EVIDENCE_DIR" --log "$SCRATCH_DIR/evidence-run.log"\n'
+    printf '\nOr use the proof harness orchestrator (recommended):\n'
+    printf 'cd <conflux_proof> && bash scripts/produce-evidence.sh\n'
 } >"$evidence_dir/commands.txt"
 
 {

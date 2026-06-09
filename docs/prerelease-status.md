@@ -49,17 +49,21 @@ release lanes; GCC 16 is the current reflection lane.
 
 ## Evidence
 
-Runtime and benchmark evidence belongs in release artifacts, not as bulk logs in
-this source tree. Use `docs/releases/evidence-template.md` for small manifests.
+Current evidence is attached at https://github.com/farmerpiki/conflux_evidence
+commit `256f20b` for Conflux `v0.1.0-preview` (`18309ba7`).
 
-Third-party protocol conformance, external OpenAPI validation, JSONTestSuite
-classification, parser differential testing, and public JSON benchmark proof are
-evidence lanes that must be attached separately before those claims are made.
+Attached lanes: release-json/http-api/web-server SKU closures (full sanitizers
+on release-json), JSONTestSuite + differential smoke, HTTP throughput benchmarks
+(4 workloads, 6 rounds), Docker conformance (h2spec/wstest/spectral).
 
-Final public benchmark capture is intentionally deferred until release-candidate
-source freeze. During normal prerelease churn, this page describes the evidence
-contract only; it is not a performance claim and should not point at stale
-graphs from a source/API shape that will not be tagged.
+Not attached in this preview: PostgreSQL evidence, HTTP/2 multiplexing /
+WebSocket throughput / static file benchmarks, formal JSON benchmark proof.
+
+Benchmark evidence is in `conflux_evidence/<sha>/`. Docker conformance raw
+artifacts are in `conflux_evidence/conformance-docker/`. Use
+`conflux_proof/scripts/produce-evidence.sh` to regenerate structured evidence
+or `scripts/collect-evidence.sh` + `scripts/run-conformance-docker.sh` for
+benchmarks and conformance separately.
 
 ## Known Unsupported Areas
 

@@ -329,7 +329,7 @@ configure_full_gate() {
     esac
 
     rm -rf "$build_dir"
-    cmake -Wno-dev --preset "$base_preset" -B "$build_dir" \
+    cmake -Wno-dev --preset "$base_preset" -S "$SOURCE_DIR" -B "$build_dir" \
         -DCMAKE_BUILD_TYPE="$build_type" \
         -DCONFLUX_ENABLE_ASAN="$asan" \
         -DCONFLUX_ENABLE_UBSAN="$ubsan" \

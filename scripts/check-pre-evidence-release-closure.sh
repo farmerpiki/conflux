@@ -123,7 +123,7 @@ stage_closure_evidence() {
         printf 'components=%s\n' "$components"
         printf 'full_sanitizers=%s\n' "$full_sanitizers"
         printf 'heavy_checks_skipped=%s\n' "$skip_heavy"
-        printf 'work_root=%s\n' "$work_root"
+        printf 'work_root=$SCRATCH_DIR/closure-%s\n' "$release_sku"
         printf 'scratch_cleanup=success-removes-work-root\n'
         printf 'build_cost=build-cost\n'
         printf 'capabilities=capabilities/capability-report.txt\n'

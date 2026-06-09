@@ -121,17 +121,17 @@ clang_version="$(/usr/lib/llvm/21/bin/clang++ --version | head -1)"
 } >"$proof_dir/summary.txt"
 
 {
-    printf 'mkdir -p /tmp/gcc-16\n'
-    printf 'rm -rf %q\n' "$build_dir"
-    printf 'cmake -Wno-dev -S . -B %q -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/usr/lib/llvm/21/bin/clang++ -DCMAKE_CXX_FLAGS=%q -DCMAKE_EXE_LINKER_FLAGS=%q -DCMAKE_SHARED_LINKER_FLAGS=%q -DCONFLUX_FEATURE_SET=dev-json -DCONFLUX_BUILD_TESTS=ON -DCONFLUX_BUILD_EXAMPLES=OFF -DCONFLUX_BUILD_BENCHMARKS=OFF -DCONFLUX_FETCH_TEST_DEPS=ON -DCONFLUX_TEST_CATCH2_PROVIDER=FETCH -DCONFLUX_ENABLE_JSON_TESTSUITE=ON > %q 2>&1\n' \
-        "$build_dir" \
+    printf '# Set SCRATCH_DIR and EVIDENCE_DIR env vars before running.\n'
+    printf 'rm -rf "$SCRATCH_DIR/json-proof"\n'
+    printf 'cmake -Wno-dev -S . -B "$SCRATCH_DIR/json-proof" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=/usr/lib/llvm/21/bin/clang++ -DCMAKE_CXX_FLAGS=%q -DCMAKE_EXE_LINKER_FLAGS=%q -DCMAKE_SHARED_LINKER_FLAGS=%q -DCONFLUX_FEATURE_SET=dev-json -DCONFLUX_BUILD_TESTS=ON -DCONFLUX_BUILD_EXAMPLES=OFF -DCONFLUX_BUILD_BENCHMARKS=OFF -DCONFLUX_FETCH_TEST_DEPS=ON -DCONFLUX_TEST_CATCH2_PROVIDER=FETCH -DCONFLUX_ENABLE_JSON_TESTSUITE=ON > "$SCRATCH_DIR/json-proof-run-configure.log" 2>&1\n' \
         '-stdlib=libc++ -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0' \
         '-stdlib=libc++' \
-        '-stdlib=libc++' \
-        "$configure_log"
-    printf 'cmake --build %q --target conflux_json_testsuite_gate conflux_json_differential_smoke > %q 2>&1\n' "$build_dir" "$build_log"
-    printf 'ctest --test-dir %q --output-on-failure -R %q > %q 2>&1\n' "$build_dir" '^(JSONTestSuite:|json differential smoke:)' "$ctest_log"
-    printf 'scripts/record-json-proof-evidence.sh --evidence-dir %q --build-dir %q --log-prefix %q\n' "$evidence_dir" "$build_dir" "$log_prefix"
+        '-stdlib=libc++'
+    printf 'cmake --build "$SCRATCH_DIR/json-proof" --target conflux_json_testsuite_gate conflux_json_differential_smoke > "$SCRATCH_DIR/json-proof-run-build.log" 2>&1\n'
+    printf 'ctest --test-dir "$SCRATCH_DIR/json-proof" --output-on-failure -R %q > "$SCRATCH_DIR/json-proof-run-ctest.log" 2>&1\n' '^(JSONTestSuite:|json differential smoke:)'
+    printf 'scripts/record-json-proof-evidence.sh --evidence-dir "$EVIDENCE_DIR" --build-dir "$SCRATCH_DIR/json-proof" --log-prefix "$SCRATCH_DIR/json-proof-run"\n'
+    printf '\n# Or use the proof harness orchestrator (recommended):\n'
+    printf 'cd <conflux_proof> && bash scripts/run-json-proof.sh\n'
 } >"$proof_dir/commands.txt"
 
 printf 'clean: no warning/error/sanitizer/failure markers matched\n' >"$proof_dir/warning-error-scan.txt"
