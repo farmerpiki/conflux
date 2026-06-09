@@ -36,6 +36,7 @@ DEFAULT_CASES: tuple[Case, ...] = (
     Case("hello_world", "conflux_quickstart_hello", "examples/quickstart/hello.cxx"),
     Case("json_crud", "conflux_quickstart_json_crud", "examples/quickstart/json_crud.cxx"),
     Case("full_http_showcase", "conflux_production_showcase_example", "examples/advanced/production_showcase.cxx"),
+    Case("db_basic", "conflux_db_basic", "examples/advanced/db_basic.cxx"),
 )
 
 

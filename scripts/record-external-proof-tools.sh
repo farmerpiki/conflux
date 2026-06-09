@@ -41,7 +41,7 @@ emit_tool() {
 
 write_report() {
     printf 'external_proof_tools=availability\n'
-    printf 'note=missing tools mean the corresponding external proof lane is not natively attached; see docker_conformance below\n'
+    printf 'note=missing tools mean the corresponding external proof lane is not attached; see docker_conformance below\n'
     printf 'docker_conformance=see conformance-docker/ in the evidence repo (h2spec+wstest+spectral via Docker)\n'
     emit_tool h2spec 'HTTP/2 protocol conformance'
     emit_tool wstest 'Autobahn WebSocket conformance'

@@ -59,13 +59,14 @@ Read the release-facing docs in this order:
 5. [`docs/task-path.md`](docs/task-path.md)
 6. [`docs/json-api.md`](docs/json-api.md), [`docs/json-boundary-guide.md`](docs/json-boundary-guide.md), or [`docs/json-cookbook.md`](docs/json-cookbook.md)
 7. [`docs/http-server-api.md`](docs/http-server-api.md) or [`docs/conflux-http-client-api.md`](docs/conflux-http-client-api.md)
-8. [`docs/api-surface-profiles.md`](docs/api-surface-profiles.md)
-9. [`docs/extension-points.md`](docs/extension-points.md)
-10. [`docs/observability.md`](docs/observability.md) and [`docs/configuration.md`](docs/configuration.md)
-11. [`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md)
-12. [`docs/production-checklist.md`](docs/production-checklist.md)
-13. [`docs/prerelease-status.md`](docs/prerelease-status.md)
-14. [`docs/release-checklist.md`](docs/release-checklist.md)
+8. [`docs/db-api.md`](docs/db-api.md) for PostgreSQL pipeline support (`pg` component)
+9. [`docs/api-surface-profiles.md`](docs/api-surface-profiles.md)
+10. [`docs/extension-points.md`](docs/extension-points.md)
+11. [`docs/observability.md`](docs/observability.md) and [`docs/configuration.md`](docs/configuration.md)
+12. [`docs/cost-lifetime-model.md`](docs/cost-lifetime-model.md)
+13. [`docs/production-checklist.md`](docs/production-checklist.md)
+14. [`docs/prerelease-status.md`](docs/prerelease-status.md)
+15. [`docs/release-checklist.md`](docs/release-checklist.md)
 
 Maintainer planning files are outside this first-contact path.
 

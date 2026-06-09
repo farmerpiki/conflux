@@ -50,17 +50,23 @@ release lanes; GCC 16 is the current reflection lane.
 ## Evidence
 
 Current evidence is attached at https://github.com/farmerpiki/conflux_evidence
-commit `a3fa450` for Conflux `v0.1.0-preview` (`f0f511b`).
+commit `d2bcbfb` for Conflux `v0.1.0-preview` (`f0f511b`).
 
 Attached lanes: release-json/http-api/web-server SKU closures (full sanitizers
-on release-json), JSONTestSuite + differential smoke, HTTP throughput benchmarks
-(4 workloads, 6 rounds, recorded under source-equivalent commit `6466c3cb`),
-JSON throughput benchmarks (6 rounds, 3 compilers: clang/gcc/gcc16), Docker
-conformance (h2spec/wstest/spectral).
+on release-json), JSONTestSuite + differential smoke (parser differential testing
+via node/python3), HTTP throughput benchmarks (4 workloads, 6 rounds, recorded
+under source-equivalent commit `6466c3cb`), JSON throughput benchmarks (6 rounds,
+3 compilers: clang/gcc/gcc16), Docker conformance (h2spec/wstest/spectral).
 
-Not attached in this preview: PostgreSQL evidence, HTTP/2 multiplexing /
+Not attached in this preview: HTTP/2 multiplexing /
 WebSocket throughput / static file benchmarks, exact-commit formal HTTP
-benchmark proof, formal JSON benchmark proof.
+benchmark proof, formal JSON benchmark proof (public JSON benchmark proof
+with full benchmark-schema is not in this preview).
+
+Third-party protocol conformance (h2spec/wstest/spectral) is attached via
+Docker in `conflux_evidence/conformance-docker/`. external OpenAPI validation
+(spectral 6.16.0) ran against the quickstart OpenAPI spec: 0 errors, 5 warnings
+on optional metadata fields.
 
 Benchmark evidence is in `conflux_evidence/<sha>/`. Docker conformance raw
 artifacts are in `conflux_evidence/conformance-docker/`. Use

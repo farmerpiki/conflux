@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    printf 'usage: %s [--sku release-json|release-http-api|release-web-server] [--work-root DIR] [--skip-heavy] [--full-sanitizers] [--evidence-dir DIR]\n' "$0" >&2
+    printf 'usage: %s [--sku release-json|release-http-api|release-web-server|release-pg] [--work-root DIR] [--skip-heavy] [--full-sanitizers] [--evidence-dir DIR]\n' "$0" >&2
 }
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,7 +63,7 @@ while (($# > 0)); do
 done
 
 case "$release_sku" in
-    release-json|release-http-api|release-web-server) ;;
+    release-json|release-http-api|release-web-server|release-pg) ;;
     *)
         printf 'check-pre-evidence-release-closure: unsupported release SKU: %s\n' "$release_sku" >&2
         exit 2
@@ -141,6 +141,8 @@ components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root"
 build_cost_target="conflux_quickstart_hello"
 if [[ "$release_sku" == "release-json" ]]; then
     build_cost_target="conflux_header_smoke_json"
+elif [[ "$release_sku" == "release-pg" ]]; then
+    build_cost_target="conflux_db_basic"
 fi
 
 rm -rf "$work_root"
@@ -191,6 +193,9 @@ if ((skip_heavy == 0)); then
             ;;
         release-web-server)
             TMPDIR="$work_root/package-smoke" "$source_root/scripts/check-package-smoke-runtime.sh"
+            ;;
+        release-pg)
+            TMPDIR="$work_root/package-smoke" "$source_root/scripts/check-package-smoke-db.sh"
             ;;
     esac
 
