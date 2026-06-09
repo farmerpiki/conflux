@@ -1,8 +1,9 @@
 # Security Policy
 
 Conflux is pre-v1 preview software. Security-sensitive reports should be sent
-through the repository owner's private contact channel rather than opened as a
-public issue.
+through GitHub private vulnerability reporting when it is enabled for the public
+repository. Otherwise, use the repository owner's private contact channel rather
+than opening a public issue.
 
 Public issues are appropriate for non-sensitive hardening work and already
 disclosed crash-only bugs. For private reports, include the affected commit or

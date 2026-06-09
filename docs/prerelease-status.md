@@ -50,14 +50,17 @@ release lanes; GCC 16 is the current reflection lane.
 ## Evidence
 
 Current evidence is attached at https://github.com/farmerpiki/conflux_evidence
-commit `256f20b` for Conflux `v0.1.0-preview` (`18309ba7`).
+commit `a3fa450` for Conflux `v0.1.0-preview` (`f0f511b`).
 
 Attached lanes: release-json/http-api/web-server SKU closures (full sanitizers
 on release-json), JSONTestSuite + differential smoke, HTTP throughput benchmarks
-(4 workloads, 6 rounds), Docker conformance (h2spec/wstest/spectral).
+(4 workloads, 6 rounds, recorded under source-equivalent commit `6466c3cb`),
+JSON throughput benchmarks (6 rounds, 3 compilers: clang/gcc/gcc16), Docker
+conformance (h2spec/wstest/spectral).
 
 Not attached in this preview: PostgreSQL evidence, HTTP/2 multiplexing /
-WebSocket throughput / static file benchmarks, formal JSON benchmark proof.
+WebSocket throughput / static file benchmarks, exact-commit formal HTTP
+benchmark proof, formal JSON benchmark proof.
 
 Benchmark evidence is in `conflux_evidence/<sha>/`. Docker conformance raw
 artifacts are in `conflux_evidence/conformance-docker/`. Use

@@ -108,11 +108,14 @@ flags unless the package metadata declares that CPU baseline.
 - `MODULE_INTERFACE` is the prerelease primary interface.
 - `HEADER_INTERFACE` exists for generated release artifacts and compatibility.
 
-Runtime/http consumers use a real-liburing install:
+Runtime/http consumers must use a real-liburing producer install. Normal app
+consumers still request the `http` and `json` components; the package imports the
+required `work`/runtime dependency closure. Request `work` explicitly only when
+user code imports `conflux.work` or links runtime primitives directly:
 
 ```cmake
-find_package(conflux REQUIRED COMPONENTS http json work)
-target_link_libraries(myapp PRIVATE conflux::http conflux::json conflux::work)
+find_package(conflux REQUIRED COMPONENTS http json)
+target_link_libraries(myapp PRIVATE conflux::http conflux::json)
 ```
 
 Do not mix `import conflux.*` and generated Conflux headers in one consumer
