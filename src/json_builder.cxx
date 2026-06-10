@@ -630,11 +630,11 @@ static std::expected<std::size_t, JsonError> push_f64_node(
 static std::expected<std::size_t, JsonError> reserve_owned_member_name(
 	ChildFrame &frame,
 	std::string_view name,
-	std::size_t node_idx) {
-	bool const inserted = frame.dup_check.try_emplace(std::string{name}, node_idx).second;
-	if (!inserted) {
+	[[maybe_unused]] std::size_t node_idx) {
+	if (frame.has_member(name)) {
 		return std::unexpected(duplicate_member_error(name));
 	}
+	frame.track_member(name);
 	auto *st = frame.state;
 	std::size_t const name_off = st->built_input.size();
 	st->built_input.append(name.data(), name.size());
@@ -644,11 +644,11 @@ static std::expected<std::size_t, JsonError> reserve_owned_member_name(
 static std::expected<void, JsonError> reserve_borrowed_member_name(
 	ChildFrame &frame,
 	std::string_view name,
-	std::size_t node_idx) {
-	bool const inserted = frame.dup_check.try_emplace(std::string{name}, node_idx).second;
-	if (!inserted) {
+	[[maybe_unused]] std::size_t node_idx) {
+	if (frame.has_member(name)) {
 		return std::unexpected(duplicate_member_error(name));
 	}
+	frame.track_member(name);
 	return {};
 }
 

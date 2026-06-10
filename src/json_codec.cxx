@@ -295,7 +295,38 @@ struct ChildFrame {
 	std::vector<char const *>
 		local_external_ptrs_; // parallel to local_members; non-null only for kMemberExternalView entries
 	// Per-session duplicate detection for ObjectBuilder (kind==object only).
-	conflux::support::TransparentStringMap<std::size_t> dup_check;
+	// Keyed on the member-name hash → staged member index, so detecting a
+	// duplicate never copies the name into the map (the previous std::string
+	// key cost a heap allocation per insert for non-SSO names). Hash collisions
+	// are resolved against the real name via member_name_at.
+	std::unordered_multimap<std::uint64_t, std::uint32_t> dup_check;
+
+	// Resolve a staged member's name from its backing storage.
+	[[nodiscard]] std::string_view member_name_at(MemberEntry const &m) const {
+		if ((m.name_flags & kMemberExternalView) != 0) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			return std::string_view{local_external_ptrs_[m.name_off], m.name_len};
+		}
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		return std::string_view{state->built_input.data() + m.name_off, m.name_len};
+	}
+	// True if an object member with this name was already staged.
+	[[nodiscard]] bool has_member(std::string_view name) const {
+		auto const h = std::hash<std::string_view>{}(name);
+		auto const range = dup_check.equal_range(h);
+		for (auto it = range.first; it != range.second; ++it) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			if (member_name_at(local_members[it->second]) == name) {
+				return true;
+			}
+		}
+		return false;
+	}
+	// Record a name already confirmed unique by has_member(). The value is the
+	// index this member will occupy in local_members (assigned on push_back).
+	void track_member(std::string_view name) {
+		dup_check.emplace(std::hash<std::string_view>{}(name), static_cast<std::uint32_t>(local_members.size()));
+	}
 };
 export class ObjectBuilder {
 	ChildFrame frame_;
@@ -5209,7 +5240,7 @@ std::expected<void, JsonError> ObjectBuilder::insert(
 		return ok;
 	}
 	// Spec: duplicate-name rejection happens before dispatching to JsonCodec<T>::encode.
-	if (frame_.dup_check.contains(name)) {
+	if (frame_.has_member(name)) {
 		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,
