@@ -3688,9 +3688,11 @@ struct FpStringView {
 
 // Owned-string decode with inline escape handling (including \uXXXX and
 // surrogate pairs). Bails on non-ASCII bytes (UTF-8 validation stays in the
-// slow path) and on invalid escapes.
+// slow path) and on invalid escapes. Kept out of line so the common
+// escape-free case (handled by fp_parse_string_owned below) stays small and
+// inlinable without paying this function's spill-heavy prologue.
 template<class String>
-[[nodiscard]] inline FpStatus fp_parse_string_owned(
+[[nodiscard]] [[gnu::noinline]] FpStatus fp_parse_string_owned_escaped(
 	FpCursor &c,
 	String &out,
 	std::size_t max_string) noexcept {
@@ -3812,6 +3814,31 @@ template<class String>
 			return FpStatus::bail;
 		}
 	}
+}
+
+// Common case: an escape-free, all-ASCII string. Scan once to the closing
+// quote and copy in a single pass with no zero-fill; delegate anything with
+// escapes, control bytes, or non-ASCII to the out-of-line escaped decoder.
+template<class String>
+[[nodiscard]] inline FpStatus fp_parse_string_owned(
+	FpCursor &c,
+	String &out,
+	std::size_t max_string) noexcept {
+	char const *const p = c.p;
+	std::size_t const n = c.remaining();
+	std::size_t const run = fp_scan_str_until_special(p, n);
+	if (run < n && p[run] == '"') [[likely]] {
+		if (run > max_string) [[unlikely]] {
+			return FpStatus::bail;
+		}
+		out.resize_and_overwrite(run, [p, run](char *buf, std::size_t) noexcept {
+			std::memcpy(buf, p, run);
+			return run;
+		});
+		c.p = p + run + 1;
+		return FpStatus::ok;
+	}
+	return fp_parse_string_owned_escaped(c, out, max_string);
 }
 
 // Resolved limits/policies for one fast-path decode.
