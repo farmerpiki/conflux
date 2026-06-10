@@ -852,8 +852,12 @@ struct ClassifiedDouble {
 	std::uint32_t off,
 	std::uint32_t len,
 	std::uint8_t storage_flags,
-	std::string_view lex) noexcept {
-	bool const int_form = lex.find_first_of(".eE") == std::string_view::npos;
+	std::string_view lex,
+	// Integer-vs-float form, when the caller's lexeme scan already determined
+	// it; nullopt re-derives it here. Avoids a redundant pass over the lexeme.
+	std::optional<bool> int_form_hint = std::nullopt) noexcept {
+	bool const int_form =
+		int_form_hint.has_value() ? *int_form_hint : (lex.find_first_of(".eE") == std::string_view::npos);
 	bool const neg = !lex.empty() && lex.front() == '-';
 	auto const *b = lex.data();
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
