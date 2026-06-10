@@ -177,6 +177,8 @@ class App : public detail::AppRouteVerbAccessors {
 		std::shared_ptr<std::string> bearer_token_policy = std::make_shared<std::string>();
 		std::string openapi_auth_scheme{};
 		std::string openapi_summary{};
+		std::string openapi_description{};
+		std::vector<std::string> openapi_tags{};
 		bool uses_body{};
 		bool allow_get_body{};
 	};
@@ -373,6 +375,21 @@ public:
 		RouteRef &openapi_summary(
 			std::string_view value) {
 			metadata().openapi_summary = std::string{value};
+			return *this;
+		}
+
+		RouteRef &openapi_description(
+			std::string_view value) {
+			metadata().openapi_description = std::string{value};
+			return *this;
+		}
+
+		RouteRef &openapi_tags(
+			std::initializer_list<std::string_view> tags) {
+			metadata().openapi_tags.clear();
+			for (auto t: tags) {
+				metadata().openapi_tags.emplace_back(t);
+			}
 			return *this;
 		}
 
@@ -1098,11 +1115,15 @@ public:
 	[[nodiscard]] std::vector<AppRouteInfo> routes() const;
 	[[nodiscard]] std::vector<AppStaticMountInfo> static_mounts() const;
 	[[nodiscard]] std::string route_table() const;
-	[[nodiscard]] std::string openapi_spec(std::string_view title = "API", std::string_view version = "1.0.0") const;
+	[[nodiscard]] std::string openapi_spec(
+		std::string_view title = "API",
+		std::string_view version = "1.0.0",
+		detail::OpenApiAppInfo app_info = {}) const;
 	[[nodiscard]] RouteRef openapi(
 		std::string_view path = "/openapi.json",
 		std::string_view title = "API",
 		std::string_view version = "1.0.0",
+		detail::OpenApiAppInfo app_info = {},
 		std::source_location loc = std::source_location::current());
 	[[nodiscard]] ValidationReport validate() const;
 	void validate_app_state(ValidationReport &report) const;
