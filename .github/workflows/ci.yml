@@ -53,6 +53,20 @@ jobs:
   container-compile:
     name: Container Compile
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: conflux_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,9 +74,10 @@ jobs:
       - name: Build CI toolchain image
         run: docker build -f .github/docker/ci-toolchain.Dockerfile -t conflux-ci-toolchain .
 
-      - name: Compile supported surfaces
+      - name: Compile and test supported surfaces
         run: |
           docker run --rm \
+            --network host \
             -v "$PWD:/work" \
             -w /work \
             conflux-ci-toolchain \
@@ -92,6 +107,13 @@ jobs:
                 rm -rf "$dir"
               }
 
+              run_preset_ctest() {
+                local preset="$1"
+                local dir
+                dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$preset")"
+                scripts/run-ctest.sh --test-dir "$dir" --output-on-failure
+              }
+
               export CXX=g++-16
               cmake --preset full
               cmake --build --preset full
@@ -99,9 +121,11 @@ jobs:
 
               cmake --preset debug-clang-libcxx
               cmake --build --preset debug-clang-libcxx
+              run_preset_ctest debug-clang-libcxx
               cleanup_preset debug-clang-libcxx
 
               cmake --preset debug-gcc16-stdcxx
               cmake --build --preset debug-gcc16-stdcxx
+              run_preset_ctest debug-gcc16-stdcxx
               cleanup_preset debug-gcc16-stdcxx
             '
