@@ -77,10 +77,22 @@ jobs:
       - name: Build CI toolchain image
         run: docker build -f .github/docker/ci-toolchain.Dockerfile -t conflux-ci-toolchain .
 
-      - name: Compile and test supported surfaces
+      - name: Prepare PostgreSQL roles
         run: |
           docker run --rm \
             --network host \
+            postgres:16 \
+            psql -h 127.0.0.1 -U postgres -d conflux_test -v ON_ERROR_STOP=1 \
+              -c 'DO $$ BEGIN CREATE ROLE root LOGIN SUPERUSER; EXCEPTION WHEN duplicate_object THEN NULL; END $$;'
+
+      - name: Compile and test supported surfaces
+        run: |
+          docker run --rm \
+            --privileged \
+            --network host \
+            --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
+            --ulimit memlock=-1:-1 \
             -v "$PWD:/work" \
             -w /work \
             conflux-ci-toolchain \
