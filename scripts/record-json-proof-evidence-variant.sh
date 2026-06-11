@@ -41,7 +41,6 @@ case "$variant" in
         cmake_cxx_compiler="g++-16"
         cmake_extra_flags="-DCONFLUX_USE_IMPORT_STD=OFF"
         compiler_version_cmd="g++-16 --version | head -1"
-        default_build_dir="/tmp/gcc-16/json-proof-gcc16"
         ;;
     clang-header)
         proof_subdir="json-proof-clang-header"
@@ -49,7 +48,6 @@ case "$variant" in
         cmake_cxx_compiler="/usr/lib/llvm/21/bin/clang++"
         cmake_extra_flags="-DCMAKE_CXX_FLAGS='-stdlib=libc++ -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0' -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ -DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++ -DCONFLUX_INTERFACE_MODE=HEADER_INTERFACE"
         compiler_version_cmd="/usr/lib/llvm/21/bin/clang++ --version | head -1"
-        default_build_dir="/tmp/gcc-16/json-proof-clang-header"
         ;;
     gcc15)
         proof_subdir="json-proof-gcc15"
@@ -57,14 +55,41 @@ case "$variant" in
         cmake_cxx_compiler="g++"
         cmake_extra_flags="-DCONFLUX_USE_IMPORT_STD=OFF"
         compiler_version_cmd="g++ --version | head -1"
-        default_build_dir="/tmp/gcc-16/json-proof-gcc15"
         ;;
     *)
         printf 'record-json-proof-evidence-variant: unknown variant: %s\n' "$variant" >&2
         usage; exit 2 ;;
 esac
 
-if [[ -z "$build_dir" ]]; then build_dir="$default_build_dir"; fi
+private_tmp_root() {
+    local base="${CONFLUX_JSON_PROOF_TMPDIR:-${TMPDIR:-/tmp}/conflux-json-proof-$(id -u)}"
+    local mode owner
+
+    if [[ -L "$base" ]]; then
+        printf 'record-json-proof-evidence-variant: refusing symlinked temp directory: %s\n' "$base" >&2
+        exit 1
+    fi
+
+    umask 077
+    mkdir -p "$base"
+
+    owner="$(stat -c '%u' "$base")"
+    if [[ "$owner" != "$(id -u)" ]]; then
+        printf 'record-json-proof-evidence-variant: temp directory must be owned by uid %s: %s\n' "$(id -u)" "$base" >&2
+        exit 1
+    fi
+
+    chmod go-rwx "$base"
+    mode="$(stat -c '%a' "$base")"
+    if [[ $((8#$mode & 077)) -ne 0 ]]; then
+        printf 'record-json-proof-evidence-variant: temp directory must not be accessible by group/other: %s\n' "$base" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$base"
+}
+
+if [[ -z "$build_dir" ]]; then build_dir="$(private_tmp_root)/$proof_subdir"; fi
 if [[ -z "$log_prefix" ]]; then log_prefix="$build_dir"; fi
 
 require_file() {
@@ -139,7 +164,7 @@ compiler_version="$(eval "$compiler_version_cmd")"
 
 {
     printf 'variant=%s\n' "$variant"
-    printf 'mkdir -p /tmp/gcc-16\n'
+    printf 'mkdir -p %q\n' "$(dirname "$build_dir")"
     printf 'rm -rf %q\n' "$build_dir"
     case "$variant" in
         gcc16)

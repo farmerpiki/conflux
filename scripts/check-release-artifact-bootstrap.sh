@@ -2,7 +2,11 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-work_root="${CONFLUX_RELEASE_BOOTSTRAP_WORK:-${TMPDIR:-/tmp}/conflux-release-artifact-bootstrap}"
+if [[ -n "${CONFLUX_RELEASE_BOOTSTRAP_WORK:-}" ]]; then
+    work_root="$CONFLUX_RELEASE_BOOTSTRAP_WORK"
+else
+    work_root="$(mktemp -d "${TMPDIR:-/tmp}/conflux-release-artifact-bootstrap.XXXXXXXXXX")"
+fi
 release_sku="${CONFLUX_RELEASE_BOOTSTRAP_SKU:-release-json}"
 stage_dir="$work_root/stage"
 bootstrap_source="$work_root/source"

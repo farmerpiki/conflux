@@ -23,9 +23,39 @@ if [[ -z "$evidence_dir" ]]; then usage; exit 2; fi
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+private_tmp_root() {
+    local base="${CONFLUX_JSON_PROOF_TMPDIR:-${TMPDIR:-/tmp}/conflux-json-proof-$(id -u)}"
+    local mode owner
+
+    if [[ -L "$base" ]]; then
+        printf 'run-json-proof-variants: refusing symlinked temp directory: %s\n' "$base" >&2
+        exit 1
+    fi
+
+    umask 077
+    mkdir -p "$base"
+
+    owner="$(stat -c '%u' "$base")"
+    if [[ "$owner" != "$(id -u)" ]]; then
+        printf 'run-json-proof-variants: temp directory must be owned by uid %s: %s\n' "$(id -u)" "$base" >&2
+        exit 1
+    fi
+
+    chmod go-rwx "$base"
+    mode="$(stat -c '%a' "$base")"
+    if [[ $((8#$mode & 077)) -ne 0 ]]; then
+        printf 'run-json-proof-variants: temp directory must not be accessible by group/other: %s\n' "$base" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$base"
+}
+
+json_proof_tmp_root="$(private_tmp_root)"
+
 run_variant() {
     local v="$1"
-    local build_dir="/tmp/gcc-16/json-proof-${v}"
+    local build_dir="$json_proof_tmp_root/json-proof-${v}"
     local log_prefix="$build_dir"
     local configure_log="${log_prefix}-configure.log"
     local build_log="${log_prefix}-build.log"
@@ -34,7 +64,7 @@ run_variant() {
     printf '[run-json-proof-variants] === variant: %s ===\n' "$v" >&2
 
     rm -rf "$build_dir"
-    mkdir -p "/tmp/gcc-16"
+    mkdir -p "$json_proof_tmp_root"
 
     case "$v" in
         gcc16)

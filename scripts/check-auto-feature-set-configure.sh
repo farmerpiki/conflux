@@ -2,11 +2,10 @@
 set -euo pipefail
 
 source_root="${1:-$(pwd)}"
-build_dir="${TMPDIR:-/tmp}/gcc-16/auto-feature-set-configure"
+build_dir="$(mktemp -d "${TMPDIR:-/tmp}/conflux-auto-feature-set-configure.XXXXXXXXXX")"
+chmod 700 "$build_dir"
 log_file="$build_dir/configure.log"
 
-rm -rf "$build_dir"
-mkdir -p "$build_dir"
 trap 'rm -rf "$build_dir"' EXIT
 
 cmake -S "$source_root" -B "$build_dir" -G Ninja \
