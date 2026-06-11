@@ -78,7 +78,7 @@ if(CONFLUX_BUILD_TESTS)
     set_tests_properties(build/mixed-module-header-smoke PROPERTIES
         LABELS "build;modules;headers;package"
         RUN_SERIAL TRUE
-        TIMEOUT 1200
+        TIMEOUT 600
     )
 
     add_test(NAME build/public-module-import-smoke

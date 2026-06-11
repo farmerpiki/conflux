@@ -1886,7 +1886,9 @@ def check_package_smoke_wrapper_contracts() -> None:
             '--forbid-components "$strict_forbidden_components"': "core-isolated package smoke must pass the derived forbidden components",
         },
         "scripts/check-package-smoke-mixed-module-header.sh": {
-            'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "mixed module/header package smoke must cap its default build concurrency",
+            "CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET": "mixed module/header package smoke must keep the feature-set override",
+            "CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS": "mixed module/header package smoke must keep the component override",
+            "--mixed-module-header-smoke": "mixed module/header package smoke must run downstream mixed module/header checks",
         },
         "scripts/check-package-smoke-api-surfaces.sh": {
             'release-sku-field.py" "$source_root" release-http-api feature_set': "API-surface package smoke must derive feature set from release-http-api",
@@ -1913,6 +1915,9 @@ def check_package_smoke_wrapper_contracts() -> None:
     for path, markers in checks.items():
         text = read(path)
         errors.extend(message for marker, message in markers.items() if marker not in text)
+    mixed_module_header_smoke = read("scripts/check-package-smoke-mixed-module-header.sh")
+    if 'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"' in mixed_module_header_smoke:
+        errors.append("mixed module/header package smoke must not default to single-worker builds")
     runner = read("scripts/run-package-config-smoke.sh")
     helper_policies = package_smoke_forbidden_policy_names()
     runner_policies = package_smoke_runner_default_policy_names(runner)
