@@ -100,6 +100,15 @@ jobs:
               set -euo pipefail
               export PG_TEST_CONNINFO="host=127.0.0.1 port=5432 dbname=conflux_test user=postgres"
               export PG_CONNINFO="$PG_TEST_CONNINFO"
+              visible_cpus="$(nproc)"
+              echo "visible CPUs: ${visible_cpus}"
+              if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+                echo "cpu.max: $(cat /sys/fs/cgroup/cpu.max)"
+              fi
+              if (( visible_cpus < 2 )); then
+                echo "CI container needs at least 2 visible CPUs for concurrency tests" >&2
+                exit 1
+              fi
               cmake --version
               ninja --version
               python3 --version
