@@ -49,3 +49,59 @@ jobs:
         run: |
           cmake --list-presets
           python3 scripts/check-cmake-preset-build-dir.py .
+
+  container-compile:
+    name: Container Compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build CI toolchain image
+        run: docker build -f .github/docker/ci-toolchain.Dockerfile -t conflux-ci-toolchain .
+
+      - name: Compile supported surfaces
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            conflux-ci-toolchain \
+            bash -lc '
+              set -euo pipefail
+              cmake --version
+              ninja --version
+              python3 --version
+              clang++ --version
+              clang-scan-deps --version
+              g++-16 --version
+              pkg-config --modversion \
+                liburing \
+                openssl \
+                libnghttp2 \
+                libpq \
+                libdeflate \
+                libzstd \
+                libxxhash \
+                libbrotlienc \
+                libbrotlidec
+
+              cleanup_preset() {
+                local preset="$1"
+                local dir
+                dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$preset")"
+                rm -rf "$dir"
+              }
+
+              export CXX=g++-16
+              cmake --preset full
+              cmake --build --preset full
+              cleanup_preset full
+
+              cmake --preset debug-clang-libcxx
+              cmake --build --preset debug-clang-libcxx
+              cleanup_preset debug-clang-libcxx
+
+              cmake --preset debug-gcc16-stdcxx
+              cmake --build --preset debug-gcc16-stdcxx
+              cleanup_preset debug-gcc16-stdcxx
+            '
