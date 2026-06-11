@@ -42,6 +42,19 @@ def string_list(value: object, errors: list[str], field: str) -> list[str]:
     return strings
 
 
+def check_selected_file(item: str, field: str, sku_name: str, errors: list[str]) -> None:
+    root_name = "docs" if field == "docs" else "examples"
+    root = (ROOT / root_name).resolve()
+    path = (ROOT / item).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        errors.append(f"{sku_name}: {field[:-1]} path must live under {root_name}/: {item}")
+        return
+    if not path.is_file():
+        errors.append(f"{sku_name}: missing {field} path {item}")
+
+
 def main() -> int:
     manifest = json.loads(SKU_MANIFEST.read_text(encoding="utf-8"))
     components = public_components()
@@ -97,13 +110,7 @@ def main() -> int:
                             f"{previous} and {item}"
                         )
                     seen_basenames[basename] = item
-                    path = ROOT / item
-                    if not path.is_file():
-                        errors.append(f"{sku_name}: missing {field} path {item}")
-                    if field == "docs" and not item.startswith("docs/"):
-                        errors.append(f"{sku_name}: doc path must live under docs/: {item}")
-                    if field == "examples" and not item.startswith("examples/"):
-                        errors.append(f"{sku_name}: example path must live under examples/: {item}")
+                    check_selected_file(item, field, sku_name, errors)
 
     if errors:
         print("release-skus guard failed:", file=sys.stderr)

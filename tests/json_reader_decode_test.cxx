@@ -507,6 +507,23 @@ TEST_CASE(
 	REQUIRE(ok.has_value());
 	CHECK(*ok == 42LL);
 }
+
+TEST_CASE(
+	"json: fast strict decode handles short doubles and unicode escapes safely",
+	"[json][reader][fastpath]") {
+	auto zero = decode_full<double>("0");
+	REQUIRE(zero.has_value());
+	CHECK(*zero == 0.0);
+	auto neg_zero = decode_full<double>("-0");
+	REQUIRE(neg_zero.has_value());
+	CHECK(*neg_zero == 0.0);
+
+	auto latin1 = decode_full<std::string>(R"("\u00e9")");
+	REQUIRE(latin1.has_value());
+	REQUIRE(latin1->size() == 2UZ);
+	CHECK(static_cast<unsigned char>((*latin1)[0]) == 0xC3U);
+	CHECK(static_cast<unsigned char>((*latin1)[1]) == 0xA9U);
+}
 TEST_CASE(
 	"phase4: JsonReader direct object string fast path preserves escaped values",
 	"[phase4][perf]") {

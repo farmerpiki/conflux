@@ -318,10 +318,12 @@ TEST_CASE(
 	conflux::http::ChunkedDecodeState st;
 	CHECK(conflux::http::decode_chunked_incremental(raw, start, 64, 8, st) == 0);
 	CHECK(st.body == "Wiki");
+	CHECK(st.body_bytes == 4UZ);
 	raw += "5\r\npedia\r\n0\r\n\r\n";
 	auto inc_consumed = conflux::http::decode_chunked_incremental(raw, start, 64, 8, st);
 	REQUIRE(inc_consumed > 0);
 	CHECK(st.body == "Wikipedia");
+	CHECK(st.body_bytes == 9UZ);
 	CHECK(static_cast<std::size_t>(inc_consumed) == raw.size() - start);
 }
 

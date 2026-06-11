@@ -48,6 +48,9 @@ void ensure_client_server() {
 			r.headers["X-Another"] = "world";
 			return r;
 		});
+		router.get("/api/large", [](conflux::http::OwnedRequest const &) {
+			return conflux::http::Response::text(std::string(128, 'x'));
+		});
 		router.put("/api/resource/{id}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::json(std::format(R"({{"method":"PUT","id":"{}"}})", req.params["id"]));
 		});
@@ -158,6 +161,24 @@ TEST_CASE(
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
 	CHECK(body == R"({"status":"ok"})");
+}
+
+TEST_CASE(
+	"http client: blocking_send_streaming rejects oversized content-length before emitting body chunks") {
+	ensure_client_server();
+	HttpClientOptions opts{};
+	opts.max_body_bytes = 16;
+	HttpClient client{opts};
+	bool sink_called = false;
+	auto response = client.blocking_send_streaming(
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/large", g_client_port)),
+		[&](std::string_view) {
+			sink_called = true;
+			return true;
+		});
+	CHECK_FALSE(response.has_value());
+	CHECK(response.error().kind == HttpErrorKind::body_too_large);
+	CHECK_FALSE(sink_called);
 }
 
 TEST_CASE(

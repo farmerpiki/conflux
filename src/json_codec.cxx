@@ -3214,6 +3214,10 @@ std::expected<void, JsonError> decode_members_from_event_into(
 						 .code = JsonIssueCode::missing_member,
 						 .member_name = std::string{m.name},
 						 .message = std::format("missing member: {}", m.name)};
+				 } else if constexpr (is_optional<M>::value) {
+					 if (!found) {
+						 (result.*m.pointer).reset();
+					 }
 				 }
 				 ++idx;
 			 })(ms),
@@ -3472,7 +3476,7 @@ template<class T>
 	if (p >= end || *p < '0' || *p > '9') {
 		return FpStatus::bail;
 	}
-	if (std::same_as<T, double> && *p == '0' && p + 2 < end && p[1] == '.') {
+	if (std::same_as<T, double> && *p == '0' && static_cast<std::size_t>(end - p) > 2U && p[1] == '.') {
 		char const *q = p + 2;
 		std::uint64_t mant = 0;
 		std::size_t digits = 0;
@@ -3663,6 +3667,9 @@ struct FpStringView {
 	std::string_view expected,
 	std::size_t max_string,
 	bool *consumed_colon = nullptr) noexcept {
+	if (!json_member_raw_name_fast_path_safe(expected)) {
+		return false;
+	}
 	if (expected.size() > max_string || c.remaining() <= expected.size()) {
 		return false;
 	}
@@ -3789,9 +3796,12 @@ template<class String>
 					if (!byte) {
 						return FpStatus::bail;
 					}
-					out.push_back(*byte);
-					p += 4;
-					break;
+					auto const cp = static_cast<std::uint32_t>(static_cast<unsigned char>(*byte));
+					if (cp < 0x80U) {
+						out.push_back(static_cast<char>(cp));
+						p += 4;
+						break;
+					}
 				}
 				auto cp_opt = fp_hex4(p);
 				if (!cp_opt) {
@@ -5024,6 +5034,7 @@ std::expected<void, JsonError> decode_full_into(
 	std::string_view input,
 	JsonParseOptions const &parse_opts,
 	JsonDecodeOptions const &decode_opts) {
+	T decoded_out{};
 	// Fast path: cursor-based strict-JSON decode for supported member sets.
 	// On any malformed/unsupported/limit-violating input it bails and the
 	// JsonReader-based decoder below produces the authoritative result and
@@ -5032,8 +5043,10 @@ std::expected<void, JsonError> decode_full_into(
 	if constexpr (detail::fastpath::fp_supported_v<T>) {
 		if (parse_opts.mode == ParseMode::strict) {
 			detail::fastpath::FpError fast_error{};
-			auto const st = detail::fastpath::fp_decode_document<T>(out, fast_error, input, parse_opts, decode_opts);
+			auto const st =
+				detail::fastpath::fp_decode_document<T>(decoded_out, fast_error, input, parse_opts, decode_opts);
 			if (st == detail::fastpath::FpStatus::ok) [[likely]] {
+				out = std::move(decoded_out);
 				return {};
 			}
 			if (st == detail::fastpath::FpStatus::error) [[unlikely]] {
@@ -5042,9 +5055,19 @@ std::expected<void, JsonError> decode_full_into(
 		}
 	}
 	if (parse_opts.mode == ParseMode::strict) {
-		return detail::decode_full_into_slow<ParseMode::strict, T>(out, input, parse_opts, decode_opts);
+		auto decoded = detail::decode_full_into_slow<ParseMode::strict, T>(decoded_out, input, parse_opts, decode_opts);
+		if (!decoded) {
+			return decoded;
+		}
+		out = std::move(decoded_out);
+		return {};
 	}
-	return detail::decode_full_into_slow<ParseMode::json5, T>(out, input, parse_opts, decode_opts);
+	auto decoded = detail::decode_full_into_slow<ParseMode::json5, T>(decoded_out, input, parse_opts, decode_opts);
+	if (!decoded) {
+		return decoded;
+	}
+	out = std::move(decoded_out);
+	return {};
 }
 export template<class T>
 std::expected<T, JsonError> decode_full(

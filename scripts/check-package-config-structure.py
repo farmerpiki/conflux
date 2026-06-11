@@ -3700,8 +3700,7 @@ def check_release_sku_guard_contract() -> None:
         "duplicate": "release SKU guard must reject duplicate docs/examples",
         "duplicate staged": "release SKU guard must reject selected docs/examples basename collisions",
         "path.is_file()": "release SKU guard must require selected docs/examples to exist",
-        "item.startswith(\"docs/\")": "release SKU guard must keep selected docs under docs",
-        "item.startswith(\"examples/\")": "release SKU guard must keep selected examples under examples",
+        "path.relative_to(root)": "release SKU guard must keep selected docs/examples under canonical roots",
     }
     examples_required = {
         '"release-skus.json"': "release SKU examples guard must read the release SKU manifest",
@@ -3733,9 +3732,8 @@ def check_release_sku_guard_contract() -> None:
     }
     release_sku_field_required = {
         "release SKU manifest must be a JSON object": "release SKU field helper must validate the SKU manifest shape",
-        'item.startswith("docs/")': "release SKU field helper must keep selected docs under docs",
-        'item.startswith("examples/")': "release SKU field helper must keep selected examples under examples",
-        "(root / item).is_file()": "release SKU field helper must require selected docs/examples to exist",
+        "path.relative_to(allowed_root)": "release SKU field helper must keep selected docs/examples under canonical roots",
+        "path.is_file()": "release SKU field helper must require selected docs/examples to exist",
     }
     missing = [message for marker, message in required.items() if marker not in package_check]
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)

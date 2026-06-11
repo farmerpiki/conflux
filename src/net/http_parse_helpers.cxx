@@ -182,6 +182,7 @@ export struct ChunkedDecodeState {
 	std::size_t remaining{};
 	std::size_t trailer_lines{};
 	std::size_t trailer_bytes{};
+	std::size_t body_bytes{};
 	ChunkedDecodePhase phase{ChunkedDecodePhase::SizeLine};
 	std::string body{};
 	void reset() {
@@ -193,6 +194,7 @@ export struct ChunkedDecodeState {
 		remaining = 0;
 		trailer_lines = 0;
 		trailer_bytes = 0;
+		body_bytes = 0;
 		phase = ChunkedDecodePhase::SizeLine;
 		body.clear();
 	}
@@ -234,7 +236,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 					st.phase = ChunkedDecodePhase::Trailers;
 					break;
 				}
-				if (st.body.size() > max_body_size || chunk_size > max_body_size - st.body.size()) {
+				if (st.body_bytes > max_body_size || chunk_size > max_body_size - st.body_bytes) {
 					return -2;
 				}
 				st.remaining = chunk_size;
@@ -251,6 +253,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 					st.body.append(raw.data() + st.pos, available);
 					st.pos += available;
 					st.remaining -= available;
+					st.body_bytes += available;
 				}
 				if (st.remaining > 0) {
 					return 0;
