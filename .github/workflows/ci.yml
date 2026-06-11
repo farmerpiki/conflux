@@ -98,6 +98,8 @@ jobs:
             conflux-ci-toolchain \
             bash -lc '
               set -euo pipefail
+              export PG_TEST_CONNINFO="host=127.0.0.1 port=5432 dbname=conflux_test user=postgres"
+              export PG_CONNINFO="$PG_TEST_CONNINFO"
               cmake --version
               ninja --version
               python3 --version
