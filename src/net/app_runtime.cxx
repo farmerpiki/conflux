@@ -101,7 +101,8 @@ std::string App::route_table() const {
 
 std::string App::openapi_spec(
 	std::string_view title,
-	std::string_view version) const {
+	std::string_view version,
+	detail::OpenApiAppInfo app_info) const {
 	std::vector<detail::AppOpenApiRoute> routes;
 	routes.reserve(route_metadata_.size());
 	std::ranges::transform(route_metadata_, std::back_inserter(routes), [](auto const &route) {
@@ -110,6 +111,8 @@ std::string App::openapi_spec(
 			.path = route.path,
 			.name = route.name,
 			.openapi_summary = route.openapi_summary,
+			.openapi_description = route.openapi_description,
+			.openapi_tags = route.openapi_tags,
 			.bearer_token_policy = *route.bearer_token_policy,
 			.auth_scheme = route.openapi_auth_scheme,
 			.timeout = *route.timeout,
@@ -125,15 +128,16 @@ std::string App::openapi_spec(
 			.response_schema = route.response_schema,
 			.problem_response = route.problem_response};
 	});
-	return detail::render_openapi_spec(routes, title, version);
+	return detail::render_openapi_spec(routes, title, version, app_info);
 }
 
 App::RouteRef App::openapi(
 	std::string_view path,
 	std::string_view title,
 	std::string_view version,
+	detail::OpenApiAppInfo app_info,
 	std::source_location loc) {
-	auto spec = openapi_spec(title, version);
+	auto spec = openapi_spec(title, version, app_info);
 	return get(
 		path,
 		[spec = std::move(spec)](conflux::http::RequestView const &) -> Response { return Response::json(spec); },

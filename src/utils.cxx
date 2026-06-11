@@ -167,6 +167,42 @@ void append_json_u_escape_(
 	out += kJsonHex_[c & 0x0FU];
 }
 
+// Index of the first byte that needs escaping (" \\ or a C0 control byte), or
+// n if the whole range is safe. Bytes >= 0x80 are safe (raw UTF-8 pass-through).
+// SWAR over 8 bytes/word so long unescaped runs cost ~1 cycle per 8 bytes.
+[[nodiscard]] inline std::size_t json_string_first_escape_(
+	char const *p,
+	std::size_t n) noexcept {
+	std::size_t i = 0;
+	if constexpr (std::endian::native == std::endian::little) {
+		constexpr std::uint64_t kMsb = 0x8080808080808080ULL;
+		constexpr std::uint64_t kOnes = 0x0101010101010101ULL;
+		constexpr std::uint64_t kQuote = 0x2222222222222222ULL;
+		constexpr std::uint64_t kBackslash = 0x5C5C5C5C5C5C5C5CULL;
+		constexpr std::uint64_t kSpace = 0x2020202020202020ULL;
+		while (i + sizeof(std::uint64_t) <= n) {
+			std::uint64_t word{};
+			std::memcpy(&word, p + i, sizeof(word));
+			std::uint64_t const q = word ^ kQuote;
+			std::uint64_t const b = word ^ kBackslash;
+			std::uint64_t const bad = ((q - kOnes) & ~q & kMsb)
+				| ((b - kOnes) & ~b & kMsb)
+				| ((word - kSpace) & ~word & kMsb);
+			if (bad != 0U) {
+				return i + static_cast<std::size_t>(std::countr_zero(bad) >> 3U);
+			}
+			i += sizeof(std::uint64_t);
+		}
+	}
+	for (; i < n; ++i) {
+		auto const c = static_cast<unsigned char>(p[i]);
+		if (c < 0x20U || c == '"' || c == '\\') {
+			return i;
+		}
+	}
+	return i;
+}
+
 [[nodiscard]] constexpr std::size_t json_string_content_escaped_size_(
 	std::string_view value) noexcept {
 	std::size_t out = 0;
@@ -188,24 +224,31 @@ void append_json_u_escape_(
 export void append_json_string_content_fallback(
 	std::string &out,
 	std::string_view value) {
-	for (char const raw: value) {
-		auto const c = static_cast<unsigned char>(raw);
-		switch (raw) {
-		case '"' : out += "\\\""; break;
-		case '\\': out += "\\\\"; break;
-		case '\b': out += "\\b"; break;
-		case '\f': out += "\\f"; break;
-		case '\n': out += "\\n"; break;
-		case '\r': out += "\\r"; break;
-		case '\t': out += "\\t"; break;
-		default:
-			if (c < 0x20U) {
-				append_json_u_escape_(out, c);
-			} else {
-				out += raw;
+	char const *const p = value.data();
+	std::size_t const n = value.size();
+	std::size_t i = 0;
+	while (i < n) {
+		auto const c = static_cast<unsigned char>(p[i]);
+		// Escape-dense fast path: handle the current byte directly without
+		// paying the SWAR run-scan's per-call setup when there is no run.
+		if (c < 0x20U || c == '"' || c == '\\') {
+			switch (c) {
+			case '"' : out += "\\\""; break;
+			case '\\': out += "\\\\"; break;
+			case '\b': out += "\\b"; break;
+			case '\f': out += "\\f"; break;
+			case '\n': out += "\\n"; break;
+			case '\r': out += "\\r"; break;
+			case '\t': out += "\\t"; break;
+			default  : append_json_u_escape_(out, c); break;
 			}
-			break;
+			++i;
+			continue;
 		}
+		// Bulk-copy the run of bytes that need no escaping: one append per run.
+		std::size_t const run = json_string_first_escape_(p + i, n - i);
+		out.append(p + i, run);
+		i += run;
 	}
 }
 

@@ -30,10 +30,8 @@ done
 emit_tool() {
     local name="$1"
     local purpose="$2"
-    local path
-    path="$(command -v "$name" 2>/dev/null || true)"
-    if [[ -n "$path" ]]; then
-        printf 'tool=%s\tstatus=available\tpath=%s\tpurpose=%s\n' "$name" "$path" "$purpose"
+    if command -v "$name" >/dev/null 2>&1; then
+        printf 'tool=%s\tstatus=available\tpath=redacted\tpurpose=%s\n' "$name" "$purpose"
     else
         printf 'tool=%s\tstatus=missing\tpath=\tpurpose=%s\n' "$name" "$purpose"
     fi
@@ -41,8 +39,9 @@ emit_tool() {
 
 write_report() {
     printf 'external_proof_tools=availability\n'
-    printf 'note=missing tools mean the corresponding external proof lane is not natively attached; see docker_conformance below\n'
+    printf 'note=missing tools mean the corresponding external proof lane is not attached; see docker_conformance below\n'
     printf 'docker_conformance=see conformance-docker/ in the evidence repo (h2spec+wstest+spectral via Docker)\n'
+    printf 'path_policy=available tool paths are redacted to avoid leaking build-host filesystem details\n'
     emit_tool h2spec 'HTTP/2 protocol conformance'
     emit_tool wstest 'Autobahn WebSocket conformance'
     emit_tool spectral 'OpenAPI external validation'

@@ -578,8 +578,10 @@ next_ws:;
 	// covering it. Caller (TreeBuilder) classifies the value and stores the
 	// node; the lexeme references input_view directly (Phase 1: zero-copy).
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme() {
+	[[nodiscard]] std::expected<std::string_view, JsonError> parse_number_lexeme(
+		bool *int_form = nullptr) {
 		std::size_t const start = pos;
+		bool is_int_form = true;
 		bool const neg = src[pos] == '-';
 		if (neg) {
 			adv();
@@ -596,6 +598,7 @@ next_ws:;
 			adv();
 		}
 		if (pos < src.size() && src[pos] == '.') {
+			is_int_form = false;
 			adv();
 			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') [[unlikely]] {
 				return std::unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
@@ -605,6 +608,7 @@ next_ws:;
 			}
 		}
 		if (pos < src.size() && (src[pos] == 'e' || src[pos] == 'E')) {
+			is_int_form = false;
 			adv();
 			if (pos < src.size() && (src[pos] == '+' || src[pos] == '-')) {
 				adv();
@@ -618,6 +622,9 @@ next_ws:;
 		}
 		if (pos - start > kMaxNumberLexemeLen) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
+		}
+		if (int_form != nullptr) {
+			*int_form = is_int_form;
 		}
 		return src.substr(start, pos - start);
 	}
@@ -1249,7 +1256,8 @@ struct TreeBuilder {
 	}
 	[[nodiscard]] std::expected<std::size_t, JsonError> parse_number() {
 		std::size_t const start = tok.pos;
-		auto lex_result = tok.parse_number_lexeme();
+		bool int_form = true;
+		auto lex_result = tok.parse_number_lexeme(&int_form);
 		if (!lex_result) {
 			return std::unexpected(std::move(lex_result).error());
 		}
@@ -1259,7 +1267,8 @@ struct TreeBuilder {
 			static_cast<std::uint32_t>(start),
 			static_cast<std::uint32_t>(lex.size()),
 			static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice),
-			lex);
+			lex,
+			int_form);
 		if (!node) {
 			return std::unexpected(std::move(node).error());
 		}

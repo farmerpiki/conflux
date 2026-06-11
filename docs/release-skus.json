@@ -37,6 +37,19 @@
       "examples/advanced/http_policy_stack.cxx"
     ]
   },
+  "release-pg": {
+    "feature_set": "release-pg",
+    "components": ["core", "json", "pg"],
+    "docs": [
+      "docs/db-api.md",
+      "docs/package-consumption.md",
+      "docs/prerelease-status.md"
+    ],
+    "examples": [
+      "examples/advanced/db_basic.cxx",
+      "examples/advanced/db_pool.cxx"
+    ]
+  },
   "release-web-server": {
     "feature_set": "release-web-server",
     "components": ["core", "json", "http"],

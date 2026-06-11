@@ -16,6 +16,8 @@ struct AppOpenApiRoute {
 	std::string_view path;
 	std::string_view name;
 	std::string_view openapi_summary;
+	std::string_view openapi_description;
+	std::span<std::string const> openapi_tags;
 	std::string_view bearer_token_policy;
 	std::string_view auth_scheme;
 	std::chrono::milliseconds timeout{};
@@ -30,6 +32,13 @@ struct AppOpenApiRoute {
 	std::span<std::string const> produces;
 	std::string_view response_schema;
 	bool problem_response{};
+};
+
+struct OpenApiAppInfo {
+	std::string_view description;
+	std::string_view contact_name;
+	std::string_view contact_url;
+	std::string_view server_url;
 };
 
 [[nodiscard]] std::string openapi_method_key(
@@ -115,12 +124,39 @@ struct OpenApiRouteGroups {
 void append_openapi_info(
 	std::string &out,
 	std::string_view title,
-	std::string_view version) {
+	std::string_view version,
+	conflux::http::detail::OpenApiAppInfo const &app_info) {
 	out += R"({"openapi":"3.0.0","info":{"title":)";
 	out += json_string(title);
 	out += R"(,"version":)";
 	out += json_string(version);
+	if (!app_info.description.empty()) {
+		out += R"(,"description":)";
+		out += json_string(app_info.description);
+	}
+	if (!app_info.contact_name.empty() || !app_info.contact_url.empty()) {
+		out += R"(,"contact":{)";
+		auto first = true;
+		if (!app_info.contact_name.empty()) {
+			out += R"("name":)";
+			out += json_string(app_info.contact_name);
+			first = false;
+		}
+		if (!app_info.contact_url.empty()) {
+			if (!first) {
+				out += ',';
+			}
+			out += R"("url":)";
+			out += json_string(app_info.contact_url);
+		}
+		out += '}';
+	}
 	out += R"(})";
+	if (!app_info.server_url.empty()) {
+		out += R"(,"servers":[{"url":)";
+		out += json_string(app_info.server_url);
+		out += R"(}])";
+	}
 }
 
 void append_openapi_security_components(
@@ -156,6 +192,21 @@ void append_openapi_operation_metadata(
 		out += R"("summary":)";
 		out += json_string(route.openapi_summary);
 		out += ',';
+	}
+	if (!route.openapi_description.empty()) {
+		out += R"("description":)";
+		out += json_string(route.openapi_description);
+		out += ',';
+	}
+	if (!route.openapi_tags.empty()) {
+		out += R"("tags":[)";
+		for (std::size_t i = 0; i < route.openapi_tags.size(); ++i) {
+			if (i != 0) {
+				out += ',';
+			}
+			out += json_string(route.openapi_tags[i]);
+		}
+		out += R"(],)";
 	}
 	if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
 		auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
@@ -315,9 +366,10 @@ export namespace conflux::http::detail {
 [[nodiscard]] std::string render_openapi_spec(
 	std::span<AppOpenApiRoute const> routes,
 	std::string_view title,
-	std::string_view version) {
+	std::string_view version,
+	OpenApiAppInfo app_info = {}) {
 	std::string out;
-	append_openapi_info(out, title, version);
+	append_openapi_info(out, title, version, app_info);
 	append_openapi_security_components(out, collect_openapi_auth_usage(routes));
 	append_openapi_paths(out, collect_openapi_route_groups(routes));
 	out += "}";

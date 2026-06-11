@@ -168,8 +168,24 @@ def main(argv: list[str]) -> int:
     for tool in required_tools:
         if f"tool={tool}\tstatus=" not in tools_text:
             fail(f"external proof tooling report missing {tool}")
+    for line_number, line in enumerate(tools_text.splitlines(), start=1):
+        fields = dict(
+            field.split("=", 1)
+            for field in line.split("\t")
+            if "=" in field
+        )
+        tool_status = fields.get("status", "")
+        tool_path = fields.get("path", "")
+        if tool_path.startswith("/"):
+            fail(f"external proof tooling report contains absolute path on line {line_number}")
+        if tool_status == "available" and tool_path != "redacted":
+            fail(f"external proof tooling report must redact available tool path on line {line_number}")
+        if tool_status == "missing" and tool_path:
+            fail(f"external proof tooling report must leave missing tool path empty on line {line_number}")
     if "missing tools mean the corresponding external proof lane is not attached" not in tools_text:
         fail("external proof tooling report must state missing-tool evidence policy")
+    if "available tool paths are redacted" not in tools_text:
+        fail("external proof tooling report must state path redaction policy")
 
     print("check-release-artifact: ok")
     return 0

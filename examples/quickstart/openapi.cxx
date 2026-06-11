@@ -18,8 +18,15 @@ int main() {
 
 	app.get("/health", [] { return http::json(StatusReply{.status = "ok"}); })
 		.name("health.check")
-		.openapi_summary("Health check");
-	(void)app.openapi("/openapi.json", "conflux quickstart", "0.1.0");
+		.openapi_summary("Health check")
+		.openapi_description("Returns current service health status.")
+		.openapi_tags({"health"});
+	(void)app.openapi("/openapi.json", "conflux quickstart", "0.1.0", {
+		.description = "Conflux HTTP framework quickstart demo.",
+		.contact_name = "conflux",
+		.contact_url = "https://github.com/conflux-framework/conflux",
+		.server_url = "http://localhost:9098",
+	});
 
 	return http::exit_code(std::move(app).run({.port = 9098}));
 }

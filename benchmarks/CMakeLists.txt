@@ -146,12 +146,27 @@ if(CONFLUX_HAS_DB STREQUAL "true")
         PRIVATE bench_common conflux_pg conflux_options)
 endif()
 
-if(TARGET conflux_json AND TARGET bench_io_common AND TARGET conflux_socket_io)
+# Default json benchmark links only conflux.json (no runtime io/work modules):
+# faster builds and no unrelated module dependency. The io_uring e2e variants
+# live in the opt-in conflux_json_e2e_bench target below.
+if(TARGET conflux_json)
     conflux_add_recordable_benchmark(conflux_json_bench json_bench.cxx)
     target_link_libraries(conflux_json_bench
-        PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_json conflux_utils conflux_options)
+        PRIVATE bench_common conflux_json conflux_utils conflux_options)
     if(CONFLUX_JSON_AVX2)
         target_compile_options(conflux_json_bench PRIVATE -mavx2 -mbmi2)
+    endif()
+endif()
+
+# Opt-in e2e variant: same source with CONFLUX_JSON_BENCH_E2E=1, adding the
+# FileReader/SocketTaskRing rows and the runtime modules they require.
+if(TARGET conflux_json AND TARGET bench_io_common AND TARGET conflux_socket_io)
+    conflux_add_recordable_benchmark(conflux_json_e2e_bench json_bench.cxx)
+    target_compile_definitions(conflux_json_e2e_bench PRIVATE CONFLUX_JSON_BENCH_E2E=1)
+    target_link_libraries(conflux_json_e2e_bench
+        PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_json conflux_utils conflux_options)
+    if(CONFLUX_JSON_AVX2)
+        target_compile_options(conflux_json_e2e_bench PRIVATE -mavx2 -mbmi2)
     endif()
 endif()
 

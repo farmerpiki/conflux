@@ -503,15 +503,13 @@ bool recv_chunked(
 	std::size_t buf_cap,
 	std::uint64_t &bytes_received) {
 	conflux::http::ChunkedDecodeState chunked;
-	std::size_t delivered = 0;
 	for (;;) {
 		auto const rc = conflux::http::decode_chunked_incremental(encoded, 0, cap, kClientMaxChunkCount, chunked);
-		if (chunked.body.size() > delivered) {
-			auto const delta = std::string_view{chunked.body}.substr(delivered);
-			if (auto emitted = emit_body_chunk(sink, delta); !emitted) {
+		if (!chunked.body.empty()) {
+			if (auto emitted = emit_body_chunk(sink, chunked.body); !emitted) {
 				return emitted;
 			}
-			delivered = chunked.body.size();
+			chunked.body.clear();
 		}
 		if (rc > 0) {
 			return {};
@@ -528,6 +526,11 @@ bool recv_chunked(
 				HttpError{
 					.kind = HttpErrorKind::body_too_large,
 					.message = std::format("chunked body exceeds limit {}", cap)});
+		}
+		if (chunked.pos > 0) {
+			encoded.erase(0, chunked.pos);
+			chunked.body_start = 0;
+			chunked.pos = 0;
 		}
 		auto const before = encoded.size();
 		if (!recv_some(conn, encoded, timeout_sec)) {
@@ -550,6 +553,10 @@ bool recv_chunked(
 	std::size_t max_body,
 	std::uint64_t &bytes_received) {
 	std::size_t delivered = 0;
+	if (content_length > max_body) {
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::body_too_large, .message = std::format("body exceeds limit {}", max_body)});
+	}
 	if (!initial_body.empty()) {
 		if (auto emitted = emit_body_chunk(sink, initial_body); !emitted) {
 			return emitted;
@@ -558,7 +565,7 @@ bool recv_chunked(
 	}
 	std::string buffer;
 	while (delivered < content_length) {
-		auto const before = buffer.size();
+		buffer.clear();
 		if (!recv_some(conn, buffer, timeout_sec)) {
 			return std::unexpected(
 				HttpError{
@@ -567,16 +574,15 @@ bool recv_chunked(
 					.os_errno = errno,
 					.message = "failed to receive body"});
 		}
-		auto const appended = buffer.size() - before;
 		auto const need = content_length - delivered;
-		auto const take = std::min(appended, need);
+		auto const take = std::min(buffer.size(), need);
 		if (delivered + take > max_body) {
 			return std::unexpected(
 				HttpError{
 					.kind = HttpErrorKind::body_too_large,
 					.message = std::format("body exceeds limit {}", max_body)});
 		}
-		if (auto emitted = emit_body_chunk(sink, std::string_view{buffer}.substr(before, take)); !emitted) {
+		if (auto emitted = emit_body_chunk(sink, std::string_view{buffer}.substr(0, take)); !emitted) {
 			return emitted;
 		}
 		delivered += take;
@@ -605,7 +611,7 @@ bool recv_chunked(
 	std::string buffer;
 	std::size_t delivered = initial_body.size();
 	while (recv_some(conn, buffer, timeout_sec)) {
-		auto const chunk = std::string_view{buffer}.substr(delivered - initial_body.size());
+		auto const chunk = std::string_view{buffer};
 		delivered += chunk.size();
 		if (delivered > max_body) {
 			return std::unexpected(
@@ -617,6 +623,7 @@ bool recv_chunked(
 			return emitted;
 		}
 		bytes_received += chunk.size();
+		buffer.clear();
 	}
 	return {};
 }

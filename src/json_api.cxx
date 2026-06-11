@@ -852,8 +852,12 @@ struct ClassifiedDouble {
 	std::uint32_t off,
 	std::uint32_t len,
 	std::uint8_t storage_flags,
-	std::string_view lex) noexcept {
-	bool const int_form = lex.find_first_of(".eE") == std::string_view::npos;
+	std::string_view lex,
+	// Integer-vs-float form, when the caller's lexeme scan already determined
+	// it; nullopt re-derives it here. Avoids a redundant pass over the lexeme.
+	std::optional<bool> int_form_hint = std::nullopt) noexcept {
+	bool const int_form =
+		int_form_hint.has_value() ? *int_form_hint : (lex.find_first_of(".eE") == std::string_view::npos);
 	bool const neg = !lex.empty() && lex.front() == '-';
 	auto const *b = lex.data();
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -2424,9 +2428,11 @@ namespace detail {
 	std::size_t mem_start,
 	std::size_t mem_count,
 	std::string_view name) noexcept {
+	auto const name_len = static_cast<std::uint32_t>(name.size());
 	for (std::size_t i = 0; i < mem_count; ++i) {
 		auto const &m = storage->object_members[mem_start + i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-		if (storage->member_name(m) == name) {
+		// Reject on the cheap stored length before resolving the name bytes.
+		if (m.name_len == name_len && storage->member_name(m) == name) {
 			return m.val_node;
 		}
 	}

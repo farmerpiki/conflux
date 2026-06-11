@@ -3,10 +3,10 @@
 # Explicit user overrides (ON/OFF) are never overwritten; AUTO resolves to preset default.
 
 set(CONFLUX_FEATURE_SET "core" CACHE STRING
-    "Feature bundle: core;auto;work;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-core;dev-json;dev-http;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-full")
+    "Feature bundle: core;auto;work;json;http-minimal;http-api;http-api-full;web-server;http-server-complete;complete;dev-core;dev-json;dev-http;dev-all;dev-exp-all;release-core;release-json;release-http-api;release-web-server;release-pg;release-full")
 set_property(CACHE CONFLUX_FEATURE_SET PROPERTY STRINGS
     core auto work json http-minimal http-api http-api-full web-server http-server-complete complete
-    dev-core dev-json dev-http dev-all dev-exp-all release-core release-json release-http-api release-web-server release-full)
+    dev-core dev-json dev-http dev-all dev-exp-all release-core release-json release-http-api release-web-server release-pg release-full)
 
 include(ConfluxExternalDependencyRegistry)
 
@@ -133,6 +133,8 @@ macro(conflux_apply_preset)
         set(_p "http-api")
     elseif(_p STREQUAL "release-web-server")
         set(_p "web-server")
+    elseif(_p STREQUAL "release-pg")
+        set(_p "db-pg")
     elseif(_p STREQUAL "release-full")
         set(_p "complete")
     endif()
@@ -294,6 +296,15 @@ macro(conflux_apply_preset)
         set(_d_HTTP_OPENAPI TRUE)
         set(_d_HTTP_PROXY TRUE)
         set(_d_HTTP_VHOST TRUE)
+    elseif(_p STREQUAL "db-pg")
+        set(_d_RUNTIME TRUE)
+        set(_d_FILE_IO_SYNC TRUE)
+        set(_d_FILE_MAP TRUE)
+        set(_d_FILE_IO TRUE)
+        set(_d_SOCKET_IO TRUE)
+        set(_d_DNS TRUE)
+        set(_d_JSON TRUE)
+        set(_d_DB_POSTGRES TRUE)
     elseif(_p STREQUAL "complete")
         set(_d_RUNTIME TRUE)
         set(_d_FILE_IO_SYNC TRUE)

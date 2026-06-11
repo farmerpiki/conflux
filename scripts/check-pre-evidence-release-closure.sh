@@ -2,12 +2,12 @@
 set -euo pipefail
 
 usage() {
-    printf 'usage: %s [--sku release-json|release-http-api|release-web-server] [--work-root DIR] [--skip-heavy] [--full-sanitizers] [--evidence-dir DIR]\n' "$0" >&2
+    printf 'usage: %s [--sku release-json|release-http-api|release-web-server|release-pg] [--work-root DIR] [--skip-heavy] [--full-sanitizers] [--evidence-dir DIR]\n' "$0" >&2
 }
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 release_sku="release-json"
-work_root="${TMPDIR:-/tmp}/gcc-16/pre-evidence/$release_sku"
+work_root=""
 work_root_explicit=0
 skip_heavy=0
 full_sanitizers=0
@@ -21,9 +21,6 @@ while (($# > 0)); do
                 exit 2
             fi
             release_sku="$2"
-            if ((work_root_explicit == 0)); then
-                work_root="${TMPDIR:-/tmp}/gcc-16/pre-evidence/$release_sku"
-            fi
             shift 2
             ;;
         --work-root)
@@ -63,14 +60,18 @@ while (($# > 0)); do
 done
 
 case "$release_sku" in
-    release-json|release-http-api|release-web-server) ;;
+    release-json|release-http-api|release-web-server|release-pg) ;;
     *)
         printf 'check-pre-evidence-release-closure: unsupported release SKU: %s\n' "$release_sku" >&2
         exit 2
         ;;
 esac
 
-work_root="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$work_root")"
+if ((work_root_explicit == 0)); then
+    work_root="$(mktemp -d "${TMPDIR:-/tmp}/conflux-pre-evidence-${release_sku}.XXXXXXXXXX")"
+fi
+
+work_root="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$work_root")"
 evidence_root="$(python3 -c 'import pathlib, sys; print((pathlib.Path(sys.argv[1]).resolve().parent / "evidence").resolve())' "$source_root")"
 case "$work_root" in
     "$evidence_root"|"$evidence_root"/*)
@@ -82,10 +83,30 @@ if [[ -n "$evidence_dir" ]]; then
     evidence_dir="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$evidence_dir")"
 fi
 
+safe_remove_work_root() {
+    local dir="$1"
+    local marker="$dir/.conflux-pre-evidence-work-root"
+    if [[ -L "$dir" ]]; then
+        printf 'check-pre-evidence-release-closure: refusing to remove symlink work root: %s\n' "$dir" >&2
+        return 1
+    fi
+    if [[ -e "$dir" && ! -d "$dir" ]]; then
+        printf 'check-pre-evidence-release-closure: refusing to remove non-directory work root: %s\n' "$dir" >&2
+        return 1
+    fi
+    if [[ -d "$dir" && ! -f "$marker" ]]; then
+        if find "$dir" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+            printf 'check-pre-evidence-release-closure: refusing to remove unmarked non-empty work root: %s\n' "$dir" >&2
+            return 1
+        fi
+    fi
+    rm -rf "$dir"
+}
+
 cleanup_success() {
     local status=$?
     if ((status == 0)); then
-        rm -rf "$work_root"
+        safe_remove_work_root "$work_root"
     fi
 }
 trap cleanup_success EXIT
@@ -141,10 +162,13 @@ components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_root"
 build_cost_target="conflux_quickstart_hello"
 if [[ "$release_sku" == "release-json" ]]; then
     build_cost_target="conflux_header_smoke_json"
+elif [[ "$release_sku" == "release-pg" ]]; then
+    build_cost_target="conflux_db_basic"
 fi
 
-rm -rf "$work_root"
+safe_remove_work_root "$work_root"
 mkdir -p "$work_root/release-governance" "$work_root/source-archive" "$work_root/build-cost" "$work_root/capabilities" "$work_root/logs"
+touch "$work_root/.conflux-pre-evidence-work-root"
 
 python3 "$source_root/scripts/check-release-docs.py"
 python3 "$source_root/scripts/check-release-skus.py"
@@ -191,6 +215,9 @@ if ((skip_heavy == 0)); then
             ;;
         release-web-server)
             TMPDIR="$work_root/package-smoke" "$source_root/scripts/check-package-smoke-runtime.sh"
+            ;;
+        release-pg)
+            TMPDIR="$work_root/package-smoke" "$source_root/scripts/check-package-smoke-db.sh"
             ;;
     esac
 

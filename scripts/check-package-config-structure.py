@@ -1006,10 +1006,11 @@ def check_install_smoke_presets() -> None:
             errors.append(f"missing configure preset: {name}")
         else:
             cache = configure[name].get("cacheVariables", {})
+            pg_provider = "LIBPQ" if name == "release-pg-install-smoke" else "OFF"
             required_cache = {
                 "CONFLUX_BUILD_PACKAGE_TESTS": "ON",
                 "CONFLUX_BUILD_TESTS": "OFF",
-                "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": "-DCONFLUX_POSTGRES_PROVIDER=OFF",
+                "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": f"-DCONFLUX_POSTGRES_PROVIDER={pg_provider}",
                 "CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE": "HEADER_INTERFACE",
                 "CONFLUX_RUN_INSTALL_TREE_SMOKE": "ON",
             }
@@ -2105,6 +2106,7 @@ def check_package_smoke_project_contract() -> None:
         "json": ("import conflux.json;", "#include <conflux/json.hpp>"),
         "file_io_sync": ("import conflux.file_io_sync;", "#include <conflux/file_io_sync.hpp>"),
         "http": ("import conflux.http;", "#include <conflux/http.hpp>"),
+        "pg": ("import conflux.pg;", "#include <conflux/pg/types.hxx>"),
     }
     release_components = release_sku_component_set()
     missing_marker_components = sorted(release_components - set(release_component_markers))
@@ -3698,8 +3700,7 @@ def check_release_sku_guard_contract() -> None:
         "duplicate": "release SKU guard must reject duplicate docs/examples",
         "duplicate staged": "release SKU guard must reject selected docs/examples basename collisions",
         "path.is_file()": "release SKU guard must require selected docs/examples to exist",
-        "item.startswith(\"docs/\")": "release SKU guard must keep selected docs under docs",
-        "item.startswith(\"examples/\")": "release SKU guard must keep selected examples under examples",
+        "path.relative_to(root)": "release SKU guard must keep selected docs/examples under canonical roots",
     }
     examples_required = {
         '"release-skus.json"': "release SKU examples guard must read the release SKU manifest",
@@ -3731,9 +3732,8 @@ def check_release_sku_guard_contract() -> None:
     }
     release_sku_field_required = {
         "release SKU manifest must be a JSON object": "release SKU field helper must validate the SKU manifest shape",
-        'item.startswith("docs/")': "release SKU field helper must keep selected docs under docs",
-        'item.startswith("examples/")': "release SKU field helper must keep selected examples under examples",
-        "(root / item).is_file()": "release SKU field helper must require selected docs/examples to exist",
+        "path.relative_to(allowed_root)": "release SKU field helper must keep selected docs/examples under canonical roots",
+        "path.is_file()": "release SKU field helper must require selected docs/examples to exist",
     }
     missing = [message for marker, message in required.items() if marker not in package_check]
     missing.extend(message for marker, message in guard_required.items() if marker not in guard)

@@ -295,7 +295,38 @@ struct ChildFrame {
 	std::vector<char const *>
 		local_external_ptrs_; // parallel to local_members; non-null only for kMemberExternalView entries
 	// Per-session duplicate detection for ObjectBuilder (kind==object only).
-	conflux::support::TransparentStringMap<std::size_t> dup_check;
+	// Keyed on the member-name hash → staged member index, so detecting a
+	// duplicate never copies the name into the map (the previous std::string
+	// key cost a heap allocation per insert for non-SSO names). Hash collisions
+	// are resolved against the real name via member_name_at.
+	std::unordered_multimap<std::uint64_t, std::uint32_t> dup_check;
+
+	// Resolve a staged member's name from its backing storage.
+	[[nodiscard]] std::string_view member_name_at(MemberEntry const &m) const {
+		if ((m.name_flags & kMemberExternalView) != 0) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			return std::string_view{local_external_ptrs_[m.name_off], m.name_len};
+		}
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		return std::string_view{state->built_input.data() + m.name_off, m.name_len};
+	}
+	// True if an object member with this name was already staged.
+	[[nodiscard]] bool has_member(std::string_view name) const {
+		auto const h = std::hash<std::string_view>{}(name);
+		auto const range = dup_check.equal_range(h);
+		for (auto it = range.first; it != range.second; ++it) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			if (member_name_at(local_members[it->second]) == name) {
+				return true;
+			}
+		}
+		return false;
+	}
+	// Record a name already confirmed unique by has_member(). The value is the
+	// index this member will occupy in local_members (assigned on push_back).
+	void track_member(std::string_view name) {
+		dup_check.emplace(std::hash<std::string_view>{}(name), static_cast<std::uint32_t>(local_members.size()));
+	}
 };
 export class ObjectBuilder {
 	ChildFrame frame_;
@@ -3183,6 +3214,10 @@ std::expected<void, JsonError> decode_members_from_event_into(
 						 .code = JsonIssueCode::missing_member,
 						 .member_name = std::string{m.name},
 						 .message = std::format("missing member: {}", m.name)};
+				 } else if constexpr (is_optional<M>::value) {
+					 if (!found) {
+						 (result.*m.pointer).reset();
+					 }
 				 }
 				 ++idx;
 			 })(ms),
@@ -3441,7 +3476,7 @@ template<class T>
 	if (p >= end || *p < '0' || *p > '9') {
 		return FpStatus::bail;
 	}
-	if (std::same_as<T, double> && *p == '0' && p + 2 < end && p[1] == '.') {
+	if (std::same_as<T, double> && *p == '0' && static_cast<std::size_t>(end - p) > 2U && p[1] == '.') {
 		char const *q = p + 2;
 		std::uint64_t mant = 0;
 		std::size_t digits = 0;
@@ -3632,6 +3667,9 @@ struct FpStringView {
 	std::string_view expected,
 	std::size_t max_string,
 	bool *consumed_colon = nullptr) noexcept {
+	if (!json_member_raw_name_fast_path_safe(expected)) {
+		return false;
+	}
 	if (expected.size() > max_string || c.remaining() <= expected.size()) {
 		return false;
 	}
@@ -3688,9 +3726,11 @@ struct FpStringView {
 
 // Owned-string decode with inline escape handling (including \uXXXX and
 // surrogate pairs). Bails on non-ASCII bytes (UTF-8 validation stays in the
-// slow path) and on invalid escapes.
+// slow path) and on invalid escapes. Kept out of line so the common
+// escape-free case (handled by fp_parse_string_owned below) stays small and
+// inlinable without paying this function's spill-heavy prologue.
 template<class String>
-[[nodiscard]] inline FpStatus fp_parse_string_owned(
+[[nodiscard]] [[gnu::noinline]] FpStatus fp_parse_string_owned_escaped(
 	FpCursor &c,
 	String &out,
 	std::size_t max_string) noexcept {
@@ -3756,9 +3796,12 @@ template<class String>
 					if (!byte) {
 						return FpStatus::bail;
 					}
-					out.push_back(*byte);
-					p += 4;
-					break;
+					auto const cp = static_cast<std::uint32_t>(static_cast<unsigned char>(*byte));
+					if (cp < 0x80U) {
+						out.push_back(static_cast<char>(cp));
+						p += 4;
+						break;
+					}
 				}
 				auto cp_opt = fp_hex4(p);
 				if (!cp_opt) {
@@ -3812,6 +3855,31 @@ template<class String>
 			return FpStatus::bail;
 		}
 	}
+}
+
+// Common case: an escape-free, all-ASCII string. Scan once to the closing
+// quote and copy in a single pass with no zero-fill; delegate anything with
+// escapes, control bytes, or non-ASCII to the out-of-line escaped decoder.
+template<class String>
+[[nodiscard]] inline FpStatus fp_parse_string_owned(
+	FpCursor &c,
+	String &out,
+	std::size_t max_string) noexcept {
+	char const *const p = c.p;
+	std::size_t const n = c.remaining();
+	std::size_t const run = fp_scan_str_until_special(p, n);
+	if (run < n && p[run] == '"') [[likely]] {
+		if (run > max_string) [[unlikely]] {
+			return FpStatus::bail;
+		}
+		out.resize_and_overwrite(run, [p, run](char *buf, std::size_t) noexcept {
+			std::memcpy(buf, p, run);
+			return run;
+		});
+		c.p = p + run + 1;
+		return FpStatus::ok;
+	}
+	return fp_parse_string_owned_escaped(c, out, max_string);
 }
 
 // Resolved limits/policies for one fast-path decode.
@@ -4966,6 +5034,7 @@ std::expected<void, JsonError> decode_full_into(
 	std::string_view input,
 	JsonParseOptions const &parse_opts,
 	JsonDecodeOptions const &decode_opts) {
+	T decoded_out{};
 	// Fast path: cursor-based strict-JSON decode for supported member sets.
 	// On any malformed/unsupported/limit-violating input it bails and the
 	// JsonReader-based decoder below produces the authoritative result and
@@ -4974,8 +5043,10 @@ std::expected<void, JsonError> decode_full_into(
 	if constexpr (detail::fastpath::fp_supported_v<T>) {
 		if (parse_opts.mode == ParseMode::strict) {
 			detail::fastpath::FpError fast_error{};
-			auto const st = detail::fastpath::fp_decode_document<T>(out, fast_error, input, parse_opts, decode_opts);
+			auto const st =
+				detail::fastpath::fp_decode_document<T>(decoded_out, fast_error, input, parse_opts, decode_opts);
 			if (st == detail::fastpath::FpStatus::ok) [[likely]] {
+				out = std::move(decoded_out);
 				return {};
 			}
 			if (st == detail::fastpath::FpStatus::error) [[unlikely]] {
@@ -4984,9 +5055,19 @@ std::expected<void, JsonError> decode_full_into(
 		}
 	}
 	if (parse_opts.mode == ParseMode::strict) {
-		return detail::decode_full_into_slow<ParseMode::strict, T>(out, input, parse_opts, decode_opts);
+		auto decoded = detail::decode_full_into_slow<ParseMode::strict, T>(decoded_out, input, parse_opts, decode_opts);
+		if (!decoded) {
+			return decoded;
+		}
+		out = std::move(decoded_out);
+		return {};
 	}
-	return detail::decode_full_into_slow<ParseMode::json5, T>(out, input, parse_opts, decode_opts);
+	auto decoded = detail::decode_full_into_slow<ParseMode::json5, T>(decoded_out, input, parse_opts, decode_opts);
+	if (!decoded) {
+		return decoded;
+	}
+	out = std::move(decoded_out);
+	return {};
 }
 export template<class T>
 std::expected<T, JsonError> decode_full(
@@ -5182,7 +5263,7 @@ std::expected<void, JsonError> ObjectBuilder::insert(
 		return ok;
 	}
 	// Spec: duplicate-name rejection happens before dispatching to JsonCodec<T>::encode.
-	if (frame_.dup_check.contains(name)) {
+	if (frame_.has_member(name)) {
 		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::build,

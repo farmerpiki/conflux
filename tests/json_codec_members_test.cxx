@@ -23,6 +23,34 @@ struct conflux::json::JsonMembers<Point> {
 	static constexpr std::string_view type_name() { return "Point"; }
 };
 
+struct OptionalConfig {
+	std::int64_t required{};
+	std::optional<std::int64_t> optional{};
+};
+
+template<>
+struct conflux::json::JsonMembers<OptionalConfig> {
+	static constexpr auto members() {
+		return std::tuple{
+			conflux::json::json_member("required", &OptionalConfig::required),
+			conflux::json::json_member("optional", &OptionalConfig::optional),
+		};
+	}
+};
+
+struct UnsafeRawKey {
+	std::int64_t literal_backslash_n{};
+};
+
+template<>
+struct conflux::json::JsonMembers<UnsafeRawKey> {
+	static constexpr auto members() {
+		return std::tuple{
+			conflux::json::json_member("\\n", &UnsafeRawKey::literal_backslash_n),
+		};
+	}
+};
+
 TEST_CASE(
 	"json: JsonMembers decode plain struct",
 	"[json][codec][members]") {
@@ -42,6 +70,31 @@ TEST_CASE(
 	REQUIRE(r.has_value());
 	CHECK(point.x == 3LL);
 	CHECK(point.y == 7LL);
+}
+
+TEST_CASE(
+	"json: decode_full_into clears missing optionals and leaves output unchanged on failure",
+	"[json][codec][members]") {
+	OptionalConfig cfg{.required = 5, .optional = 42};
+	auto r = decode_full_into(cfg, R"({"required":7})");
+	REQUIRE(r.has_value());
+	CHECK(cfg.required == 7LL);
+	CHECK_FALSE(cfg.optional.has_value());
+
+	cfg = OptionalConfig{.required = 5, .optional = 42};
+	auto trailing = decode_full_into(cfg, R"({"required":7,"optional":9} true)");
+	CHECK_FALSE(trailing.has_value());
+	CHECK(cfg.required == 5LL);
+	REQUIRE(cfg.optional.has_value());
+	CHECK(*cfg.optional == 42LL);
+}
+
+TEST_CASE(
+	"json: fast JsonMembers key prediction does not match escaped unsafe raw names",
+	"[json][codec][members]") {
+	auto r = decode_full<UnsafeRawKey>(R"({"\n":123})");
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
 }
 
 TEST_CASE(

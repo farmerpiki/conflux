@@ -1,14 +1,25 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
-#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
-#include <liburing.h>
-#include <netinet/in.h>
 #include <new>
-#include <sys/socket.h>
-#include <unistd.h>
+
+// The e2e/large_json_decode variants exercise the io_uring FileReader and
+// SocketTaskRing paths and so pull in conflux.work / file_io / socket_io. They
+// are opt-in (CONFLUX_JSON_BENCH_E2E) so the default json benchmark links only
+// conflux.json — faster builds and no unrelated runtime-module dependency.
+#ifndef CONFLUX_JSON_BENCH_E2E
+	#define CONFLUX_JSON_BENCH_E2E 0
+#endif
+
+#if CONFLUX_JSON_BENCH_E2E
+	#include <fcntl.h>
+	#include <liburing.h>
+	#include <netinet/in.h>
+	#include <sys/socket.h>
+	#include <unistd.h>
+#endif
 
 #ifndef __has_feature
 	#define __has_feature(x) 0
@@ -16,11 +27,13 @@
 
 import std;
 import conflux.types;
+#if CONFLUX_JSON_BENCH_E2E
 import conflux.work;
 import conflux.file_io;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.socket_io.blocking;
+#endif
 import conflux.json;
 import conflux.utils;
 import bench_common;
@@ -1347,6 +1360,7 @@ void bench_accumulate_chunked(
 		corpus.size());
 	print_row(name, s);
 }
+#if CONFLUX_JSON_BENCH_E2E
 [[nodiscard]] int start_listener(
 	std::uint16_t &port_out) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -1551,6 +1565,7 @@ void bench_e2e_decode(
 	}
 	::io_uring_queue_exit(&raw);
 }
+#endif // CONFLUX_JSON_BENCH_E2E
 // Item C — 1024-member object where every key has a \u escape → arena storage.
 // Decoded names are identical to make_lookup_corpus() ("member_N"), so the
 // same lookup keys can be used for apples-to-apples comparison.
@@ -2118,7 +2133,12 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{"kind":"micro/user-space","case":"JSON parser coverage suite"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--iterations","0","--warmup","0"]},{"name":"parse_large","extra":{"kind":"micro/user-space","case":"large nested JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/large (","--config-name","parse_large","--iterations","0","--warmup","0"]},{"name":"parse_long_strings","extra":{"kind":"micro/user-space","case":"large borrowed-string JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/long_strings (","--config-name","parse_long_strings","--iterations","0","--warmup","0"]},{"name":"parse_escape_heavy","extra":{"kind":"micro/user-space","case":"escape-heavy JSON parse"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","parse/escape_heavy (","--config-name","parse_escape_heavy","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
+#if CONFLUX_JSON_BENCH_E2E
+		R"({"name":"json_e2e",)"
+#else
+		R"({"name":"json",)"
+#endif
+		R"("parser":"standard","configs":[{"name":"default","extra":{"kind":"micro/user-space","case":"JSON parser coverage suite"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--iterations","0","--warmup","0"]},{"name":"parse_large","extra":{"kind":"micro/user-space","case":"large nested JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/large (","--config-name","parse_large","--iterations","0","--warmup","0"]},{"name":"parse_long_strings","extra":{"kind":"micro/user-space","case":"large borrowed-string JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/long_strings (","--config-name","parse_long_strings","--iterations","0","--warmup","0"]},{"name":"parse_escape_heavy","extra":{"kind":"micro/user-space","case":"escape-heavy JSON parse"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","parse/escape_heavy (","--config-name","parse_escape_heavy","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_args = cfg;
 	g_csv = cfg.json_out;
@@ -2202,12 +2222,14 @@ int main(
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
 	bench_accumulate_chunked("accumulate/byte_span chunked (1MB large)", large_corpus, 4096);
+#if CONFLUX_JSON_BENCH_E2E
 	if (!g_csv) {
 		std::println("[json-bench]");
 		std::println(
 			"[json-bench] -- e2e JSON decode: conflux::file_io::FileReader vs conflux::socket_io::SocketTaskRing --");
 	}
 	bench_e2e_decode("e2e/large_json_decode", large_corpus);
+#endif
 
 	if (!g_csv) {
 		std::println("[json-bench]");

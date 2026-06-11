@@ -439,6 +439,26 @@
       }
     },
     {
+      "name": "release-pg-install-smoke",
+      "displayName": "Release smoke · PG install tree",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_FEATURE_SET": "release-pg",
+        "CONFLUX_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_PACKAGE_TESTS": "ON",
+        "CONFLUX_BUILD_EXAMPLES": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_POSTGRES_PROVIDER": "LIBPQ",
+        "CONFLUX_RUN_INSTALL_TREE_SMOKE": "ON",
+        "CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET": "release-pg",
+        "CONFLUX_INSTALL_TREE_SMOKE_INTERFACE_MODE": "HEADER_INTERFACE",
+        "CONFLUX_INSTALL_TREE_SMOKE_EXTRA_CMAKE_ARGS": "-DCONFLUX_POSTGRES_PROVIDER=LIBPQ",
+        "CONFLUX_PACKAGE_SMOKE_COMPONENTS": "core;json;pg"
+      }
+    },
+    {
       "name": "release-header-artifacts-install-smoke",
       "displayName": "Release smoke · header artifact install tree",
       "inherits": "release-header-artifacts",
@@ -728,6 +748,10 @@
       "configurePreset": "release-web-server-install-smoke"
     },
     {
+      "name": "release-pg-install-smoke",
+      "configurePreset": "release-pg-install-smoke"
+    },
+    {
       "name": "release-header-artifacts-install-smoke",
       "configurePreset": "release-header-artifacts-install-smoke"
     },
@@ -851,6 +875,21 @@
     {
       "name": "release-web-server-install-smoke",
       "configurePreset": "release-web-server-install-smoke",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "build/install-tree-smoke"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "release-pg-install-smoke",
+      "configurePreset": "release-pg-install-smoke",
       "output": {
         "outputOnFailure": true
       },

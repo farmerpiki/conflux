@@ -11,6 +11,18 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def validate_selected_file(root: Path, sku_name: str, field: str, item: str) -> None:
+    root_name = "docs" if field == "docs" else "examples"
+    allowed_root = (root / root_name).resolve()
+    path = (root / item).resolve()
+    try:
+        path.relative_to(allowed_root)
+    except ValueError:
+        fail(f"{sku_name}.{field} entry must live under {root_name}/: {item}")
+    if not path.is_file():
+        fail(f"{sku_name}.{field} references missing file: {item}")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 4:
         fail("usage: release-sku-field.py <repo-root> <sku> <feature_set|components|docs|examples>")
@@ -35,12 +47,8 @@ def main(argv: list[str]) -> int:
     if not isinstance(value, list) or not value or not all(isinstance(item, str) and item for item in value):
         fail(f"{sku_name}.{field} must be a non-empty string list")
     for item in value:
-        if field == "docs" and not item.startswith("docs/"):
-            fail(f"{sku_name}.{field} entry must live under docs/: {item}")
-        if field == "examples" and not item.startswith("examples/"):
-            fail(f"{sku_name}.{field} entry must live under examples/: {item}")
-        if field in {"docs", "examples"} and not (root / item).is_file():
-            fail(f"{sku_name}.{field} references missing file: {item}")
+        if field in {"docs", "examples"}:
+            validate_selected_file(root, sku_name, field, item)
     if field == "components":
         print(";".join(value))
     else:

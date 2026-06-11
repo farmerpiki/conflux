@@ -767,8 +767,7 @@ bool Ring::retry_send_completion(
 	if (res != -EAGAIN && res != -EINTR) {
 		return false;
 	}
-	conn.send_queued = false;
-	defer_queue_send_if_current(fd, conn.gen);
+	fail_send(fd, conn);
 	return true;
 }
 

@@ -2,7 +2,11 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-work_root="${CONFLUX_RELEASE_BOOTSTRAP_WORK:-${TMPDIR:-/tmp}/conflux-release-artifact-bootstrap}"
+if [[ -n "${CONFLUX_RELEASE_BOOTSTRAP_WORK:-}" ]]; then
+    work_root="$CONFLUX_RELEASE_BOOTSTRAP_WORK"
+else
+    work_root="$(mktemp -d "${TMPDIR:-/tmp}/conflux-release-artifact-bootstrap.XXXXXXXXXX")"
+fi
 release_sku="${CONFLUX_RELEASE_BOOTSTRAP_SKU:-release-json}"
 stage_dir="$work_root/stage"
 bootstrap_source="$work_root/source"
@@ -15,6 +19,7 @@ sku_components="$(python3 "$source_root/scripts/release-sku-field.py" "$source_r
 forbid_components=""
 forbid_external_deps=""
 
+postgres_provider=OFF
 case "$release_sku" in
     release-json)
         forbid_components="$(python3 "$source_root/scripts/package-smoke-forbidden-components.py" json)"
@@ -26,6 +31,9 @@ case "$release_sku" in
         ;;
     release-web-server)
         forbid_components="pg;db"
+        ;;
+    release-pg)
+        postgres_provider=LIBPQ
         ;;
 esac
 
@@ -50,7 +58,7 @@ cmake -S "$bootstrap_source" -B "$header_build" -G Ninja \
     -DCONFLUX_BUILD_TESTS=OFF \
     -DCONFLUX_BUILD_EXAMPLES=OFF \
     -DCONFLUX_BUILD_BENCHMARKS=OFF \
-    -DCONFLUX_POSTGRES_PROVIDER=OFF
+    -DCONFLUX_POSTGRES_PROVIDER="$postgres_provider"
 cmake --build "$header_build"
 cmake --install "$header_build" --prefix "$bootstrap_prefix"
 
@@ -59,6 +67,7 @@ package_smoke_configure=(
     -DCMAKE_PREFIX_PATH="$bootstrap_prefix"
     -DCONFLUX_PACKAGE_SMOKE_COMPONENTS="$sku_components"
     -DCONFLUX_PACKAGE_SMOKE_INTERFACE_MODE=HEADER_INTERFACE
+    -DCONFLUX_PACKAGE_SMOKE_ENABLE_DB="$( [[ "$postgres_provider" != "OFF" ]] && echo ON || echo OFF )"
 )
 if [[ -n "$forbid_components" ]]; then
     package_smoke_configure+=(-DCONFLUX_PACKAGE_SMOKE_FORBIDDEN_COMPONENTS="$forbid_components")
@@ -78,7 +87,7 @@ cmake -S "$bootstrap_source" -B "$module_build" -G Ninja \
     -DCONFLUX_BUILD_TESTS=OFF \
     -DCONFLUX_BUILD_EXAMPLES=OFF \
     -DCONFLUX_BUILD_BENCHMARKS=OFF \
-    -DCONFLUX_POSTGRES_PROVIDER=OFF
+    -DCONFLUX_POSTGRES_PROVIDER="$postgres_provider"
 cmake --build "$module_build"
 
 for build_dir in "$header_build" "$module_build" "$package_smoke_build"; do
