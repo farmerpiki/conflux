@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-guards:
+    name: Source Guards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install guard tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config
+
+      - name: Python syntax
+        run: python3 -m compileall -q scripts
+
+      - name: Package and release guards
+        run: |
+          scripts/check-package-config.sh
+          python3 scripts/check-first-contact-public-dialect.py
+          python3 scripts/check-planning-state.py
+          python3 scripts/check-release-docs.py
+          python3 scripts/check-release-skus.py
+          python3 scripts/check-component-map.py
+          python3 scripts/check-api-surface-map.py
+          python3 scripts/check-package-docs.py
+          python3 scripts/check-release-notes.py
+
+      - name: CMake preset shape
+        run: |
+          cmake --list-presets
+          python3 scripts/check-cmake-preset-build-dir.py .
