@@ -150,7 +150,11 @@ void index_route_pattern(
 
 [[nodiscard]] PreparedRoutePattern prepare_route_pattern(
 	std::string_view path) {
-	auto pattern = conflux::http::detail::parse_pattern(path);
+	auto parsed = conflux::http::detail::parse_route_pattern(path);
+	if (parsed.error) {
+		throw std::invalid_argument{*parsed.error};
+	}
+	auto pattern = std::move(parsed.segments);
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
 	return PreparedRoutePattern{

@@ -74,6 +74,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"router: malformed route pattern is rejected") {
+	conflux::http::Router router;
+	CHECK_THROWS_AS(
+		router.get(
+			"/admin/{tenant}/{action",
+			[](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("bad"); }),
+		std::invalid_argument);
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/admin/acme";
+	auto resp = router.dispatch(req);
+	REQUIRE(resp.status == 404);
+}
+
+TEST_CASE(
 	"router: wildcard route_info preserves star notation") {
 	conflux::http::Router router;
 	router.get("/files/{*path}", [](conflux::http::OwnedRequest const &) {
