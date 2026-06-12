@@ -273,14 +273,25 @@ void Ring::defer_start_streamed_body_if_current(
 }
 
 void Ring::queue_multishot_accept() {
-	bool const submitted = listen_fixed ? submit_accept_multishot_borrowed(
+	client_addr_len = sizeof(client_addr);
+	// Direct accepted sockets cannot be queried with getpeername(), so keep
+	// one in-flight accept owner for the shared peer-address buffer.
+	bool const submitted = accepted_sockets_direct ? submit_accept_direct_borrowed(
+														 raw_,
+														 DirectFd::from_direct(static_cast<std::uint32_t>(listen_fd)),
+														 reinterpret_cast<sockaddr *>(&client_addr),
+														 &client_addr_len,
+														 pack(Op::Accept, 0, listen_fd),
+														 0,
+														 IORING_FILE_INDEX_ALLOC) :
+						   listen_fixed ? submit_accept_multishot_borrowed(
 											  raw_,
 											  DirectFd::from_direct(static_cast<std::uint32_t>(listen_fd)),
 											  reinterpret_cast<sockaddr *>(&client_addr),
 											  &client_addr_len,
 											  pack(Op::Accept, 0, listen_fd),
 											  caps,
-											  accepted_sockets_direct) :
+											  false) :
 										  submit_accept_multishot_borrowed(
 											  raw_,
 											  OsFd::from_os(listen_fd),
@@ -288,7 +299,7 @@ void Ring::queue_multishot_accept() {
 											  &client_addr_len,
 											  pack(Op::Accept, 0, listen_fd),
 											  caps,
-											  accepted_sockets_direct);
+											  false);
 	if (!submitted) {
 		defer_op([this] { queue_multishot_accept(); });
 	}
