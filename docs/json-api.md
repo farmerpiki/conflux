@@ -884,6 +884,7 @@ public:
 ```
 
 `ArenaDocument` is a handle into the arena's storage. **All `ArenaDocument` handles are invalidated by `reset()`** — do not hold them across a reset.
+`parse_borrowed_into` borrows caller-owned bytes and rejects temporary `std::string` inputs; use `parse_moved_into(std::move(input))` when the arena should own an rvalue string.
 
 ```cpp
 JsonArena arena{JsonArenaOptions{.initial_slab = 1024 * 1024}};

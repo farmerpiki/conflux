@@ -2810,6 +2810,10 @@ public:
 
 	[[nodiscard]] std::expected<ArenaDocument, JsonError>
 	parse_borrowed_into(std::string_view input, JsonParseOptions const &opts = {});
+	template<typename T>
+		requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+	[[nodiscard]] std::expected<ArenaDocument, JsonError>
+	parse_borrowed_into(T &&, JsonParseOptions const & = {}) = delete;
 
 	[[nodiscard]] std::expected<ArenaDocument, JsonError>
 	parse_moved_into(std::string input, JsonParseOptions const &opts = {});

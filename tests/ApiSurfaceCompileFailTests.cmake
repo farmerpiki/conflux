@@ -184,6 +184,14 @@ if(TARGET conflux)
         EXPECT "json_string_content_fallback")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_arena_borrowed_rvalue
+        SOURCE json_compile_fail_arena_borrowed_rvalue.cxx
+        TEST api-surface/json-arena-borrowed-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_borrowed_into")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_utils_compile_fail_global_ip_addr
         SOURCE utils_compile_fail_global_ip_addr.cxx
         TEST api-surface/utils-hides-global-ip-addr
