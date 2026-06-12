@@ -119,10 +119,10 @@ export conflux::http::Response router_defer_http_task(
 	[[maybe_unused]] bool observe_route) {
 	conflux::http::HttpFieldsView all_params;
 	all_params.reserve(matched_params.size() + req.params.size() + 1);
-	for (auto const &[k, v]: matched_params) {
+	for (auto const &[k, v]: req.params) {
 		all_params.emplace_back(k, v);
 	}
-	for (auto const &[k, v]: req.params) {
+	for (auto const &[k, v]: matched_params) {
 		if (!all_params.get(k)) {
 			all_params.emplace_back(k, v);
 		}
@@ -220,10 +220,10 @@ export conflux::http::Response router_defer_http_task(
 	auto matched = req.to_owned();
 	conflux::http::HttpFields params;
 	params.reserve(matched_params.size() + matched.params.size() + 1);
-	for (auto const &[k, v]: matched_params) {
+	for (auto const &[k, v]: matched.params) {
 		params.emplace_back(std::string{k}, std::string{v});
 	}
-	for (auto const &[k, v]: matched.params) {
+	for (auto const &[k, v]: matched_params) {
 		if (!params.get(k)) {
 			params.emplace_back(std::string{k}, std::string{v});
 		}
@@ -323,9 +323,9 @@ template<typename Handler, typename Ctx>
 	std::string route_pattern,
 	bool should_annotate,
 	bool is_head,
-	conflux::work::root::Cancellation) {
+	conflux::work::root::Cancellation cancel) {
 	conflux::http::RequestView const view{req};
-	auto resp = co_await handler(view, ctx);
+	auto resp = co_await cancel.await(handler(view, ctx));
 	if (is_head) {
 		resp.head_only = true;
 	}
@@ -356,10 +356,10 @@ export template<typename ContextRouteRange, typename Ctx>
 			auto matched_req = req.to_owned();
 			conflux::http::HttpFields params;
 			params.reserve(matched_params.size() + matched_req.params.size() + 1);
-			for (auto const &[k, v]: matched_params) {
+			for (auto const &[k, v]: matched_req.params) {
 				params.emplace_back(std::string{k}, std::string{v});
 			}
-			for (auto const &[k, v]: matched_req.params) {
+			for (auto const &[k, v]: matched_params) {
 				if (!params.get(k)) {
 					params.emplace_back(std::string{k}, std::string{v});
 				}

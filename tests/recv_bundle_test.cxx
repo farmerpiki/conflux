@@ -428,7 +428,6 @@ TEST_CASE(
 #ifdef NDEBUG
 	SKIP("assert inactive in release build");
 #else
-	// ring_id_at(head_pos=0)==0, but probe passes buf_id=5 → mismatch.
 	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "desync") == 42);
 #endif
 }

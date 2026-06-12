@@ -206,6 +206,7 @@ TEST_CASE(
 
 	std::atomic<int> observed_reason{-1};
 	auto cfg = chttp::Config::public_server();
+	cfg.port = 0;
 	cfg.rings = 1;
 	cfg.ring_entries = 64;
 	cfg.startup_banner = false;

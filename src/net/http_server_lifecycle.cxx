@@ -82,10 +82,17 @@ void Ring::conn_erase(
 	conn.have_last_recv_cqe_flags = false;
 	conn.closing = false;
 	conn.close_after_send = false;
+	conn.has_response = false;
+	conn.own_response.clear();
+	conn.written = 0;
+	conn.request_bytes = 0;
+	conn.request_in_progress = false;
+	conn.request_started = {};
 	conn.is_sse = false;
 	conn.sse_headers_sent = false;
 	conn.is_ws = false;
 	conn.is_deferred = false;
+	conn.deferred_head_only = false;
 	conn.sse_efd = -1;
 	conn.sse_channel.reset();
 	clear_deferred_wait(conn.deferred_efd);

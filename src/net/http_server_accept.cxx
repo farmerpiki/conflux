@@ -17,6 +17,8 @@ module conflux.net.http_server:accept;
 import std;
 import std.compat;
 
+import conflux.file_io;
+import conflux.net.http.types;
 import conflux.net.http_server_helpers;
 import conflux.socket_io;
 import conflux.utils;
@@ -105,10 +107,15 @@ void Ring::reset_accepted_connection(
 	conn.closing = false;
 	conn.close_after_send = false;
 	conn.has_response = false;
+	conn.own_response.clear();
 	conn.written = 0;
+	conn.request_bytes = 0;
+	conn.request_in_progress = false;
+	conn.request_started = {};
 	conn.is_sse = false;
 	conn.sse_headers_sent = false;
 	conn.is_deferred = false;
+	conn.deferred_head_only = false;
 	conn.sse_efd = -1;
 	conn.sse_channel.reset();
 	conn.deferred_efd = -1;
@@ -121,6 +128,17 @@ void Ring::reset_accepted_connection(
 	conn.mapped_file.reset();
 	conn.mapped_total = 0;
 	conn.mapped_delivered = 0;
+	conn.streamed_file.reset();
+	conn.streamed_headers_sent = false;
+	conn.streamed_delivered = 0;
+	conn.streamed_splice_in_flight = false;
+	conn.zc_state.waiting_notification = false;
+	conn.zc_state.after_notification = conflux::http::SendZcPendingAction::none;
+	conn.zc_state.close_after_notification = false;
+	conn.zc_tls_bypass_counted = false;
+	conn.send_buf = conflux::file_io::FixedBuffer{};
+	conn.send_buf_base_written = 0;
+	conn.send_buf_len = 0;
 	conn.last_activity = std::chrono::steady_clock::now();
 }
 

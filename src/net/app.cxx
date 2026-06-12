@@ -493,6 +493,9 @@ public:
 							 }) {
 			record_route_metadata<std::tuple<>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &>>();
+			if (detail::validate_path_pattern(path)) {
+				return *this;
+			}
 			auto policy = capture_route_policy();
 #if CONFLUX_HAS_JSON
 			auto json_options = json_options_;
