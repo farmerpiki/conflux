@@ -650,6 +650,65 @@ public:
 						return run_scoped_middlewares(policy.middlewares, req, make_inner());
 					});
 			}
+		} else if constexpr (requires(Fn &fn, conflux::http::RequestView const &req) {
+								 { fn(req) } -> std::same_as<conflux::work::root::Task<Response>>;
+							 }) {
+			record_route_metadata<std::tuple<conflux::http::RequestView>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::RequestView const &>>();
+			auto policy = capture_route_policy();
+			router_.add_context_with_timeout(
+				method,
+				path,
+				policy.timeout,
+				[policy, fn = Fn(std::forward<F>(handler))](
+					conflux::http::RequestView const &req,
+					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+					conflux::http::Router::ContextHandler inner =
+						[policy, &fn](
+							conflux::http::RequestView const &inner_req,
+							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							co_return *std::move(failed);
+						}
+						co_return co_await fn(inner_req);
+					};
+					co_return co_await run_scoped_context_route(
+						policy.middlewares,
+						policy.context_middlewares,
+						req,
+						ctx,
+						std::move(inner));
+				});
+		} else if constexpr (requires(Fn &fn, conflux::http::OwnedRequest const &req) {
+								 { fn(req) } -> std::same_as<conflux::work::root::Task<Response>>;
+							 }) {
+			record_route_metadata<std::tuple<conflux::http::OwnedRequest>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::OwnedRequest const &>>();
+			auto policy = capture_route_policy();
+			router_.add_context_with_timeout(
+				method,
+				path,
+				policy.timeout,
+				[policy, fn = Fn(std::forward<F>(handler))](
+					conflux::http::RequestView const &req,
+					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+					conflux::http::Router::ContextHandler inner =
+						[policy, &fn](
+							conflux::http::RequestView const &inner_req,
+							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							co_return *std::move(failed);
+						}
+						auto owned = inner_req.to_owned();
+						co_return co_await fn(owned);
+					};
+					co_return co_await run_scoped_context_route(
+						policy.middlewares,
+						policy.context_middlewares,
+						req,
+						ctx,
+						std::move(inner));
+				});
 		} else if constexpr (ContextHandlerFunction<Fn>) {
 			add_context_route(method, path, std::forward<F>(handler), loc);
 		} else {
