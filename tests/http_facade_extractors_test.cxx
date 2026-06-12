@@ -309,6 +309,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: PathAt ignores preexisting middleware params",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/teams/{team}/users/{id:u64}">([](http::PathAt<0> team, http::PathAt<1, std::uint64_t> id) {
+		return http::text(std::format("{}:{}", team.get(), id.get()));
+	});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/teams/core/users/42";
+	req.params.set("jwt_sub", "attacker");
+	req.params.set("team", "shadow");
+
+	auto response = http::router(app).dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "core:42");
+}
+
+TEST_CASE(
 	"http facade: validate reports positional path parameter mismatch",
 	"[http.facade]") {
 	auto app = http::app();
