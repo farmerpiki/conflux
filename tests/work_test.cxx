@@ -331,6 +331,20 @@ TEST_CASE(
 	static_assert(std::is_same_v<decltype(v), std::monostate>);
 }
 TEST_CASE(
+	"work: join_all treats abandoned child as requested cancellation",
+	"[work]") {
+	auto [abandoned, abandoned_src] = root::make_task_source<int>();
+	auto [sibling, sibling_src] = root::make_task_source<int>();
+	auto abandoned_holder = std::make_optional(std::move(abandoned_src));
+	auto joined = join_all(std::move(abandoned), std::move(sibling));
+
+	abandoned_holder.reset();
+	REQUIRE(sibling_src.try_set_value(root::Success<int>{2}));
+	auto out = root::blocking_join(std::move(joined));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::requested);
+}
+TEST_CASE(
 	"work: join_all stress — ready-hook arm vs fire race",
 	"[work][stress]") {
 	// Race repro: try_set_on_ready arms on_ready_fn_ while fire_ready_hook_if_armed_

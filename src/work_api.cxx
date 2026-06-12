@@ -675,7 +675,8 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 			std::scoped_lock lk{mtx};
 			if (!any_cancelled) {
 				any_cancelled = true;
-				cancel_reason = outcome.cancelled().reason;
+				auto const reason = outcome.cancelled().reason;
+				cancel_reason = reason == CancelReason::abandoned ? CancelReason::requested : reason;
 				should_cancel = true;
 			}
 		}
