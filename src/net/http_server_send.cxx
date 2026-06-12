@@ -87,7 +87,7 @@ void Ring::queue_send_mapped(
 					hdr_span.subspan(skip).size(),
 					pack(Op::Send, conn.gen, fd));
 			};
-			bool const submitted = accepted_sockets_direct ?
+			bool const submitted = conn.accepted_direct ?
 									   submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
 									   submit_header(OsFd::from_os(fd));
 			if (!submitted) {
@@ -150,8 +150,8 @@ void Ring::queue_send_mapped(
 		}
 		return true;
 	};
-	(void)(accepted_sockets_direct ? submit_tail(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
-									 submit_tail(OsFd::from_os(fd)));
+	(void)(conn.accepted_direct ? submit_tail(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+								  submit_tail(OsFd::from_os(fd)));
 }
 
 // triggered from handle_send once the header bytes are acked.
@@ -169,9 +169,8 @@ void Ring::queue_send_streamed(
 	auto submit_header = [&]<RingFd Handle>(Handle handle) {
 		return submit_send_borrowed(raw_, handle, hdr_view.data(), hdr_view.size(), pack(Op::Send, conn.gen, fd));
 	};
-	bool const submitted = accepted_sockets_direct ?
-							   submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
-							   submit_header(OsFd::from_os(fd));
+	bool const submitted = conn.accepted_direct ? submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+												  submit_header(OsFd::from_os(fd));
 	if (!submitted) {
 		defer_op([this, fd] { queue_send_streamed(fd); });
 	}
@@ -217,7 +216,7 @@ void Ring::start_streamed_body(
 			static_cast<std::size_t>(remaining),
 			fd,
 			std::move(*pipe),
-			accepted_sockets_direct))
+			conn.accepted_direct))
 		.detach();
 }
 
@@ -581,7 +580,7 @@ void Ring::submit_plain_response_send(
 void Ring::queue_plain_response_send(
 	int fd,
 	Conn &conn) {
-	if (accepted_sockets_direct) {
+	if (conn.accepted_direct) {
 		submit_plain_response_send(fd, conn, DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
 	} else {
 		submit_plain_response_send(fd, conn, OsFd::from_os(fd));

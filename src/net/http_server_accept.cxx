@@ -103,9 +103,11 @@ bool Ring::adopt_direct_accept_slot_or_disable(
 
 void Ring::reset_accepted_connection(
 	int fd,
-	Conn &conn) {
+	Conn &conn,
+	bool accepted_direct) {
 	++conn.gen;
 	conn.fd = fd;
+	conn.accepted_direct = accepted_direct;
 	conn.recv_armed = false;
 	conn.last_recv_cqe_flags = {};
 	conn.have_last_recv_cqe_flags = false;
@@ -136,7 +138,7 @@ void Ring::reset_accepted_connection(
 void Ring::record_accepted_peer_address(
 	int fd,
 	Conn &conn) {
-	if (!accepted_sockets_direct) {
+	if (!conn.accepted_direct) {
 		sockaddr_in6 peer_addr{};
 		socklen_t peer_len = sizeof(peer_addr);
 		if (::getpeername(fd, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
@@ -184,8 +186,9 @@ void Ring::reset_connection_protocol_state(
 }
 
 void Ring::apply_accepted_socket_options(
-	int fd) {
-	if (!accepted_sockets_direct) {
+	int fd,
+	Conn const &conn) {
+	if (!conn.accepted_direct) {
 		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
 		::setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
 		if (busy_poll_us_ > 0) {
@@ -199,7 +202,7 @@ void Ring::apply_accepted_socket_options(
 
 void Ring::arm_accepted_connection_recv(
 	int fd) {
-	if (!accepted_sockets_direct) {
+	if (!conn_uses_direct(fd)) {
 		queue_multishot_recv(fd);
 		return;
 	}
@@ -229,10 +232,10 @@ void Ring::handle_accept(
 		return;
 	}
 	auto &conn = conn_for(res);
-	reset_accepted_connection(res, conn);
+	reset_accepted_connection(res, conn, accepted_sockets_direct);
 	record_accepted_peer_address(res, conn);
 	reset_connection_protocol_state(conn);
-	apply_accepted_socket_options(res);
+	apply_accepted_socket_options(res, conn);
 	arm_accepted_connection_recv(res);
 	if (!cqe_has_more(flg)) {
 		queue_multishot_accept();

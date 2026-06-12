@@ -166,7 +166,7 @@ void Ring::handle_recv_cqe(
 			flg.raw(),
 			gen,
 			buffer_ring_mode_name(buf_ring_->mode()),
-			accepted_sockets_direct));
+			conn_uses_direct(fd)));
 	auto const ufd = static_cast<std::size_t>(fd);
 	if (ufd >= fd_table.size()) {
 		if (cqe_has_buffer(flg)) {

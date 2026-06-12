@@ -313,20 +313,20 @@ void Ring::queue_multishot_recv(
 	int fd) {
 	auto &conn = conn_for(fd);
 	auto const arm = resolve_recv_arm_policy(conn);
-	bool const submitted = accepted_sockets_direct ? submit_recv_multishot(
-														 raw_,
-														 DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
-														 *buf_ring_,
-														 pack(Op::Recv, conn.gen, fd),
-														 use_recv_bundle,
-														 arm) :
-													 submit_recv_multishot(
-														 raw_,
-														 OsFd::from_os(fd),
-														 *buf_ring_,
-														 pack(Op::Recv, conn.gen, fd),
-														 use_recv_bundle,
-														 arm);
+	bool const submitted = conn.accepted_direct ? submit_recv_multishot(
+													  raw_,
+													  DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
+													  *buf_ring_,
+													  pack(Op::Recv, conn.gen, fd),
+													  use_recv_bundle,
+													  arm) :
+												  submit_recv_multishot(
+													  raw_,
+													  OsFd::from_os(fd),
+													  *buf_ring_,
+													  pack(Op::Recv, conn.gen, fd),
+													  use_recv_bundle,
+													  arm);
 	if (!submitted) {
 		defer_op([this, fd] { queue_multishot_recv(fd); });
 		return;

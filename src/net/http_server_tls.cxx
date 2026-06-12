@@ -123,7 +123,7 @@ void Ring::tls_queue_send(
 	};
 
 	conn.send_queued = true;
-	bool const submitted = accepted_sockets_direct ?
+	bool const submitted = conn.accepted_direct ?
 							   submit_tls_send(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
 							   submit_tls_send(OsFd::from_os(fd));
 	if (!submitted) {

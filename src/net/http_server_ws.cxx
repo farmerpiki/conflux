@@ -136,7 +136,7 @@ void Ring::launch_plain_ws_handler(
 void Ring::finish_plain_ws_handoff(
 	int fd,
 	Ring::WsInstallEntry entry) {
-	if (accepted_sockets_direct) {
+	if (conn_uses_direct(fd)) {
 		queue_ws_fixed_install(fd, std::move(entry.state), std::move(entry.initial_buf));
 		return;
 	}
@@ -162,7 +162,7 @@ void Ring::handoff_plain_ws(
 	retire_incremental_partial(fd, conn.gen, conn);
 	auto state = begin_ws_handoff(conn);
 	if (!state.pool) {
-		if (accepted_sockets_direct) {
+		if (conn.accepted_direct) {
 			if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
 				conflux::utils::eprintln(std::format("handoff_plain_ws: mark_closing failed slot={}", fd));
 			}
@@ -240,7 +240,7 @@ void Ring::handoff_tls_ws(
 	auto state = begin_ws_handoff(conn);
 	if (!state.pool) {
 		orig_ssl.reset();
-		if (accepted_sockets_direct) {
+		if (conn.accepted_direct) {
 			if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
 				conflux::utils::eprintln(std::format("handoff_tls_ws: mark_closing failed slot={}", fd));
 			}
@@ -273,7 +273,7 @@ void Ring::queue_ws_cancel(
 	}
 	ws_cancel_handoffs.emplace(fd, std::move(entry));
 	conflux::uring::Sqe sqe_view{sqe};
-	if (accepted_sockets_direct) {
+	if (conn_uses_direct(fd)) {
 		sqe_view.prep_cancel_fd(DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
 	} else {
 		sqe_view.prep_cancel_fd(OsFd::from_os(fd));
@@ -285,7 +285,7 @@ void Ring::queue_ws_cancel(
 void Ring::finish_tls_ws_handoff(
 	int fd,
 	Ring::WsInstallEntry entry) {
-	if (accepted_sockets_direct) {
+	if (conn_uses_direct(fd)) {
 		queue_ws_fixed_install(fd, std::move(entry.state), std::move(entry.initial_buf), entry.ssl.release());
 		return;
 	}

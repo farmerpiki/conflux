@@ -239,6 +239,7 @@ struct alignas(
 	64) Conn {
 	int fd = -1;
 	std::uint32_t gen = 0;
+	bool accepted_direct = false;
 	bool recv_armed = false;
 	std::uint16_t incremental_buf_id{};
 	bool have_incremental_buf_id{};
@@ -624,6 +625,7 @@ struct Ring {
 	void init_recv_buffer_ring(unsigned entries);
 	void reserve_ring_tables(unsigned entries);
 	Conn &conn_for(int fd);
+	[[nodiscard]] bool conn_uses_direct(int fd) const noexcept;
 	void conn_erase(int fd, std::uint32_t gen);
 	// Acquire a raw SQE without implicit submission. Returns null when the ring
 	// is exhausted or fatal; callers handle that via defer_op() to avoid stalls.
@@ -723,10 +725,10 @@ struct Ring {
 	void handle_accept_error([[maybe_unused]] int res, [[maybe_unused]] conflux::uring::CqeFlags flg);
 	void reject_accepted_socket_during_shutdown(int fd, conflux::uring::CqeFlags flg);
 	[[nodiscard]] bool adopt_direct_accept_slot_or_disable(int fd);
-	void reset_accepted_connection(int fd, Conn &conn);
+	void reset_accepted_connection(int fd, Conn &conn, bool accepted_direct);
 	void record_accepted_peer_address(int fd, Conn &conn);
 	void reset_connection_protocol_state(Conn &conn);
-	void apply_accepted_socket_options(int fd);
+	void apply_accepted_socket_options(int fd, Conn const &conn);
 	void arm_accepted_connection_recv(int fd);
 	void handle_accept(int res, conflux::uring::CqeFlags flg);
 	void discard_recv_bufs(int res, conflux::uring::CqeFlags flags) noexcept;
