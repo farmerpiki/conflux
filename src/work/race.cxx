@@ -258,7 +258,7 @@ template<class Wait>
 	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(src));
 	(void)shared_src->install_cancel_hook([state](root::CancelReason cancel_reason) noexcept {
 		{
-			std::scoped_lock lk{state->mu};
+			std::scoped_lock const lk{state->mu};
 			state->cancelled = true;
 			state->cancel_reason = cancel_reason;
 		}
@@ -902,10 +902,7 @@ private:
 				if (failures_.size() == 1) {
 					auto const winner_index = failures_[0].index;
 					auto error = failures_[0].error;
-					select_winner_locked(
-						winner_index,
-						root::Outcome<T>{root::Failure{std::move(error)}},
-						losers_to_cancel);
+					select_winner_locked(winner_index, root::Outcome<T>{root::Failure{error}}, losers_to_cancel);
 				} else {
 					auto const winner_index = failures_[0].index;
 					select_winner_locked(
@@ -1047,6 +1044,7 @@ template<root::work_value T>
 	root::Task<void> timeout,
 	race_options opts = {}) {
 	opts.winner = winner_policy::first_completion;
+	opts.losers = loser_policy::request_cancel;
 	return race<T>(
 		opts,
 		candidate("work", std::move(work)),
@@ -1059,6 +1057,7 @@ template<root::work_value T>
 	std::chrono::steady_clock::duration duration,
 	race_options opts = {}) {
 	opts.winner = winner_policy::first_completion;
+	opts.losers = loser_policy::request_cancel;
 	return race<T>(
 		opts,
 		candidate("work", std::move(work)),

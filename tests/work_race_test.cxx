@@ -390,6 +390,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: with_timeout default returns when deadline wins",
+	"[work.race]") {
+	auto [work, work_src] = root::make_task_source<int>();
+	auto [deadline, deadline_src] = root::make_task_source<void>();
+	auto work_control = work.control();
+
+	auto raced = race::with_timeout<int>(std::move(work), std::move(deadline));
+
+	REQUIRE(deadline_src.try_set_value());
+	auto out = root::value(std::move(raced));
+	CHECK(out.winner.label == "deadline");
+	CHECK(out.winner.kind == race::race_winner_kind::trigger);
+	CHECK(work_control.cancel_requested());
+	REQUIRE(out.outcome.is_cancelled());
+	CHECK(out.outcome.cancelled().reason == root::CancelReason::deadline);
+	REQUIRE(work_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
 	"work.race: with_timeout accepts a fallback duration",
 	"[work.race]") {
 	auto [work, work_src] = root::make_task_source<int>();

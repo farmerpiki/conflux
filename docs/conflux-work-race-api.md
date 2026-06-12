@@ -38,8 +38,10 @@ auto result = co_await race::race<Response>(
 ```
 
 For the common single-operation shape, `race::with_timeout(work, timeout_task)`
-is the same first-completion race with `"work"` and `"deadline"` labels.
-`race::with_timeout(work, duration)` uses the generic fallback timeout trigger.
+is a first-completion race with `"work"` and `"deadline"` labels. When the
+deadline wins it requests cancellation on the work task and returns without
+waiting for that loser to terminate. `race::with_timeout(work, duration)` uses
+the generic fallback timeout trigger with the same loser behavior.
 
 Use `race::until_stop_token(token)` to turn a `std::stop_token` into a
 `"stop_token"` trigger. This generic helper uses a blocking fallback thread; use
