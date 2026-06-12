@@ -2,7 +2,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-base="${TMPDIR:-/tmp}/$(basename "$root")-provider-policy-$$"
+tmp_root="${TMPDIR:-/tmp}"
+base="$(mktemp -d "${tmp_root%/}/$(basename "$root")-provider-policy.XXXXXXXXXX")"
 empty_pc_dir="$base/empty-pkgconfig"
 no_argon2_bin="$base/no-argon2-bin"
 mkdir -p "$empty_pc_dir"
