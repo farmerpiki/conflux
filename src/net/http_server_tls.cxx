@@ -259,7 +259,7 @@ void Ring::handle_send_tls_complete(
 		if (handle_sse_send_complete(fd, conn)) {
 			return;
 		}
-		if (conn.is_ws) {
+		if (conn.is_ws && !conn.close_after_send) {
 			handoff_tls_ws(conn, fd);
 			return;
 		}

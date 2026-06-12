@@ -712,7 +712,7 @@ void Ring::handle_send_complete(
 	if (handle_sse_send_complete(fd, conn)) {
 		return;
 	}
-	if (conn.is_ws) {
+	if (conn.is_ws && !conn.close_after_send) {
 		handoff_plain_ws(conn, fd);
 		return;
 	}
