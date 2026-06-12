@@ -117,8 +117,12 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::HttpFieldsView const &matched_params,
 	std::string const &route_pattern,
 	[[maybe_unused]] bool observe_route) {
-	auto all_params = req.params;
+	conflux::http::HttpFieldsView all_params;
+	all_params.reserve(matched_params.size() + req.params.size() + 1);
 	for (auto const &[k, v]: matched_params) {
+		all_params.emplace_back(k, v);
+	}
+	for (auto const &[k, v]: req.params) {
 		if (!all_params.get(k)) {
 			all_params.emplace_back(k, v);
 		}
@@ -214,10 +218,18 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::HttpFieldsView const &matched_params,
 	std::string const &route_pattern) {
 	auto matched = req.to_owned();
-	for (auto &[k, v]: matched_params) {
-		matched.params.emplace_back(std::string{k}, std::string{v});
+	conflux::http::HttpFields params;
+	params.reserve(matched_params.size() + matched.params.size() + 1);
+	for (auto const &[k, v]: matched_params) {
+		params.emplace_back(std::string{k}, std::string{v});
 	}
-	matched.params.emplace_back("__conflux_route_pattern", route_pattern);
+	for (auto const &[k, v]: matched.params) {
+		if (!params.get(k)) {
+			params.emplace_back(std::string{k}, std::string{v});
+		}
+	}
+	params.emplace_back("__conflux_route_pattern", route_pattern);
+	matched.params = std::move(params);
 	return matched;
 }
 
@@ -337,16 +349,22 @@ export template<typename ContextRouteRange, typename Ctx>
 								 conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
 			auto matched_req = req.to_owned();
+			conflux::http::HttpFields params;
+			params.reserve(matched_params.size() + matched_req.params.size() + 1);
 			for (auto const &[k, v]: matched_params) {
-				if (!matched_req.params.get(k)) {
-					matched_req.params.emplace_back(std::string{k}, std::string{v});
+				params.emplace_back(std::string{k}, std::string{v});
+			}
+			for (auto const &[k, v]: matched_req.params) {
+				if (!params.get(k)) {
+					params.emplace_back(std::string{k}, std::string{v});
 				}
 			}
 			std::string pattern;
 			if (observe_route) {
 				pattern = route.path_pattern;
-				matched_req.params.emplace_back("__conflux_route_pattern", pattern);
+				params.emplace_back("__conflux_route_pattern", pattern);
 			}
+			matched_req.params = std::move(params);
 			DeferredTaskOptions options{};
 			if (route.timeout && *route.timeout > std::chrono::milliseconds{0}) {
 				options.timeout = *route.timeout;
