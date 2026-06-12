@@ -119,13 +119,11 @@ export conflux::http::Response router_defer_http_task(
 	[[maybe_unused]] bool observe_route) {
 	conflux::http::HttpFieldsView all_params;
 	all_params.reserve(matched_params.size() + req.params.size() + 1);
-	for (auto const &[k, v]: req.params) {
+	for (auto const &[k, v]: matched_params) {
 		all_params.emplace_back(k, v);
 	}
-	for (auto const &[k, v]: matched_params) {
-		if (!all_params.get(k)) {
-			all_params.emplace_back(k, v);
-		}
+	for (auto const &[k, v]: req.params) {
+		all_params.emplace_back(k, v);
 	}
 #if CONFLUX_ROUTER_LAZY_ROUTE_METADATA
 	if (observe_route && !all_params.get("__conflux_route_pattern")) {
@@ -220,13 +218,11 @@ export conflux::http::Response router_defer_http_task(
 	auto matched = req.to_owned();
 	conflux::http::HttpFields params;
 	params.reserve(matched_params.size() + matched.params.size() + 1);
-	for (auto const &[k, v]: matched.params) {
+	for (auto const &[k, v]: matched_params) {
 		params.emplace_back(std::string{k}, std::string{v});
 	}
-	for (auto const &[k, v]: matched_params) {
-		if (!params.get(k)) {
-			params.emplace_back(std::string{k}, std::string{v});
-		}
+	for (auto const &[k, v]: matched.params) {
+		params.emplace_back(std::string{k}, std::string{v});
 	}
 	params.emplace_back("__conflux_route_pattern", route_pattern);
 	matched.params = std::move(params);
@@ -356,13 +352,11 @@ export template<typename ContextRouteRange, typename Ctx>
 			auto matched_req = req.to_owned();
 			conflux::http::HttpFields params;
 			params.reserve(matched_params.size() + matched_req.params.size() + 1);
-			for (auto const &[k, v]: matched_req.params) {
+			for (auto const &[k, v]: matched_params) {
 				params.emplace_back(std::string{k}, std::string{v});
 			}
-			for (auto const &[k, v]: matched_params) {
-				if (!params.get(k)) {
-					params.emplace_back(std::string{k}, std::string{v});
-				}
+			for (auto const &[k, v]: matched_req.params) {
+				params.emplace_back(std::string{k}, std::string{v});
 			}
 			std::string pattern;
 			if (observe_route) {
