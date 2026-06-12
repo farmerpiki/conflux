@@ -322,9 +322,13 @@ template<typename Handler, typename Ctx>
 	Ctx ctx,
 	std::string route_pattern,
 	bool should_annotate,
+	bool is_head,
 	conflux::work::root::Cancellation) {
 	conflux::http::RequestView const view{req};
 	auto resp = co_await handler(view, ctx);
+	if (is_head) {
+		resp.head_only = true;
+	}
 	if (should_annotate) {
 		resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
 	}
@@ -336,7 +340,8 @@ export template<typename ContextRouteRange, typename Ctx>
 	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
-	ContextRouteRange const &context_routes) {
+	ContextRouteRange const &context_routes,
+	bool is_head) {
 	if (context_routes.empty()) {
 		return std::nullopt;
 	}
@@ -374,13 +379,15 @@ export template<typename ContextRouteRange, typename Ctx>
 						   conflux::http::OwnedRequest req,
 						   Ctx const &ctx,
 						   std::string route_pattern,
-						   bool should_annotate) -> conflux::work::root::Task<conflux::http::Response> {
+						   bool should_annotate,
+						   bool is_head) -> conflux::work::root::Task<conflux::http::Response> {
 					return conflux::work::root::make_cancellable_task(
 						[handler = std::move(handler),
 						 req = std::move(req),
 						 ctx,
 						 route_pattern = std::move(route_pattern),
-						 should_annotate](conflux::work::root::Cancellation cancel) mutable
+						 should_annotate,
+						 is_head](conflux::work::root::Cancellation cancel) mutable
 							-> conflux::work::root::Task<conflux::http::Response> {
 							return run_context_route_task(
 								std::move(handler),
@@ -388,9 +395,10 @@ export template<typename ContextRouteRange, typename Ctx>
 								ctx,
 								std::move(route_pattern),
 								should_annotate,
+								is_head,
 								std::move(cancel));
 						});
-				}(route.handler, std::move(matched_req), ctx, std::move(pattern), observe_route),
+				}(route.handler, std::move(matched_req), ctx, std::move(pattern), observe_route, is_head),
 				.options = options,
 			};
 		}
@@ -403,8 +411,10 @@ export template<typename ContextRouteRange, typename Ctx>
 	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
-	ContextRouteRange const &context_routes) {
-	auto deferred_task = conflux::http::detail::dispatch_context_route_tasks(req, ctx, path_sv, context_routes);
+	ContextRouteRange const &context_routes,
+	bool is_head = false) {
+	auto deferred_task =
+		conflux::http::detail::dispatch_context_route_tasks(req, ctx, path_sv, context_routes, is_head);
 	if (!deferred_task) {
 		return std::nullopt;
 	}
