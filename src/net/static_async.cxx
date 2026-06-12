@@ -1054,6 +1054,9 @@ conflux::http::Response handle_static_get(
 		if (!lease) {
 			return conflux::http::Response::internal_error();
 		}
+		if (lease->size() != file_size) {
+			return conflux::http::Response::internal_error();
+		}
 
 		if (range.is_range_request) {
 			return make_static_mapped_response(

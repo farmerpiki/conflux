@@ -217,7 +217,7 @@ void Ring::handle_send_tls_complete(
 
 	if (conn.tls_sending_response) {
 		if (conn.mapped_file) {
-			if (conn.mapped_delivered < conn.mapped_file->size) {
+			if (conn.mapped_delivered < conn.mapped_file->window().size()) {
 				write_mapped_tls_chunk(fd, conn);
 				return;
 			}

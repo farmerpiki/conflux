@@ -180,7 +180,7 @@ void Ring::handle_deferred_poll(
 			conn.has_response = true;
 		} else {
 			conn.mapped_file = ready->take_mapped_file();
-			conn.mapped_total = conn.own_response.size() + conn.mapped_file->size;
+			conn.mapped_total = conn.own_response.size() + conn.mapped_file->window().size();
 			conn.mapped_delivered = 0;
 			conn.has_response = false;
 		}

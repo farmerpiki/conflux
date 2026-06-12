@@ -426,7 +426,7 @@ struct Response {
 			return content_length_hint;
 		}
 		if (is_mapped_file() && mapped_file_ptr()) {
-			return static_cast<std::size_t>(mapped_file_ptr()->size);
+			return mapped_file_ptr()->window().size();
 		}
 		if (is_streamed_file() && streamed_file_ptr()) {
 			return static_cast<std::size_t>(streamed_file_ptr()->send_size);

@@ -74,11 +74,12 @@ void Ring::queue_send_mapped(
 	auto &conn = conn_for(fd);
 	std::size_t skip = conn.written;
 	std::size_t ni{};
+	auto const mapped_window = conn.mapped_file ? conn.mapped_file->window() : std::span<std::byte const>{};
 
 	// iov[0]: remaining header bytes
 	if (skip < conn.own_response.size()) {
 		std::span<char> const hdr_span{conn.own_response};
-		if (send_zc_enabled_ && conn.mapped_file && conn.mapped_file->size >= send_zc_threshold_) {
+		if (send_zc_enabled_ && mapped_window.size() >= send_zc_threshold_) {
 			auto submit_header = [&]<RingFd Handle>(Handle handle) {
 				return submit_send_borrowed(
 					raw_,
@@ -104,12 +105,11 @@ void Ring::queue_send_mapped(
 		skip -= conn.own_response.size();
 	}
 	// iov[1]: remaining file bytes (honouring offset for range requests)
-	if (conn.mapped_file && skip < conn.mapped_file->size) {
-		auto const win = conn.mapped_file->window();
+	if (skip < mapped_window.size()) {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 		conn.writev_iov[ni++] = {
-			.iov_base = const_cast<void *>(static_cast<void const *>(win.subspan(skip).data())),
-			.iov_len = win.size() - skip};
+			.iov_base = const_cast<void *>(static_cast<void const *>(mapped_window.subspan(skip).data())),
+			.iov_len = mapped_window.size() - skip};
 	}
 
 	if (ni == 0) {
@@ -406,7 +406,7 @@ void Ring::note_send_zc_tls_bypass_if_candidate(
 	}
 	std::size_t candidate_bytes{};
 	if (conn.mapped_file) {
-		candidate_bytes = static_cast<std::size_t>(conn.mapped_file->size);
+		candidate_bytes = conn.mapped_file->window().size();
 	} else if (conn.streamed_file) {
 		candidate_bytes = static_cast<std::size_t>(conn.streamed_file->send_size);
 	} else if (conn.has_response && conn.own_response.size() >= conn.written) {
