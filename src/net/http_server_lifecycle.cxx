@@ -158,11 +158,7 @@ void Ring::invalidate_recv_if_armed(
 	retire_incremental_partial(fd, old_gen, conn);
 	++conn.gen;
 	conn.recv_armed = false;
-	if (accepted_sockets_direct) {
-		cancel_multishot_recv_or_defer(DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
-	} else {
-		cancel_multishot_recv_or_defer(OsFd::from_os(conn.fd));
-	}
+	cancel_multishot_recv_or_defer(fd, old_gen);
 }
 
 void Ring::cancel_accept_or_defer(

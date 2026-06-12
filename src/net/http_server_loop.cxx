@@ -216,16 +216,11 @@ void Ring::defer_op(
 }
 
 void Ring::cancel_multishot_recv_or_defer(
-	OsFd handle) {
-	if (!submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0))) {
-		defer_op([this, handle] { cancel_multishot_recv_or_defer(handle); });
-	}
-}
-
-void Ring::cancel_multishot_recv_or_defer(
-	DirectFd handle) {
-	if (!submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0))) {
-		defer_op([this, handle] { cancel_multishot_recv_or_defer(handle); });
+	int fd,
+	std::uint32_t gen) {
+	auto const recv_ud = pack(Op::Recv, gen, fd);
+	if (!submit_cancel_by_ud(raw_, recv_ud, pack(Op::Nop, 0, 0))) {
+		defer_op([this, fd, gen] { cancel_multishot_recv_or_defer(fd, gen); });
 	}
 }
 

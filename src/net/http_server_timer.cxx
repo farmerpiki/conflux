@@ -278,11 +278,7 @@ void Ring::handle_shutdown() {
 			conn.close_after_send_deadline =
 				drain != nullptr ? drain->deadline : now + shutdown_close_after_send_timeout;
 			if (conn.recv_armed) {
-				if (accepted_sockets_direct) {
-					cancel_multishot_recv_or_defer(DirectFd::from_direct(static_cast<std::uint32_t>(i)));
-				} else {
-					cancel_multishot_recv_or_defer(OsFd::from_os(conn.fd));
-				}
+				cancel_multishot_recv_or_defer(static_cast<int>(i), conn.gen);
 			}
 			if (response_ready) {
 				start_response_send(static_cast<int>(i), conn);
