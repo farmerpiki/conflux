@@ -505,6 +505,7 @@ conflux::http::Router::Middleware jwt_middleware(
 		auto const &claims = *result;
 		// Copy request, inject claims as params so handlers can read them.
 		auto modified = req.to_owned();
+		modified.params.set("__conflux_jwt_claims_authoritative", "1");
 		modified.params.set("jwt_sub", claims.sub);
 		modified.params.set("jwt_iss", claims.iss);
 		modified.params.set("jwt_payload", claims.raw);

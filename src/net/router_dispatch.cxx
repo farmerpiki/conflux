@@ -117,12 +117,30 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::HttpFieldsView const &matched_params,
 	std::string const &route_pattern,
 	[[maybe_unused]] bool observe_route) {
+	constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
+	constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
+	auto const jwt_claim_overrides = [&](std::string_view key) {
+		return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
+			   && matched_params.get(key).has_value();
+	};
+
 	conflux::http::HttpFieldsView all_params;
 	all_params.reserve(matched_params.size() + req.params.size() + 1);
+	for (auto key: kJwtClaimParams) {
+		if (jwt_claim_overrides(key)) {
+			all_params.emplace_back(key, *req.params.get(key));
+		}
+	}
 	for (auto const &[k, v]: matched_params) {
+		if (jwt_claim_overrides(k)) {
+			continue;
+		}
 		all_params.emplace_back(k, v);
 	}
 	for (auto const &[k, v]: req.params) {
+		if (k == kJwtAuthoritative || jwt_claim_overrides(k)) {
+			continue;
+		}
 		all_params.emplace_back(k, v);
 	}
 #if CONFLUX_ROUTER_LAZY_ROUTE_METADATA
@@ -215,13 +233,31 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::RequestView const &req,
 	conflux::http::HttpFieldsView const &matched_params,
 	std::string const &route_pattern) {
+	constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
+	constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
+	auto const jwt_claim_overrides = [&](std::string_view key) {
+		return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
+			   && matched_params.get(key).has_value();
+	};
+
 	auto matched = req.to_owned();
 	conflux::http::HttpFields params;
 	params.reserve(matched_params.size() + matched.params.size() + 1);
+	for (auto key: kJwtClaimParams) {
+		if (jwt_claim_overrides(key)) {
+			params.emplace_back(std::string{key}, std::string{*req.params.get(key)});
+		}
+	}
 	for (auto const &[k, v]: matched_params) {
+		if (jwt_claim_overrides(k)) {
+			continue;
+		}
 		params.emplace_back(std::string{k}, std::string{v});
 	}
 	for (auto const &[k, v]: matched.params) {
+		if (k == kJwtAuthoritative || jwt_claim_overrides(k)) {
+			continue;
+		}
 		params.emplace_back(std::string{k}, std::string{v});
 	}
 	params.emplace_back("__conflux_route_pattern", route_pattern);
@@ -349,13 +385,31 @@ export template<typename ContextRouteRange, typename Ctx>
 								 (route.exact_path == path_sv) :
 								 conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
+			constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
+			constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
+			auto const jwt_claim_overrides = [&](std::string_view key) {
+				return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
+					   && matched_params.get(key).has_value();
+			};
+
 			auto matched_req = req.to_owned();
 			conflux::http::HttpFields params;
 			params.reserve(matched_params.size() + matched_req.params.size() + 1);
+			for (auto key: kJwtClaimParams) {
+				if (jwt_claim_overrides(key)) {
+					params.emplace_back(std::string{key}, std::string{*req.params.get(key)});
+				}
+			}
 			for (auto const &[k, v]: matched_params) {
+				if (jwt_claim_overrides(k)) {
+					continue;
+				}
 				params.emplace_back(std::string{k}, std::string{v});
 			}
 			for (auto const &[k, v]: matched_req.params) {
+				if (k == kJwtAuthoritative || jwt_claim_overrides(k)) {
+					continue;
+				}
 				params.emplace_back(std::string{k}, std::string{v});
 			}
 			std::string pattern;
