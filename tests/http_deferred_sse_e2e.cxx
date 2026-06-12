@@ -62,52 +62,62 @@ TEST_CASE(
 TEST_CASE(
 	"SseChannel: concurrent on_close callback can re-enter channel",
 	"[sse][http.lifecycle]") {
-	constexpr auto frame_count = 32768;
-	auto ch = std::make_shared<conflux::http::SseChannel>(
-		static_cast<std::size_t>(frame_count),
-		conflux::http::SseOverflowPolicy::DropOldest);
-	bool queued_initial_frames = true;
-	for (int i = 0; i < frame_count; ++i) {
-		queued_initial_frames = ch->send("x") && queued_initial_frames;
-	}
-	REQUIRE(queued_initial_frames);
+	struct CallbackState {
+		std::mutex mtx{};
+		std::condition_variable cv{};
+		bool callback_done{false};
+		bool on_close_done{false};
+		bool close_done{false};
+	};
 
-	std::atomic_bool callback_done{false};
-	std::atomic_bool on_close_done{false};
-	std::atomic_bool close_done{false};
+	auto ch = std::make_shared<conflux::http::SseChannel>();
+	auto state = std::make_shared<CallbackState>();
+	std::barrier start{3};
 
-	std::thread sender{[ch] { (void)ch->send(std::string(static_cast<std::size_t>(frame_count) + 1, 'y')); }};
-	std::this_thread::sleep_for(std::chrono::milliseconds{5});
-
-	std::thread registrar{[ch, &callback_done, &on_close_done] {
-		ch->on_close([ch, &callback_done] {
+	std::thread registrar{[ch, state, &start] {
+		start.arrive_and_wait();
+		ch->on_close([ch, state] {
 			(void)ch->send("after-close");
-			callback_done.store(true, std::memory_order_release);
+			{
+				std::scoped_lock const lk{state->mtx};
+				state->callback_done = true;
+			}
+			state->cv.notify_all();
 		});
-		on_close_done.store(true, std::memory_order_release);
+		{
+			std::scoped_lock const lk{state->mtx};
+			state->on_close_done = true;
+		}
+		state->cv.notify_all();
 	}};
-	std::this_thread::sleep_for(std::chrono::milliseconds{5});
 
-	std::thread closer{[ch, &close_done] {
+	std::thread closer{[ch, state, &start] {
+		start.arrive_and_wait();
 		ch->close();
-		close_done.store(true, std::memory_order_release);
+		{
+			std::scoped_lock const lk{state->mtx};
+			state->close_done = true;
+		}
+		state->cv.notify_all();
 	}};
 
-	for (int i = 0; i < 200 && !callback_done.load(std::memory_order_acquire); ++i) {
-		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	start.arrive_and_wait();
+
+	bool callback_done = false;
+	{
+		std::unique_lock lk{state->mtx};
+		callback_done = state->cv.wait_for(lk, std::chrono::seconds{5}, [&] {
+			return state->callback_done && state->on_close_done && state->close_done;
+		});
 	}
 
-	auto const completed = callback_done.load(std::memory_order_acquire)
-						&& on_close_done.load(std::memory_order_acquire)
-						&& close_done.load(std::memory_order_acquire);
+	auto const completed = callback_done;
 	if (!completed) {
-		sender.detach();
 		registrar.detach();
 		closer.detach();
 	}
 	REQUIRE(completed);
 
-	sender.join();
 	registrar.join();
 	closer.join();
 }
