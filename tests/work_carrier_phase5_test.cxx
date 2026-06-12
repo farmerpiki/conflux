@@ -197,6 +197,16 @@ TEST_CASE(
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 42);
 }
+TEST_CASE(
+	"phase5b: EagerChain can be destroyed after creating thread exits",
+	"[phase5b]") {
+	std::optional<carrier::EagerChain<int>> chain;
+	{
+		std::jthread worker{[&] { chain.emplace(eager_produces_value()); }};
+	}
+	chain.reset();
+	SUCCEED();
+}
 carrier::EagerChain<void> eager_void_fn(
 	carrier::Chain<int> input) {
 	(void)(co_await std::move(input));
