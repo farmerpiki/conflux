@@ -84,6 +84,45 @@ TEST_CASE(
 	CHECK_THROWS_AS(std::rethrow_exception(rejected_out.failure().error), root::WorkError);
 }
 TEST_CASE(
+	"work: WorkPool max_inject_queue zero rejects external enqueue",
+	"[work]") {
+	WorkPool pool{
+		WorkPoolOptions{.threads = 1, .max_inject_queue = 0}
+    };
+	CHECK_FALSE(pool.enqueue([] {}));
+}
+TEST_CASE(
+	"work: WorkPool max_inject_queue is exact for non power of two",
+	"[work]") {
+	std::mutex mtx;
+	std::condition_variable cv;
+	bool blocker_started = false;
+	bool release_blocker = false;
+	WorkPool pool{
+		WorkPoolOptions{.threads = 1, .max_inject_queue = 3}
+    };
+	REQUIRE(pool.enqueue([&] {
+		std::unique_lock lk{mtx};
+		blocker_started = true;
+		cv.notify_all();
+		cv.wait(lk, [&] { return release_blocker; });
+	}));
+	{
+		std::unique_lock lk{mtx};
+		REQUIRE(cv.wait_for(lk, std::chrono::seconds{5}, [&] { return blocker_started; }));
+	}
+	CHECK(pool.enqueue([] {}));
+	CHECK(pool.enqueue([] {}));
+	CHECK(pool.enqueue([] {}));
+	CHECK_FALSE(pool.enqueue([] {}));
+	{
+		std::scoped_lock const lk{mtx};
+		release_blocker = true;
+	}
+	cv.notify_all();
+	pool.drain_and_stop();
+}
+TEST_CASE(
 	"work: async_run_cancellable_on executes callable on pool",
 	"[work]") {
 	WorkPool pool;
