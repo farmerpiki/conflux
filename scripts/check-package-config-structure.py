@@ -1886,7 +1886,9 @@ def check_package_smoke_wrapper_contracts() -> None:
             '--forbid-components "$strict_forbidden_components"': "core-isolated package smoke must pass the derived forbidden components",
         },
         "scripts/check-package-smoke-mixed-module-header.sh": {
-            'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "mixed module/header package smoke must cap its default build concurrency",
+            "CONFLUX_PACKAGE_SMOKE_MIXED_FEATURE_SET": "mixed module/header package smoke must keep the feature-set override",
+            "CONFLUX_PACKAGE_SMOKE_MIXED_COMPONENTS": "mixed module/header package smoke must keep the component override",
+            "--mixed-module-header-smoke": "mixed module/header package smoke must run downstream mixed module/header checks",
         },
         "scripts/check-package-smoke-api-surfaces.sh": {
             'release-sku-field.py" "$source_root" release-http-api feature_set': "API-surface package smoke must derive feature set from release-http-api",
@@ -1896,7 +1898,6 @@ def check_package_smoke_wrapper_contracts() -> None:
             "for interface_mode in HEADER_INTERFACE MODULE_INTERFACE": "API-surface package smoke must cover header and module interface modes",
             "for api_surface in curated extended complete": "API-surface package smoke must cover curated, extended, and complete API surfaces",
             "--api-surface \"$api_surface\"": "API-surface package smoke must pass selected API surface to the install-tree runner",
-            'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "API-surface package smoke must cap its default build concurrency",
         },
         "scripts/check-package-smoke-json-standalone.sh": {
             'release-sku-field.py" "$source_root" release-json feature_set': "JSON standalone package smoke must derive feature set from release-json",
@@ -1905,7 +1906,6 @@ def check_package_smoke_wrapper_contracts() -> None:
             'external-dependency-tokens.py" "$source_root" --policy json': "JSON standalone package smoke must derive forbidden external deps from the shared JSON policy",
             "--mixed-module-header-smoke": "JSON standalone package smoke must run mixed module/header downstream checks",
             "--public-module-import-smoke": "JSON standalone package smoke must run public module import downstream checks",
-            'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"': "JSON standalone package smoke must cap module build concurrency",
             "-DCONFLUX_USE_IMPORT_STD=OFF": "JSON standalone package smoke must avoid toolchain-fragile import std",
         },
     }
@@ -1913,6 +1913,10 @@ def check_package_smoke_wrapper_contracts() -> None:
     for path, markers in checks.items():
         text = read(path)
         errors.extend(message for marker, message in markers.items() if marker not in text)
+    for path in sorted(Path("scripts").glob("check-package-smoke-*.sh")):
+        text = read(str(path))
+        if 'CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"' in text:
+            errors.append(f"{path}: package smoke wrappers must not default to single-worker builds")
     runner = read("scripts/run-package-config-smoke.sh")
     helper_policies = package_smoke_forbidden_policy_names()
     runner_policies = package_smoke_runner_default_policy_names(runner)

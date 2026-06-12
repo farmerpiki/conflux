@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,10 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -53,21 +56,59 @@ jobs:
   container-compile:
     name: Container Compile
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: conflux_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d conflux_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build CI toolchain image
         run: docker build -f .github/docker/ci-toolchain.Dockerfile -t conflux-ci-toolchain .
 
-      - name: Compile supported surfaces
+      - name: Prepare PostgreSQL roles
         run: |
           docker run --rm \
+            --network host \
+            postgres:16 \
+            psql -h 127.0.0.1 -U postgres -d conflux_test -v ON_ERROR_STOP=1 \
+              -c 'DO $$ BEGIN CREATE ROLE root LOGIN SUPERUSER; EXCEPTION WHEN duplicate_object THEN NULL; END $$;'
+
+      - name: Compile and test supported surfaces
+        run: |
+          docker run --rm \
+            --privileged \
+            --network host \
+            --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
+            --ulimit memlock=-1:-1 \
             -v "$PWD:/work" \
             -w /work \
             conflux-ci-toolchain \
             bash -lc '
               set -euo pipefail
+              export PG_TEST_CONNINFO="host=127.0.0.1 port=5432 dbname=conflux_test user=postgres"
+              export PG_CONNINFO="$PG_TEST_CONNINFO"
+              visible_cpus="$(nproc)"
+              echo "visible CPUs: ${visible_cpus}"
+              if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+                echo "cpu.max: $(cat /sys/fs/cgroup/cpu.max)"
+              fi
+              if (( visible_cpus < 2 )); then
+                echo "CI container needs at least 2 visible CPUs for concurrency tests" >&2
+                exit 1
+              fi
               cmake --version
               ninja --version
               python3 --version
@@ -92,6 +133,13 @@ jobs:
                 rm -rf "$dir"
               }
 
+              run_preset_ctest() {
+                local preset="$1"
+                local dir
+                dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$preset")"
+                scripts/run-ctest.sh --test-dir "$dir" --output-on-failure
+              }
+
               export CXX=g++-16
               cmake --preset full
               cmake --build --preset full
@@ -99,9 +147,11 @@ jobs:
 
               cmake --preset debug-clang-libcxx
               cmake --build --preset debug-clang-libcxx
+              run_preset_ctest debug-clang-libcxx
               cleanup_preset debug-clang-libcxx
 
               cmake --preset debug-gcc16-stdcxx
               cmake --build --preset debug-gcc16-stdcxx
+              run_preset_ctest debug-gcc16-stdcxx
               cleanup_preset debug-gcc16-stdcxx
             '

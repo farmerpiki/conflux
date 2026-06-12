@@ -33,6 +33,7 @@ target_link_libraries(conflux_uring_timeout
     PUBLIC  conflux_types
     PUBLIC  conflux_work
     PUBLIC  conflux_uring
+    PUBLIC  conflux_uring_primitives
     PUBLIC  PkgConfig::LIBURING
 )
 

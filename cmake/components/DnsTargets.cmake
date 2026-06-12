@@ -8,6 +8,7 @@ conflux_add_module_library(conflux_dns
 target_link_libraries(conflux_dns
     PRIVATE conflux_options
     PUBLIC  conflux_work
+    PUBLIC  conflux_uring
     PRIVATE conflux_utils
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io

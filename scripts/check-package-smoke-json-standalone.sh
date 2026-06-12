@@ -69,7 +69,6 @@ rm -rf "$probe_dir" "$probe_log"
     -- \
     -DCONFLUX_POSTGRES_PROVIDER=OFF
 
-CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}" \
 "$source_root/scripts/run-install-tree-smoke.sh" \
     --source "$source_root" \
     --build-dir "$base/module-build" \

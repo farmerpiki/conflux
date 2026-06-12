@@ -25,7 +25,6 @@ trap 'rm -rf "$base"' EXIT
 
 for interface_mode in HEADER_INTERFACE MODULE_INTERFACE; do
     for api_surface in curated extended complete; do
-        CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}" \
         "$source_root/scripts/run-install-tree-smoke.sh" \
             --source "$source_root" \
             --build-dir "$base/${interface_mode}-${api_surface}/build" \

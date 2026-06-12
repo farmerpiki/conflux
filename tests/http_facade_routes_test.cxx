@@ -274,6 +274,43 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: async json route keeps response options alive after suspension",
+	"[http.facade]") {
+	auto app = http::app();
+	std::string value = "async-json";
+	app.state(value);
+	auto source_slot = std::make_shared<std::optional<conflux::work::root::TaskSource<http::Json<FacadeAnswer>>>>();
+	app.get(
+		"/async-json",
+		[source_slot](http::State<std::string> state) -> conflux::work::Task<http::Json<FacadeAnswer>> {
+			auto [task, source] = conflux::work::root::make_task_source<http::Json<FacadeAnswer>>();
+			source_slot->emplace(std::move(source));
+			auto _ = state.get();
+			co_return co_await std::move(task);
+		});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/async-json";
+
+	auto dispatched = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(dispatched.has_value());
+	REQUIRE(dispatched->is_deferred());
+	REQUIRE(source_slot->has_value());
+
+	REQUIRE((*source_slot)
+				->try_set_value(
+					conflux::work::root::Success<http::Json<FacadeAnswer>>{
+						http::json(FacadeAnswer{.value = "async-json"})}));
+	auto deferred = dispatched->deferred_response_ptr();
+	REQUIRE(deferred->is_ready());
+	auto response = deferred->take_ready();
+	REQUIRE(response.has_value());
+	CHECK(response->status == 200);
+	CHECK(response->text_body() == R"({"value":"async-json"})");
+}
+
+TEST_CASE(
 	"http facade: app groups apply scoped async middleware to extracted task routes",
 	"[http.facade]") {
 	auto app = http::app();

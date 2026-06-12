@@ -18,6 +18,7 @@ target_link_libraries(conflux_net_http
     PUBLIC conflux_http_core
     PUBLIC conflux_http_json
     PUBLIC conflux_http_realtime
+    PUBLIC conflux_http_static
     PUBLIC conflux_http_response
     PUBLIC conflux_http_response_json
     PUBLIC conflux_http_app_json
