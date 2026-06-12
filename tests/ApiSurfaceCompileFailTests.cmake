@@ -192,6 +192,30 @@ if(TARGET conflux)
         EXPECT "parse_borrowed_into")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_pmr_borrowed_rvalue
+        SOURCE json_compile_fail_pmr_borrowed_rvalue.cxx
+        TEST api-surface/json-pmr-borrowed-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_borrowed")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_pmr_borrowed_unsafe_rvalue
+        SOURCE json_compile_fail_pmr_borrowed_unsafe_rvalue.cxx
+        TEST api-surface/json-pmr-borrowed-unsafe-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_borrowed_unsafe")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_pmr_parse_view_rvalue
+        SOURCE json_compile_fail_pmr_parse_view_rvalue.cxx
+        TEST api-surface/json-pmr-parse-view-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_view")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_utils_compile_fail_global_ip_addr
         SOURCE utils_compile_fail_global_ip_addr.cxx
         TEST api-surface/utils-hides-global-ip-addr

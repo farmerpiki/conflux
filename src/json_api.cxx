@@ -3041,6 +3041,17 @@ parse(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_res
 template<typename T>
 	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
 std::expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError>
+parse_borrowed(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError>
+parse_borrowed_unsafe(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse_view(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 
 } // namespace conflux::json
 

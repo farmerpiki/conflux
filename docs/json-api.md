@@ -105,8 +105,9 @@ expected<Document, JsonError> parse_copy(string&&      input, JsonParseOptions c
 - `parse_copy(string_view)` — copies input into the `Document`'s owned buffer.
 - `parse_copy(string&&)` — moves the input string into the `Document`; no copy.
 - `parse(string&&)`, `parse_view(string&&)`, and `parse_borrowed(string&&)` are
-  `= delete` to prevent accidental dangling. Use `parse_copy(std::move(s))` for
-  rvalue strings.
+  `= delete` to prevent accidental dangling, including PMR overloads that take
+  a caller-supplied memory resource. Use `parse_copy(std::move(s))` for rvalue
+  strings.
 
 ```cpp
 auto doc = parse_view(R"({"x": 1, "y": 2})");
