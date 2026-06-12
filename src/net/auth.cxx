@@ -566,21 +566,19 @@ conflux::http::Router::Middleware basic_auth_middleware(
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
+		auto credentials = parse_basic_credentials(req.headers["authorization"]);
+		if (!credentials) {
+			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
+		}
+		if (v(credentials->username, credentials->password)) {
+			auth_detail::clear_basic_auth_failures(*state, opts, limiter_key);
+			return next(req);
+		}
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
 			return auth_detail::too_many_auth_attempts(*retry_after);
 		}
-
-		auto credentials = parse_basic_credentials(req.headers["authorization"]);
-		if (!credentials) {
-			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
-		}
-		if (!v(credentials->username, credentials->password)) {
-			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
-		}
-		auth_detail::clear_basic_auth_failures(*state, opts, limiter_key);
-		return next(req);
+		auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
+		return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 	};
 }
 
