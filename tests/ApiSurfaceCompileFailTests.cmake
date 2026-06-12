@@ -640,6 +640,22 @@ if(TARGET conflux)
         EXPECT "TaskSource")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_result_consume_for_join
+        SOURCE work_compile_fail_result_consume_for_join.cxx
+        TEST api-surface/work-result-hides-consume-for-join
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "consume_for_join")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_join_handle_consume_for_join
+        SOURCE work_compile_fail_join_handle_consume_for_join.cxx
+        TEST api-surface/work-join-handle-hides-consume-for-join
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "consume_for_join")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_types_compile_fail_global_io_error
         SOURCE types_compile_fail_global_io_error.cxx
         TEST api-surface/types-hides-global-io-error

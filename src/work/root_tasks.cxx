@@ -120,6 +120,12 @@ template<class A, class T>
 concept awaits_outcome = awaitable<A> && std::same_as<await_resume_t<A>, Outcome<T>>;
 
 } // namespace detail
+namespace detail {
+
+struct consume_access;
+
+} // namespace detail
+
 template<work_value T, ControlCategory Category>
 class BasicResult {
 	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
@@ -157,6 +163,7 @@ class BasicResult {
 	friend class BasicJoinHandle<T, Category>;
 	template<class Fn>
 	auto friend spawn(Fn &&, std::source_location) -> std::invoke_result_t<Fn>;
+	friend struct detail::consume_access;
 
 public:
 	using value_type = T;
@@ -196,16 +203,6 @@ public:
 	// Named std::move alias; lvalue-friendly (R2 #2 v4 fix).
 	[[nodiscard]] BasicResult &&consume() & noexcept { return std::move(*this); }
 	[[nodiscard]] BasicResult &&consume() && noexcept { return std::move(*this); }
-	// HACK: GCC 16 module exporter treats `friend abandon_impl(...)` decl + the
-	// namespace-scope decl as two distinct ADL candidates. Public-method indirection
-	// keeps abandon_impl/join as plain non-friend free functions, eliminating the
-	// duplicate. These are detail-level entry points, not part of the user API.
-	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_join() noexcept {
-		return consume(join_state::joined);
-	}
-	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept {
-		return consume(join_state::detached);
-	}
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
 		return typename control_handle_for<Category>::type{state_};
 	}
@@ -476,6 +473,7 @@ class BasicJoinHandle {
 	template<work_value U, class Sink>
 		requires abandon_sink<Sink, U>
 	AbandonStatus friend try_abandon_to(BasicJoinHandle<U, ControlCategory::operation> &&, Sink &&) noexcept;
+	friend struct detail::consume_access;
 
 public:
 	using value_type = T;
@@ -510,13 +508,36 @@ public:
 		return typename control_handle_for<Category>::type{state_};
 	}
 	[[nodiscard]] explicit operator bool() const noexcept { return live_; }
-	// HACK: see matching note in BasicResult::consume_for_join.
-	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_join() noexcept { return consume(); }
-	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept { return consume(); }
 	[[nodiscard]] auto outcome() && noexcept -> detail::OutcomeAwaiter<T> {
 		return detail::OutcomeAwaiter<T>{consume()};
 	}
 };
+namespace detail {
+
+struct consume_access {
+	template<work_value T, ControlCategory Category>
+	[[nodiscard]] static std::shared_ptr<ControlBlockInterface<T>> for_join(
+		BasicResult<T, Category> &result) noexcept {
+		return result.consume(join_state::joined);
+	}
+	template<work_value T, ControlCategory Category>
+	[[nodiscard]] static std::shared_ptr<ControlBlockInterface<T>> for_abandon(
+		BasicResult<T, Category> &result) noexcept {
+		return result.consume(join_state::detached);
+	}
+	template<work_value T, ControlCategory Category>
+	[[nodiscard]] static std::shared_ptr<ControlBlockInterface<T>> for_join(
+		BasicJoinHandle<T, Category> &handle) noexcept {
+		return handle.consume();
+	}
+	template<work_value T, ControlCategory Category>
+	[[nodiscard]] static std::shared_ptr<ControlBlockInterface<T>> for_abandon(
+		BasicJoinHandle<T, Category> &handle) noexcept {
+		return handle.consume();
+	}
+};
+
+} // namespace detail
 template<work_value T>
 using TaskJoinHandle = BasicJoinHandle<T, ControlCategory::task>;
 
@@ -552,7 +573,7 @@ template<work_value T, ControlCategory Category, class Sink>
 void abandon_impl(
 	BasicResult<T, Category> &&r,
 	Sink &&sink) noexcept {
-	auto state = r.consume_for_abandon();
+	auto state = detail::consume_access::for_abandon(r);
 	if (!state) {
 		return; // empty or already-detached/joined — no-op
 	}
@@ -562,7 +583,7 @@ template<work_value T, ControlCategory Category, class Sink>
 void abandon_impl(
 	BasicJoinHandle<T, Category> &&h,
 	Sink &&sink) noexcept {
-	auto state = h.consume_for_abandon();
+	auto state = detail::consume_access::for_abandon(h);
 	if (!state) {
 		std::terminate();
 	}
@@ -618,7 +639,7 @@ template<work_value T, class Sink>
 	if (!bool(h)) {
 		return AbandonStatus::empty;
 	}
-	auto state = h.consume_for_abandon();
+	auto state = detail::consume_access::for_abandon(h);
 	if (!state) {
 		return AbandonStatus::empty;
 	}
@@ -633,7 +654,7 @@ template<work_value T, class Sink>
 	if (!bool(h)) {
 		return AbandonStatus::empty;
 	}
-	auto state = h.consume_for_abandon();
+	auto state = detail::consume_access::for_abandon(h);
 	if (!state) {
 		return AbandonStatus::empty;
 	}
@@ -647,7 +668,7 @@ template<work_value T, class Sink>
 	if (!bool(h)) {
 		return AbandonStatus::empty;
 	}
-	auto state = h.consume_for_abandon();
+	auto state = detail::consume_access::for_abandon(h);
 	if (!state) {
 		return AbandonStatus::empty;
 	}
@@ -951,7 +972,7 @@ template<class Joinable>
 	if (!control.ready()) {
 		return std::nullopt;
 	}
-	auto state = joinable.consume_for_join();
+	auto state = consume_access::for_join(joinable);
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
@@ -1124,7 +1145,7 @@ template<work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
-	return detail::blocking_join_compatibility_adapter(task.consume_for_join(), std::nullopt, loc);
+	return detail::blocking_join_compatibility_adapter(detail::consume_access::for_join(task), std::nullopt, loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
@@ -1132,7 +1153,7 @@ template<progress_capability Owner, work_value T>
 	Posted<T> &&posted,
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
-		posted.consume_for_join(),
+		detail::consume_access::for_join(posted),
 		std::optional<CapabilityId>{capability_id(owner)},
 		loc);
 }
@@ -1142,7 +1163,7 @@ template<progress_capability Driver, work_value T>
 	Operation<T> &&op,
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
-		op.consume_for_join(),
+		detail::consume_access::for_join(op),
 		std::optional<CapabilityId>{capability_id(driver)},
 		loc);
 }
@@ -1150,7 +1171,7 @@ template<work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	return detail::blocking_join_compatibility_adapter(h.consume_for_join(), std::nullopt, loc);
+	return detail::blocking_join_compatibility_adapter(detail::consume_access::for_join(h), std::nullopt, loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> blocking_join(
@@ -1158,7 +1179,7 @@ template<progress_capability Owner, work_value T>
 	PostedJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
-		h.consume_for_join(),
+		detail::consume_access::for_join(h),
 		std::optional<CapabilityId>{capability_id(owner)},
 		loc);
 }
@@ -1168,7 +1189,7 @@ template<progress_capability Driver, work_value T>
 	OperationJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
-		h.consume_for_join(),
+		detail::consume_access::for_join(h),
 		std::optional<CapabilityId>{capability_id(driver)},
 		loc);
 }
