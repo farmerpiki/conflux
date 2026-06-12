@@ -76,6 +76,9 @@ constexpr std::uint32_t kMaxArgon2MemoryKiB = 16U * 1024U * 1024U;
 constexpr std::uint32_t kMaxArgon2Parallelism = 1024U;
 constexpr std::uint32_t kMaxHashConcurrency = 1024U;
 constexpr std::uint32_t kMaxHashWaiters = 1U << 20U;
+constexpr std::uint32_t kMinStoredSaltBytes = 8U;
+constexpr std::uint32_t kMinStoredHashBytes = 16U;
+constexpr std::uint32_t kMinStoredPbkdf2Iterations = 10'000U;
 
 [[nodiscard]] std::uint32_t default_hash_concurrency() noexcept {
 	std::uint32_t const hw = std::max(1U, std::thread::hardware_concurrency());
@@ -417,6 +420,20 @@ struct Argon2Api {
 	return {};
 }
 
+[[nodiscard]] std::expected<void, std::string> validate_stored_hash(
+	ParsedHash const &parsed) {
+	if (parsed.salt.size() < kMinStoredSaltBytes) {
+		return std::unexpected{"password std::hash: stored salt std::byte count below minimum"};
+	}
+	if (parsed.hash.size() < kMinStoredHashBytes) {
+		return std::unexpected{"password std::hash: stored std::hash std::byte count below minimum"};
+	}
+	if (parsed.algorithm == PasswordHashAlgorithm::pbkdf2_sha256 && parsed.iterations < kMinStoredPbkdf2Iterations) {
+		return std::unexpected{"password std::hash: stored pbkdf2-sha256 iteration count below minimum"};
+	}
+	return {};
+}
+
 [[nodiscard]] std::span<unsigned char const> bytes_view(
 	std::string_view s) noexcept {
 	return {reinterpret_cast<unsigned char const *>(s.data()), s.size()};
@@ -722,6 +739,9 @@ export namespace conflux::http {
 	if (!parsed) {
 		return std::unexpected{parsed.error()};
 	}
+	if (auto valid = password_hash_detail::validate_stored_hash(*parsed); !valid) {
+		return std::unexpected{valid.error()};
+	}
 	auto permit = password_hash_detail::password_hash_gate().acquire();
 	if (!permit) {
 		return std::unexpected{permit.error()};
@@ -743,6 +763,9 @@ export namespace conflux::http {
 	auto parsed = password_hash_detail::parse_hash(encoded);
 	if (!parsed) {
 		return std::unexpected{parsed.error()};
+	}
+	if (auto valid = password_hash_detail::validate_stored_hash(*parsed); !valid) {
+		return std::unexpected{valid.error()};
 	}
 	return !password_hash_detail::parameters_match(*parsed, current, secrets);
 }
