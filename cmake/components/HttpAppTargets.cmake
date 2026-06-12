@@ -28,6 +28,7 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_json
     PUBLIC  conflux_json_boundary
     PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_router_dispatch
     PUBLIC  conflux_http_router_match
     PUBLIC  conflux_http_static
     PUBLIC  conflux_http_realtime

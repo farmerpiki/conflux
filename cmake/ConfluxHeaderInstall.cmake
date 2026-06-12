@@ -135,6 +135,7 @@ function(conflux_install_registered_public_headers)
                 conflux/net/rate_limit.hxx
                 conflux/net/request_id.hxx
                 conflux/net/router.hxx
+                conflux/net/router_dispatch.hxx
                 conflux/net/router_match.hxx
                 conflux/net/security.hxx
                 conflux/net/tls.hxx

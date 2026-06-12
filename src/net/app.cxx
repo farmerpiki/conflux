@@ -533,7 +533,7 @@ public:
 					[policy, make_inner = std::move(make_inner)](
 						conflux::http::RequestView const &req,
 						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-						co_return co_await run_scoped_sync_route_as_context(
+						return run_scoped_sync_route_as_context(
 							policy.context_middlewares,
 							policy.middlewares,
 							req,
@@ -590,7 +590,7 @@ public:
 					[policy, make_inner = std::move(make_inner)](
 						conflux::http::RequestView const &req,
 						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-						co_return co_await run_scoped_sync_route_as_context(
+						return run_scoped_sync_route_as_context(
 							policy.context_middlewares,
 							policy.middlewares,
 							req,
@@ -648,7 +648,7 @@ public:
 					[policy, make_inner = std::move(make_inner)](
 						conflux::http::RequestView const &req,
 						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-						co_return co_await run_scoped_sync_route_as_context(
+						return run_scoped_sync_route_as_context(
 							policy.context_middlewares,
 							policy.middlewares,
 							req,
@@ -2114,7 +2114,7 @@ public:
 					[policy, make_inner = std::move(make_inner)](
 						conflux::http::RequestView const &req,
 						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-						co_return co_await run_scoped_sync_route_as_context(
+						return run_scoped_sync_route_as_context(
 							policy.context_middlewares,
 							policy.middlewares,
 							req,
@@ -2288,7 +2288,7 @@ public:
 					[policy, make_inner = std::move(make_inner)](
 						conflux::http::RequestView const &req,
 						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
-						co_return co_await run_scoped_sync_route_as_context(
+						return run_scoped_sync_route_as_context(
 							policy.context_middlewares,
 							policy.middlewares,
 							req,
