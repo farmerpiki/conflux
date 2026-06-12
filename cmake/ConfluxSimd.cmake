@@ -1,6 +1,7 @@
 # SIMD and ISA-specific fast-path detection.
 
 include(CheckCXXSourceCompiles)
+include(CheckCXXSourceRuns)
 
 function(conflux_detect_aesni out_var)
     set(_conflux_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
@@ -24,6 +25,27 @@ endfunction()
 function(conflux_apply_aesni_source_options source)
     set_source_files_properties("${source}" PROPERTIES
         COMPILE_OPTIONS "-maes;-mpclmul;-mssse3;-msse4.1")
+endfunction()
+
+function(conflux_detect_avx2_runtime out_var)
+    if(CMAKE_CROSSCOMPILING)
+        set(${out_var} OFF PARENT_SCOPE)
+        return()
+    endif()
+
+    check_cxx_source_runs("
+#if defined(__GNUC__) || defined(__clang__)
+int main() {
+    __builtin_cpu_init();
+    return __builtin_cpu_supports(\"avx2\") == 0;
+}
+#else
+int main() {
+    return 1;
+}
+#endif
+" CONFLUX_BUILD_CPU_HAS_AVX2)
+    set(${out_var} "${CONFLUX_BUILD_CPU_HAS_AVX2}" PARENT_SCOPE)
 endfunction()
 
 function(conflux_detect_stdsimd out_var)
@@ -97,6 +119,16 @@ int main() {
             set(_conflux_simd_backend STDX)
         elseif(CONFLUX_USE_STDSIMD STREQUAL "STDX" OR CONFLUX_USE_STDSIMD STREQUAL "ON")
             message(FATAL_ERROR "conflux: CONFLUX_USE_STDSIMD=${CONFLUX_USE_STDSIMD} requires <experimental/simd> support")
+        endif()
+    endif()
+
+    if(CONFLUX_USE_STDSIMD STREQUAL "AUTO"
+            AND _conflux_simd_selection STREQUAL "DIRECT"
+            AND NOT _conflux_simd_backend STREQUAL "OFF")
+        conflux_detect_avx2_runtime(_conflux_build_cpu_has_avx2)
+        if(NOT _conflux_build_cpu_has_avx2)
+            message(STATUS "conflux: stdsimd AUTO disabled for DIRECT SIMD selection; build CPU lacks AVX2")
+            set(_conflux_simd_backend OFF)
         endif()
     endif()
 

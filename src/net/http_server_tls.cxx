@@ -331,6 +331,17 @@ void Ring::phase1b_tls_one(
 	int n{};
 	while ((n = SSL_read(conn.ssl.get(), plain.data(), static_cast<int>(plain.size()))) > 0) {
 		conn.partial.append(plain.data(), static_cast<std::size_t>(n));
+		if (conn.partial.size() > raw_receive_cap()) {
+			if (conn.send_queued) {
+				conn.partial.clear();
+				conn.tls_rx_cipher.clear();
+				queue_close(conn.fd);
+			} else {
+				reject_oversized_receive_buffer(conn.fd, conn);
+			}
+			rc.res = -1;
+			return;
+		}
 	}
 	int const ssl_err = SSL_get_error(conn.ssl.get(), n);
 	if (ssl_err == SSL_ERROR_ZERO_RETURN

@@ -80,25 +80,37 @@ jobs:
       - name: Prepare PostgreSQL roles
         run: |
           docker run --rm \
-            --network host \
+            --add-host=host.docker.internal:host-gateway \
             postgres:16 \
-            psql -h 127.0.0.1 -U postgres -d conflux_test -v ON_ERROR_STOP=1 \
+            psql -h host.docker.internal -U postgres -d conflux_test -v ON_ERROR_STOP=1 \
               -c 'DO $$ BEGIN CREATE ROLE root LOGIN SUPERUSER; EXCEPTION WHEN duplicate_object THEN NULL; END $$;'
 
       - name: Compile and test supported surfaces
         run: |
-          docker run --rm \
-            --privileged \
-            --network host \
-            --security-opt seccomp=unconfined \
-            --security-opt apparmor=unconfined \
-            --ulimit memlock=-1:-1 \
+          docker_runtime_args=(--rm)
+          pg_host=127.0.0.1
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            docker_runtime_args+=(--add-host=host.docker.internal:host-gateway)
+            pg_host=host.docker.internal
+          else
+            docker_runtime_args+=(
+              --privileged
+              --network host
+              --security-opt seccomp=unconfined
+              --security-opt apparmor=unconfined
+              --ulimit memlock=-1:-1
+            )
+          fi
+
+          docker run "${docker_runtime_args[@]}" \
             -v "$PWD:/work" \
             -w /work \
+            -e "PG_HOST=${pg_host}" \
             conflux-ci-toolchain \
             bash -lc '
               set -euo pipefail
-              export PG_TEST_CONNINFO="host=127.0.0.1 port=5432 dbname=conflux_test user=postgres"
+              export PG_TEST_CONNINFO="host=${PG_HOST} port=5432 dbname=conflux_test user=postgres"
               export PG_CONNINFO="$PG_TEST_CONNINFO"
               visible_cpus="$(nproc)"
               echo "visible CPUs: ${visible_cpus}"

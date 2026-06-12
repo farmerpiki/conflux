@@ -12,7 +12,7 @@ coupled to Basic auth or to a specific route shape.
 
 Use it for:
 
-- login/account throttling (`account:<username>` plus optional IP context in the
+- login/account throttling (`account:<sha256(username)>` plus optional IP context in the
   caller's key),
 - API-token throttling (`api-token:<sha256(token)>`),
 - remote-address fallback throttling for unauthenticated flows,
@@ -29,11 +29,13 @@ Helpers are provided for common policy hooks:
 
 - `conflux::http::auth_throttle_key(scope, subject)` builds stable scope-prefixed keys.
 - `conflux::http::auth_throttle_remote_key(req)` normalizes parseable peer IPs.
-- `conflux::http::auth_throttle_form_key(req, "username")` reads a parsed form field.
-- `conflux::http::auth_throttle_query_key(req, "user")` reads a parsed query field.
+- `conflux::http::auth_throttle_form_key(req, "username")` reads a parsed form field and hashes it before storage.
+- `conflux::http::auth_throttle_query_key(req, "user")` reads a parsed query field and hashes it before storage.
 - `conflux::http::auth_throttle_bearer_key(req)` hashes the bearer token before storing it.
 
-The token helper deliberately stores a SHA-256 digest, not the raw bearer token.
+The form, query, and token helpers deliberately store SHA-256 digests, not raw attacker-controlled values.
+`AuthFailureLimiter` also canonicalizes subjects longer than
+`AuthThrottleOptions::max_subject_bytes` before retaining them.
 
 ## Middleware adapter
 

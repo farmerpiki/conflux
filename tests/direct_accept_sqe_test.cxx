@@ -149,6 +149,14 @@ TEST_CASE(
 	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
 	CHECK(sqe.fd == 4);
 
+	sqe_view.prep_recv_multishot(DirectFd::from_direct(5), nullptr, 0, MsgFlags{});
+	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
+	CHECK(sqe.fd == 5);
+
+	sqe_view.prep_send(DirectFd::from_direct(6), buf, sizeof(buf), MsgFlags{});
+	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
+	CHECK(sqe.fd == 6);
+
 	sqe_view.prep_close(DirectFd::from_direct(4));
 	CHECK_FALSE(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
 

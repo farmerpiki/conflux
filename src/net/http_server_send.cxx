@@ -922,10 +922,17 @@ void Ring::handle_send_zc(
 	conflux::uring::CqeFlags flags,
 	std::uint32_t gen) {
 	auto const ufd = static_cast<std::size_t>(fd);
-	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+	if (ufd >= fd_table.size()) {
 		return;
 	}
 	auto &conn = fd_table[ufd];
+	if (!conflux::http::send_zc_cqe_matches_connection(
+			conn.gen,
+			gen,
+			conn.zc_state,
+			flags.any(conflux::uring::cqe_flags::notif))) {
+		return;
+	}
 	auto const is_mapped = conn.mapped_file != nullptr;
 	auto const total = is_mapped ? conn.mapped_total : conn.own_response.size();
 	auto const outcome = conflux::http::observe_send_zc_cqe(

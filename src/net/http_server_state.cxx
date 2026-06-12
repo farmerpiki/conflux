@@ -732,6 +732,7 @@ struct Ring {
 	void handle_accept(int res, conflux::uring::CqeFlags flg);
 	void discard_recv_bufs(int res, conflux::uring::CqeFlags flags) noexcept;
 	void discard_recv_bufs(RecvComp &rc) noexcept;
+	void reclaim_live_incremental_partial(Conn &conn) noexcept;
 	void retire_incremental_partial(int fd, std::uint32_t gen, Conn &conn) noexcept;
 	void reclaim_retired_incremental_recv(int fd, std::uint32_t gen) noexcept;
 	void clear_retired_incremental_if_final(int fd, std::uint32_t gen, conflux::uring::CqeFlags flags) noexcept;

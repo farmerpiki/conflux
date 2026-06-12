@@ -465,8 +465,6 @@ conflux::http::RunStatus Ring::run_loop() {
 		bool const overflowed = ring_integrity_suspect();
 		if (overflowed) {
 			note_cq_overflow();
-		} else {
-			try_grow_cq_after_overflow();
 		}
 
 		if (count == 0) {

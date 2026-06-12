@@ -463,7 +463,8 @@ struct PGcancelDeleter {
 };
 using PGcancelPtr = std::unique_ptr<PGcancel, PGcancelDeleter>;
 [[nodiscard]] inline std::shared_ptr<WorkPool> make_default_cancel_pool() {
-	return std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+	static auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+	return pool;
 }
 
 } // namespace detail

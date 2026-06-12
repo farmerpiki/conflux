@@ -129,17 +129,39 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"auth throttle: long subjects are canonicalized before storage",
+	"[auth][rate-limit]") {
+	conflux::http::AuthFailureLimiter limiter{
+		conflux::http::AuthThrottleOptions{
+										   .max_failures = 1,
+										   .window = std::chrono::seconds{60},
+										   .lockout = std::chrono::seconds{60},
+										   .max_subjects = 4,
+										   .max_subject_bytes = 8,
+										   }
+    };
+	std::string long_subject(1024, 'x');
+
+	(void)limiter.record_failure(long_subject, at(1));
+	CHECK_FALSE(limiter.before_attempt(long_subject, at(2)).allowed);
+	limiter.record_success(long_subject);
+	CHECK(limiter.before_attempt(long_subject, at(3)).allowed);
+}
+
+TEST_CASE(
 	"auth throttle: key helpers cover remote/account/query/bearer subjects",
 	"[auth][rate-limit]") {
 	auto req = make_auth_request();
 
 	CHECK(conflux::http::auth_throttle_remote_key(req) == "remote:127.0.0.1");
 	REQUIRE(conflux::http::auth_throttle_form_key(req, "username").has_value());
-	CHECK(*conflux::http::auth_throttle_form_key(req, "username") == "account:alice");
+	CHECK(conflux::http::auth_throttle_form_key(req, "username")->starts_with("account:sha256:"));
+	CHECK_FALSE(conflux::http::auth_throttle_form_key(req, "username")->contains("alice"));
 	REQUIRE(conflux::http::auth_throttle_query_key(req, "user").has_value());
-	CHECK(*conflux::http::auth_throttle_query_key(req, "user") == "account:bob");
+	CHECK(conflux::http::auth_throttle_query_key(req, "user")->starts_with("account:sha256:"));
+	CHECK_FALSE(conflux::http::auth_throttle_query_key(req, "user")->contains("bob"));
 	REQUIRE(conflux::http::auth_throttle_bearer_key(req).has_value());
-	CHECK(conflux::http::auth_throttle_bearer_key(req)->starts_with("api-token:"));
+	CHECK(conflux::http::auth_throttle_bearer_key(req)->starts_with("api-token:sha256:"));
 	CHECK_FALSE(conflux::http::auth_throttle_bearer_key(req)->contains("secret-token"));
 }
 

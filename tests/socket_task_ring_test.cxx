@@ -650,14 +650,16 @@ TEST_CASE(
 	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// Cancellation — submit_on_ring_owner false → try_set_cancelled
+// Cancellation — submit_on_ring_owner false leaves borrowed I/O pending
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"cancellation: submit_on_ring_owner false triggers try_set_cancelled",
+	"cancellation: submit_on_ring_owner false leaves borrowed read pending",
 	"[tcp][cancel]") {
-	// Verifies Finding 9 fix: when submit_on_owner returns false,
-	// try_set_cancelled is called rather than silently hanging.
+	// If a cancel request cannot be posted, the original borrowed recv is still
+	// live in the kernel. The public task must not complete as cancelled until a
+	// CQE arrives for the original operation, otherwise callers could reuse/free
+	// the borrowed buffer too early.
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	bool owner_called = false;
@@ -678,16 +680,14 @@ TEST_CASE(
 	REQUIRE(stream.valid());
 	std::array<std::uint8_t, 64> buf{};
 	auto read_task = stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()});
-	// cancel → cancel hook → submit_on_owner → lambda returns false
-	// with fix: try_set_cancelled() fires immediately
 	read_task.cancel();
-	bool got_cancel = false;
-	try {
-		fx->run(std::move(read_task));
-	} catch (std::exception const &) { got_cancel = true; }
 	CHECK(owner_called);
-	CHECK(got_cancel);
-	// close drains the unsubmitted read SQE
+
+	std::array<std::uint8_t, 4> msg{'p', 'i', 'n', 'g'};
+	fx->run(stream.async_write_all_copy(std::span<std::uint8_t const>{msg.data(), msg.size()}));
+	std::size_t const n = fx->run(std::move(read_task));
+	CHECK(n == msg.size());
+	CHECK(std::equal(msg.begin(), msg.end(), buf.begin()));
 	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
@@ -887,7 +887,6 @@ TEST_CASE(
 		opts};
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto task = async_tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
-	// cancel → hook → submit_on_owner returns false → complete_cancelled
 	task.cancel();
 	bool got_cancel = false;
 	int err_code = 0;

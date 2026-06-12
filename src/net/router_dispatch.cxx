@@ -303,6 +303,22 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
+template<typename Handler, typename Ctx>
+[[nodiscard]] conflux::work::root::Task<conflux::http::Response> run_context_route_task(
+	Handler handler,
+	conflux::http::OwnedRequest req,
+	Ctx ctx,
+	std::string route_pattern,
+	bool should_annotate,
+	conflux::work::root::Cancellation) {
+	conflux::http::RequestView const view{req};
+	auto resp = co_await handler(view, ctx);
+	if (should_annotate) {
+		resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
+	}
+	co_return resp;
+}
+
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_tasks(
 	conflux::http::RequestView const &req,
@@ -320,37 +336,24 @@ export template<typename ContextRouteRange, typename Ctx>
 								 (route.exact_path == path_sv) :
 								 conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
-			auto all_params = req.params;
+			auto matched_req = req.to_owned();
 			for (auto const &[k, v]: matched_params) {
-				if (!all_params.get(k)) {
-					all_params.emplace_back(k, v);
+				if (!matched_req.params.get(k)) {
+					matched_req.params.emplace_back(std::string{k}, std::string{v});
 				}
 			}
 			std::string pattern;
 			if (observe_route) {
 				pattern = route.path_pattern;
-				all_params.emplace_back_owned_value("__conflux_route_pattern", pattern);
+				matched_req.params.emplace_back("__conflux_route_pattern", pattern);
 			}
-			conflux::http::RequestView const matched_view{
-				req.method,
-				req.path,
-				req.version,
-				req.remote_addr,
-				req.is_tls,
-				std::move(all_params),
-				req.headers,
-				req.query,
-				req.form,
-				req.cookies,
-				req.files,
-				req.body};
 			DeferredTaskOptions options{};
 			if (route.timeout && *route.timeout > std::chrono::milliseconds{0}) {
 				options.timeout = *route.timeout;
 			}
 			return DeferredRouteTask{
 				.task = [](auto handler,
-						   conflux::http::RequestView req,
+						   conflux::http::OwnedRequest req,
 						   Ctx const &ctx,
 						   std::string route_pattern,
 						   bool should_annotate) -> conflux::work::root::Task<conflux::http::Response> {
@@ -359,19 +362,17 @@ export template<typename ContextRouteRange, typename Ctx>
 						 req = std::move(req),
 						 ctx,
 						 route_pattern = std::move(route_pattern),
-						 should_annotate](conflux::work::root::Cancellation) mutable
+						 should_annotate](conflux::work::root::Cancellation cancel) mutable
 							-> conflux::work::root::Task<conflux::http::Response> {
-							if (!should_annotate) {
-								return handler(req, ctx);
-							}
-							return [](auto child,
-									  std::string route_pattern) -> conflux::work::root::Task<conflux::http::Response> {
-								auto resp = co_await std::move(child);
-								resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
-								co_return resp;
-							}(handler(req, ctx), std::move(route_pattern));
+							return run_context_route_task(
+								std::move(handler),
+								std::move(req),
+								ctx,
+								std::move(route_pattern),
+								should_annotate,
+								std::move(cancel));
 						});
-				}(route.handler, std::move(matched_view), ctx, std::move(pattern), observe_route),
+				}(route.handler, std::move(matched_req), ctx, std::move(pattern), observe_route),
 				.options = options,
 			};
 		}

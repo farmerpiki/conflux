@@ -444,18 +444,25 @@ std::uint32_t BufferRing::consume(
 std::optional<std::uint32_t> BufferRing::find_start_pos(
 	std::uint16_t first_id,
 	std::uint32_t cnt,
-	bool bundle) noexcept {
+	bool) noexcept {
 	if (cnt == 0 || cnt > count_ || first_id >= count_) {
 		return std::nullopt;
 	}
 	std::uint32_t const pos = mode_ == BufferRingMode::recv_bundle && bundle_has_saved_pos_[first_id] != 0 ?
 								  bundle_saved_pos_[first_id] :
-								  (bundle ? id_pos_[first_id] : head_pos_);
+								  id_pos_[first_id];
 	if (pos + cnt < pos || pos + cnt > tail_pos_) {
 		return std::nullopt;
 	}
 	if (mode_ != BufferRingMode::recv_bundle && pos < recycle_head_pos_) {
 		return std::nullopt;
+	}
+	if (mode_ != BufferRingMode::recv_bundle) {
+		for (std::uint32_t i = 0; i < cnt; ++i) {
+			if (observed_pos_[(pos + i) % count_] != 0) {
+				return std::nullopt;
+			}
+		}
 	}
 	if (mode_ == BufferRingMode::recv_bundle && !preserve_bundle_positions_until(pos + cnt)) [[unlikely]] {
 		return std::nullopt;

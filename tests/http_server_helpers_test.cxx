@@ -276,6 +276,17 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http_server_helpers: urlencoded parsing skips empty delimiter components",
+	"[http_server_helpers]") {
+	conflux::http::HttpFieldsView fields;
+	conflux::http::parse_urlencoded("&&plain=value&&flag&&", fields);
+
+	REQUIRE(fields.size() == 2);
+	CHECK(fields["plain"] == "value");
+	CHECK(fields["flag"].empty());
+}
+
+TEST_CASE(
 	"http_server_helpers: multipart parser captures text fields and uploaded files",
 	"[http_server_helpers]") {
 	static constexpr std::string_view body =
@@ -337,4 +348,13 @@ TEST_CASE(
 
 	conflux::http::ChunkedDecodeState st;
 	CHECK(conflux::http::decode_chunked_incremental("5\r\nhello\r\n0\r\n\r\n", 0, 4, 8, st) == -2);
+
+	std::string oversized_size_line(conflux::http::kMaxChunkSizeLineBytes + 1, '1');
+	conflux::http::ChunkedDecodeState size_line_state;
+	CHECK(conflux::http::decode_chunked_incremental(oversized_size_line, 0, 64, 8, size_line_state) == -1);
+
+	std::string oversized_trailer = "0\r\n";
+	oversized_trailer.append(conflux::http::kMaxChunkTrailerBytes + 1, 'x');
+	conflux::http::ChunkedDecodeState trailer_state;
+	CHECK(conflux::http::decode_chunked_incremental(oversized_trailer, 0, 64, 8, trailer_state) == -1);
 }

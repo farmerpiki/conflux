@@ -19,6 +19,13 @@ using namespace conflux::http;
 using chttp::DeferredResponse;
 using chttp::Response;
 
+static_assert(std::same_as<decltype(std::declval<chttp::CookieBuilder &>().http_only()), chttp::CookieBuilder &>);
+static_assert(std::same_as<decltype(std::declval<chttp::CookieBuilder>().http_only()), chttp::CookieBuilder>);
+static_assert(
+	std::same_as<
+		decltype(std::declval<chttp::CookieBuilder>().path("/").http_only().same_site(chttp::SameSite::Lax)),
+		chttp::CookieBuilder>);
+
 namespace {
 
 [[nodiscard]] std::uint64_t read_eventfd_value(
@@ -114,6 +121,16 @@ TEST_CASE(
 	resp.headers["vary"] = "*";
 	resp.append_vary("Origin");
 	CHECK(resp.headers["vary"] == "*");
+}
+
+TEST_CASE(
+	"http response: streamed file handle rejects wrong erased type",
+	"[http.response]") {
+	auto handle = chttp::StreamedFileHandle::from(std::make_shared<int>(17));
+	REQUIRE(handle);
+	REQUIRE(handle.get_if<int>() != nullptr);
+	CHECK(*handle.get_if<int>() == 17);
+	CHECK(handle.get_if<double>() == nullptr);
 }
 
 TEST_CASE(

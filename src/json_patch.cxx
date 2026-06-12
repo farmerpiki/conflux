@@ -32,6 +32,30 @@ struct PatchOperation {
 	std::optional<PatchValue> value;
 };
 
+[[nodiscard]] bool count_patch_nodes_within(
+	PatchValue const &value,
+	std::size_t limit,
+	std::size_t &count) {
+	if (count >= limit) {
+		return false;
+	}
+	++count;
+	if (auto const *arr = std::get_if<PatchValue::Array>(std::addressof(value.value))) {
+		for (auto const &child: *arr) {
+			if (!count_patch_nodes_within(child, limit, count)) {
+				return false;
+			}
+		}
+	} else if (auto const *obj = std::get_if<PatchValue::Object>(std::addressof(value.value))) {
+		for (auto const &[_, child]: *obj) {
+			if (!count_patch_nodes_within(child, limit, count)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 [[nodiscard]] JsonError patch_error(
 	JsonIssueCode code,
 	std::string message,
@@ -53,6 +77,26 @@ struct PatchOperation {
 		err.from_pointer = std::string{from};
 	}
 	return err;
+}
+
+[[nodiscard]] std::expected<void, JsonError> check_result_node_limit(
+	PatchValue const &candidate,
+	JsonPatchOptions const &opts,
+	std::optional<std::size_t> op_index = std::nullopt,
+	std::string_view op = {},
+	std::string_view path = {},
+	std::string_view from = {}) {
+	std::size_t count{};
+	if (!count_patch_nodes_within(candidate, opts.max_result_nodes, count)) {
+		return std::unexpected(patch_error(
+			JsonIssueCode::output_too_large,
+			"JSON Patch result node limit exceeded",
+			op_index,
+			op,
+			path,
+			from));
+	}
+	return {};
 }
 
 [[nodiscard]] std::expected<std::vector<PatchToken>, JsonError> parse_patch_pointer(
@@ -652,6 +696,9 @@ std::expected<Document, JsonError> apply_patch(
 	if (!candidate) {
 		return std::unexpected(std::move(candidate).error());
 	}
+	if (auto ok = detail::check_result_node_limit(*candidate, opts); !ok) {
+		return std::unexpected(std::move(ok).error());
+	}
 	for (std::size_t i = 0; i < operations->size(); ++i) {
 		auto const &op = (*operations)[i];
 		switch (op.op) {
@@ -761,6 +808,10 @@ std::expected<Document, JsonError> apply_patch(
 				}
 			}
 			break;
+		}
+		if (auto ok = detail::check_result_node_limit(*candidate, opts, i, op.op_text, op.path_text, op.from_text);
+			!ok) {
+			return std::unexpected(std::move(ok).error());
 		}
 	}
 	auto out = value_builder();

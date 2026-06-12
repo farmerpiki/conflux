@@ -425,6 +425,7 @@ enum class JsonPatchOp { add, remove, replace, move, copy, test };
 struct JsonPatchOptions {
     size_t max_operations = 1024;
     size_t max_pointer_depth = 128;
+    size_t max_result_nodes = 1'000'000;
     bool reject_duplicate_object_members = true;
     bool allow_missing_remove = false;
 };
@@ -442,8 +443,10 @@ validate_patch(NodeRef patch, JsonPatchOptions opts = {});
 `apply_patch` implements RFC 6902 over the immutable DOM and returns a new
 owning `Document`. `add`, `remove`, `replace`, `move`, `copy`, and `test` are
 supported. Root replacement is allowed through `add`/`replace`; root removal is
-rejected with `patch_remove_document_root`. Failed operations do not mutate the
-input document. Patch diagnostics use `JsonStage::json_patch` and stable
+rejected with `patch_remove_document_root`. `max_result_nodes` bounds the
+expanded candidate tree after each operation so small patches cannot amplify
+`copy` operations into unbounded memory growth. Failed operations do not
+mutate the input document. Patch diagnostics use `JsonStage::json_patch` and stable
 `JsonIssueCode::patch_*` values, with operation index and pointer text attached
 when available.
 

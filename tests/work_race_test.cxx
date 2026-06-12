@@ -562,6 +562,29 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work.race: collect_loser_outcomes ignores late non-waiting losers after commit",
+	"[work.race]") {
+	auto [winner, winner_src] = root::make_task_source<int>();
+	auto [loser, loser_src] = root::make_task_source<int>();
+
+	auto raced = race::race<int>(
+		race::race_options{
+			.losers = race::loser_policy::request_cancel,
+			.collect_loser_outcomes = true,
+		},
+		race::candidate("winner", std::move(winner)),
+		race::candidate("loser", std::move(loser)));
+
+	REQUIRE(winner_src.try_set_value(root::Success<int>{59}));
+	auto out = root::value(std::move(raced));
+	REQUIRE(out.outcome.is_success());
+	CHECK(out.outcome.success().value == 59);
+	CHECK(out.loser_outcomes.empty());
+
+	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
+}
+
+TEST_CASE(
 	"work.race: external cancellation forwards reason to live participants",
 	"[work.race]") {
 	auto [left, left_src] = root::make_task_source<int>();
@@ -650,10 +673,11 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"work.race: cleanup budget expires when loser ignores cancellation",
+	"work.race: cleanup deadline policy fails setup for bare race",
 	"[work.race]") {
 	auto [winner, winner_src] = root::make_task_source<int>();
 	auto [loser, loser_src] = root::make_task_source<int>();
+	auto winner_control = winner.control();
 	auto loser_control = loser.control();
 
 	auto raced = race::race<int>(
@@ -664,48 +688,42 @@ TEST_CASE(
 		race::candidate("winner", std::move(winner)),
 		race::candidate("loser", std::move(loser)));
 
-	REQUIRE(winner_src.try_set_value(root::Success<int>{7}));
+	CHECK(winner_control.cancel_requested());
 	CHECK(loser_control.cancel_requested());
 	try {
 		(void)root::value(std::move(raced));
-		FAIL("cleanup budget should expire");
-	} catch (root::FailureError const &err) {
-		try {
-			err.rethrow_cause();
-			FAIL("race cleanup error expected");
-		} catch (race::race_cleanup_error const &cleanup) {
-			CHECK(cleanup.observation().participant_count == 2);
-			CHECK(cleanup.observation().loser_cancel_requested == 1);
-			CHECK(cleanup.observation().cleanup_timeout_count == 1);
-		}
-	}
+		FAIL("unsupported cleanup policy should fail setup");
+	} catch (root::FailureError const &err) { CHECK_THROWS_AS(err.rethrow_cause(), race::race_setup_error); }
 
+	REQUIRE(winner_src.try_set_cancelled(root::CancelReason::requested));
 	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
 }
 
 TEST_CASE(
-	"work.race: cleanup budget does not fire after loser drains",
+	"work.race: wait_unbounded rejects positive cleanup budget for bare race",
 	"[work.race]") {
 	auto [winner, winner_src] = root::make_task_source<int>();
 	auto [loser, loser_src] = root::make_task_source<int>();
+	auto winner_control = winner.control();
 	auto loser_control = loser.control();
 
 	auto raced = race::race<int>(
 		race::race_options{
-			.cleanup = race::loser_cleanup_policy::fail_after_cleanup_deadline,
+			.cleanup = race::loser_cleanup_policy::wait_unbounded,
 			.loser_cleanup_budget = std::chrono::milliseconds{50},
 		},
 		race::candidate("winner", std::move(winner)),
 		race::candidate("loser", std::move(loser)));
 
-	REQUIRE(winner_src.try_set_value(root::Success<int>{19}));
+	CHECK(winner_control.cancel_requested());
 	CHECK(loser_control.cancel_requested());
-	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
+	try {
+		(void)root::value(std::move(raced));
+		FAIL("unsupported cleanup budget should fail setup");
+	} catch (root::FailureError const &err) { CHECK_THROWS_AS(err.rethrow_cause(), race::race_setup_error); }
 
-	auto out = root::value(std::move(raced));
-	REQUIRE(out.outcome.is_success());
-	CHECK(out.outcome.success().value == 19);
-	CHECK(out.observation.cleanup_timeout_count == 0);
+	REQUIRE(winner_src.try_set_cancelled(root::CancelReason::requested));
+	REQUIRE(loser_src.try_set_cancelled(root::CancelReason::requested));
 }
 
 TEST_CASE(

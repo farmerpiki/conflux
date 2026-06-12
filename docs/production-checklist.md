@@ -66,8 +66,8 @@ one small service.
 
 ## Observability
 
-- Keep metric labels low-cardinality: route pattern, method, service, status,
-  and status class only.
+- Keep metric labels low-cardinality: route pattern, normalized method, service,
+  status, and status class only.
 - Do not log query strings unless the service has reviewed them for secrets.
 - Keep header logging off by default. If enabled, keep sensitive-header
   redaction on and add application-specific secret headers.

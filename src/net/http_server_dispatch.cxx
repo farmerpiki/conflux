@@ -429,6 +429,8 @@ void apply_http1_keep_alive(
 		https_redirect_hosts,
 		limits,
 		std::move(storage));
+	conn.expect_continue_sent = false;
+	conn.chunked_decode.reset();
 	conn.request_bytes = 0;
 	return true;
 }

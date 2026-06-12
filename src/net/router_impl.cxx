@@ -453,6 +453,22 @@ Router::ContextHandler Router::Group::wrap_context(
 			co_return co_await mw(r, c, n);
 		};
 	}
+	for (int i = static_cast<int>(middlewares_.size()) - 1; i >= 0; --i) {
+		auto mw = middlewares_[static_cast<std::size_t>(i)];
+		h = [mw = std::move(mw), n = std::move(h)](
+				conflux::http::RequestView const &r,
+				conflux::http::RequestContext const &c) -> conflux::work::root::Task<Response> {
+			Handler next = [n, c](conflux::http::RequestView const &next_req) -> Response {
+				auto invoke_context = [](ContextHandler handler,
+										 conflux::http::RequestView req,
+										 conflux::http::RequestContext ctx) -> conflux::work::root::Task<Response> {
+					co_return co_await handler(req, ctx);
+				};
+				return Router::defer_http_task(invoke_context(n, conflux::http::RequestView{next_req}, c));
+			};
+			co_return mw(r, next);
+		};
+	}
 	return h;
 }
 
@@ -736,6 +752,21 @@ Router &Router::serve_static(
 [[nodiscard]] std::optional<Response> Router::dispatch_context(
 	conflux::http::RequestView const &req,
 	conflux::http::RequestContext const &ctx) const {
+	if (!impl_->middlewares.empty()) {
+		Handler inner = [this, ctx](conflux::http::RequestView const &r) -> Response {
+			bool const is_head = (r.method == "HEAD");
+			std::string_view const path_sv = conflux::http::path_without_query(r.path);
+			if (!impl_->context_middlewares.empty()) {
+				return defer_http_task(
+					dispatch_router_context_task(*impl_, conflux::http::RequestView{r}, ctx, path_sv, is_head));
+			}
+			if (auto resp = dispatch_router_async(*impl_, r, ctx, path_sv, is_head)) {
+				return std::move(*resp);
+			}
+			return dispatch_router_sync(*impl_, r, path_sv, is_head);
+		};
+		return run_middlewares(req, inner);
+	}
 	bool const is_head = (req.method == "HEAD");
 	std::string_view const path_sv = conflux::http::path_without_query(req.path);
 	if (!impl_->context_middlewares.empty()) {

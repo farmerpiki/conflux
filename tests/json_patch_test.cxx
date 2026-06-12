@@ -214,4 +214,12 @@ TEST_CASE(
 		REQUIRE(!result.has_value());
 		CHECK(result.error().code == JsonIssueCode::patch_too_many_operations);
 	}
+	{
+		auto patch = parse(R"([{"op":"copy","from":"","path":"/copy1"},{"op":"copy","from":"","path":"/copy2"}])");
+		REQUIRE(patch.has_value());
+		auto result =
+			conflux::json::apply_patch(*target, *patch, conflux::json::JsonPatchOptions{.max_result_nodes = 5});
+		REQUIRE(!result.has_value());
+		CHECK(result.error().code == JsonIssueCode::output_too_large);
+	}
 }

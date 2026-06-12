@@ -131,13 +131,22 @@ export void parse_urlencoded(
 	std::string_view data,
 	conflux::http::HttpFieldsView &out) {
 	if (!data.empty()) {
-		std::size_t fields = 1;
-		for (auto const c: data) {
-			if (c == '&') {
+		std::size_t fields = 0;
+		std::size_t pos = 0;
+		while (pos <= data.size()) {
+			auto const amp = data.find('&', pos);
+			auto const component_size = (amp == std::string_view::npos) ? data.size() - pos : amp - pos;
+			if (component_size != 0) {
 				++fields;
 			}
+			if (amp == std::string_view::npos) {
+				break;
+			}
+			pos = amp + 1;
 		}
-		out.reserve(out.size() + fields);
+		if (fields != 0) {
+			out.reserve(out.size() + fields);
+		}
 	}
 	std::size_t pos = 0;
 	while (pos <= data.size()) {
@@ -219,6 +228,9 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 			{
 				auto const crlf = raw.find("\r\n", st.pos);
 				if (crlf == std::string_view::npos) {
+					if (raw.size() - st.pos > kMaxChunkSizeLineBytes) {
+						return -1;
+					}
 					return 0;
 				}
 				if (++st.chunks_seen > max_chunks) {
@@ -275,6 +287,9 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 			{
 				auto const next = raw.find("\r\n", st.pos);
 				if (next == std::string_view::npos) {
+					if (raw.size() - st.pos + 2 > kMaxChunkTrailerBytes) {
+						return -1;
+					}
 					return 0;
 				}
 				if (next == st.pos) {

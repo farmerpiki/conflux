@@ -78,35 +78,18 @@ struct CloseState {
 	return ts;
 }
 
-template<class T>
-void complete_cancel_fallback(
-	std::weak_ptr<wroot::TaskSource<T>> const &weak_src,
-	wroot::CancelReason reason) noexcept {
-	if (auto src = weak_src.lock()) {
-		auto _ = src->try_set_cancelled(reason);
-	}
-}
-
-template<class T>
 void submit_cancel_for_ud(
 	SocketTaskRing *ring_ptr,
-	std::uint64_t user_data,
-	std::weak_ptr<wroot::TaskSource<T>> weak_src,
-	wroot::CancelReason reason) noexcept {
-	auto weak_for_owner = weak_src;
-	if (!ring_ptr->submit_on_owner(
-			[user_data, weak_src = std::move(weak_for_owner), reason](SocketTaskRing &ring) noexcept {
-				auto [slot, gen] = ring.completions().reserve([](IoResult) noexcept {});
-				std::uint64_t const cancel_ud = ring.encode(slot, gen);
-				if (!submit_cancel_by_ud(ring.raw(), user_data, cancel_ud)) {
-					ring.completions().dispatch(slot, gen, -EBUSY, conflux::uring::CqeFlags{});
-					complete_cancel_fallback(weak_src, reason);
-					return;
-				}
-				auto _ = ring.raw().submit();
-			})) {
-		complete_cancel_fallback(weak_src, reason);
-	}
+	std::uint64_t user_data) noexcept {
+	auto _ = ring_ptr->submit_on_owner([user_data](SocketTaskRing &ring) noexcept {
+		auto [slot, gen] = ring.completions().reserve([](IoResult) noexcept {});
+		std::uint64_t const cancel_ud = ring.encode(slot, gen);
+		if (!submit_cancel_by_ud(ring.raw(), user_data, cancel_ud)) {
+			ring.completions().dispatch(slot, gen, -EBUSY, conflux::uring::CqeFlags{});
+			return;
+		}
+		auto _ = ring.raw().submit();
+	});
 }
 
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
@@ -152,12 +135,10 @@ template<class Submit>
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook(
-		[ring_ptr, ud, weak_src = std::move(weak_src), cancel_reason](wroot::CancelReason reason) noexcept {
-			cancel_reason->store(reason, std::memory_order_release);
-			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
-		});
+	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, cancel_reason](wroot::CancelReason reason) noexcept {
+		cancel_reason->store(reason, std::memory_order_release);
+		submit_cancel_for_ud(ring_ptr, ud);
+	});
 	return task;
 }
 
@@ -207,10 +188,9 @@ template<class Submit>
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, weak_src, state](wroot::CancelReason reason) noexcept {
+	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
-		submit_cancel_for_ud(ring_ptr, ud, weak_src, state->reason());
+		submit_cancel_for_ud(ring_ptr, ud);
 	});
 	return task;
 }
@@ -1259,10 +1239,9 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		return task;
 	}
 	auto ring_ptr = ring_;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<UdpRecvResult>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason reason) noexcept {
+	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
-		submit_cancel_for_ud(ring_ptr, recv_ud, weak_src, state->reason());
+		submit_cancel_for_ud(ring_ptr, recv_ud);
 	});
 	return task;
 }
@@ -1293,13 +1272,10 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		return task;
 	}
 	auto ring_ptr = &ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<void>>{shared_src};
-	auto _ =
-		shared_src->install_cancel_hook([ring_ptr, ud, weak_src, cancel_reason](wroot::CancelReason reason) noexcept {
-			cancel_reason->store(reason, std::memory_order_release);
-			complete_cancel_fallback(weak_src, reason);
-			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
-		});
+	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, cancel_reason](wroot::CancelReason reason) noexcept {
+		cancel_reason->store(reason, std::memory_order_release);
+		submit_cancel_for_ud(ring_ptr, ud);
+	});
 	return task;
 }
 

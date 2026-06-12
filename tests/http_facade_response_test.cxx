@@ -12,10 +12,23 @@ using namespace conflux::http;
 
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().get()), std::span<std::byte const>>);
 static_assert(std::same_as<decltype(std::declval<http::BodyBytes const &>().text_view()), std::string_view>);
+static_assert(std::same_as<decltype(std::declval<http::Problem &>().field("name", "detail")), http::Problem &>);
+static_assert(std::same_as<decltype(std::declval<http::Problem>().field("name", "detail")), http::Problem>);
+static_assert(std::same_as<decltype(std::declval<http::Created &>().location("/items/1")), http::Created &>);
+static_assert(std::same_as<decltype(std::declval<http::Created>().location("/items/1")), http::Created>);
+static_assert(
+	std::same_as<
+		decltype(std::declval<http::Problem>().type_uri("about:blank").field("name", "detail")),
+		http::Problem>);
 
 struct FacadeAnswer {
 	std::string value;
 };
+
+static_assert(
+	std::same_as<
+		decltype(std::declval<http::CreatedBody<FacadeAnswer>>().header("x-test", "yes").content_type("text/plain")),
+		http::CreatedBody<FacadeAnswer>>);
 
 template<>
 struct conflux::json::JsonMembers<FacadeAnswer> {
@@ -138,28 +151,67 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http facade: file helper reads small files",
+	"http facade: blocking file helper reads contained small files",
 	"[http.facade]") {
 	struct Cleanup {
-		std::filesystem::path path;
+		std::filesystem::path root;
 		~Cleanup() {
 			std::error_code ec;
-			auto _ = std::filesystem::remove(path, ec);
+			auto _ = std::filesystem::remove_all(root, ec);
 		}
 	};
 	Cleanup file{
-		.path =
-			std::filesystem::temp_directory_path() / std::format("conflux_http_facade_file_helper_{}.txt", ::getpid())};
-	auto const &path = file.path;
+		.root = std::filesystem::temp_directory_path() / std::format("conflux_http_facade_file_helper_{}", ::getpid())};
+	auto const &root = file.root;
+	auto const path = root / "file.txt";
+	std::filesystem::create_directories(root);
 	{
 		std::ofstream out{path, std::ios::binary};
 		out << "file-body";
 	}
 
-	auto response = http::blocking_file_response(path, "text/plain");
+	auto response = http::blocking_file_response(root, "file.txt", "text/plain");
 	CHECK(response.status == kHttpOk);
 	CHECK(response.content_type == "text/plain");
 	CHECK(response.text_body() == "file-body");
+}
+
+TEST_CASE(
+	"http facade: blocking file helper rejects root escapes",
+	"[http.facade]") {
+	struct Cleanup {
+		std::filesystem::path root;
+		std::filesystem::path outside;
+		~Cleanup() {
+			std::error_code ec;
+			auto _ = std::filesystem::remove_all(root, ec);
+			_ = std::filesystem::remove(outside, ec);
+		}
+	};
+	Cleanup file{
+		.root =
+			std::filesystem::temp_directory_path() / std::format("conflux_http_facade_file_helper_root_{}", ::getpid()),
+		.outside = std::filesystem::temp_directory_path()
+				 / std::format("conflux_http_facade_file_helper_secret_{}.txt", ::getpid())};
+	std::filesystem::create_directories(file.root);
+	{
+		std::ofstream out{file.outside, std::ios::binary};
+		out << "secret";
+	}
+
+	auto traversal = http::blocking_file_response(file.root, "../" + file.outside.filename().string(), "text/plain");
+	CHECK(traversal.status == kHttpForbidden);
+
+	std::error_code ec;
+	std::filesystem::create_symlink(file.outside, file.root / "link.txt", ec);
+	if (!ec) {
+		auto symlink = http::blocking_file_response(file.root, "link.txt", "text/plain");
+		CHECK(symlink.status == kHttpForbidden);
+	}
+
+	auto missing = http::blocking_file_response(file.root, "missing.txt", "text/plain");
+	CHECK(missing.status == kHttpNotFound);
+	CHECK(missing.text_body().find(file.root.string()) == std::string::npos);
 }
 
 TEST_CASE(

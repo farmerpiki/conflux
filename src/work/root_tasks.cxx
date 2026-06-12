@@ -269,7 +269,8 @@ public:
 			try {
 				throw;
 			} catch (CancelledError const &err) {
-				auto _ = this->state_->try_set_cancelled(err.reason(), false);
+				auto const allow_abandoned = err.reason() == CancelReason::abandoned;
+				auto _ = this->state_->try_set_cancelled(err.reason(), allow_abandoned);
 			} catch (...) { auto _ = this->state_->try_set_exception(std::current_exception()); }
 		}
 	};

@@ -2,6 +2,7 @@
 
 import std;
 import conflux.net.router;
+import conflux.work;
 
 TEST_CASE(
 	"router: wildcard {*path} captures entire tail") {
@@ -156,4 +157,30 @@ TEST_CASE(
 	req.path = "/boom";
 	auto resp = router.dispatch(req);
 	REQUIRE(resp.status == 500);
+}
+
+TEST_CASE(
+	"router: group middleware protects context routes") {
+	conflux::http::Router router;
+	router.group("/admin", [](auto &group) {
+		group.use([](conflux::http::RequestView const &, auto const &) {
+			return conflux::http::Response::unauthorized("Bearer");
+		});
+		group.get_context(
+			"/context",
+			[](conflux::http::RequestView const &, conflux::http::RequestContext const &)
+				-> conflux::work::Task<conflux::http::Response> { co_return conflux::http::Response::text("secret"); });
+	});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/admin/context";
+	auto resp = router.dispatch_context(req, conflux::http::RequestContext{});
+	REQUIRE(resp.has_value());
+	REQUIRE(resp->is_deferred());
+	auto deferred = resp->deferred_response_ptr();
+	REQUIRE(deferred->is_ready());
+	auto completed = deferred->take_ready();
+	REQUIRE(completed.has_value());
+	CHECK(completed->status == 401);
 }

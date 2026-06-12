@@ -60,6 +60,16 @@ struct Problem {
 	std::vector<std::pair<std::string, std::string>> fields{};
 	bool dirty{true};
 
+	template<class Self>
+	[[nodiscard]] static decltype(auto) builder_result(
+		Self &&self) {
+		if constexpr (std::is_lvalue_reference_v<Self>) {
+			return (self);
+		} else {
+			return Problem{std::move(self)};
+		}
+	}
+
 	Problem &rebuild() {
 		if (!dirty) {
 			return *this;
@@ -122,49 +132,49 @@ struct Problem {
 		return *this;
 	}
 
-	[[nodiscard]] auto &&type_uri(
+	[[nodiscard]] decltype(auto) type_uri(
 		this auto &&self,
 		std::string_view value) {
 		self.type = std::string{value};
 		self.dirty = true;
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
-	[[nodiscard]] auto &&title_text(
+	[[nodiscard]] decltype(auto) title_text(
 		this auto &&self,
 		std::string_view value) {
 		self.title = std::string{value};
 		self.dirty = true;
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
-	[[nodiscard]] auto &&detail_text(
+	[[nodiscard]] decltype(auto) detail_text(
 		this auto &&self,
 		std::string_view value) {
 		self.detail = std::string{value};
 		self.dirty = true;
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
-	[[nodiscard]] auto &&instance_uri(
+	[[nodiscard]] decltype(auto) instance_uri(
 		this auto &&self,
 		std::string_view value) {
 		self.instance = std::string{value};
 		self.dirty = true;
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
-	[[nodiscard]] auto &&extension(
+	[[nodiscard]] decltype(auto) extension(
 		this auto &&self,
 		std::string_view name,
 		std::string_view value) {
 		self.extensions.emplace_back(name, value);
 		self.dirty = true;
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
-	[[nodiscard]] auto &&field(
+	[[nodiscard]] decltype(auto) field(
 		this auto &&self,
 		std::string_view name,
 		std::string_view detail) {
 		self.fields.emplace_back(name, detail);
 		self.dirty = true;
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
 };
 
@@ -177,6 +187,16 @@ concept response_builder_like = requires(T &self) {
 };
 
 struct ResponseBuilderOps {
+	template<class Self>
+	[[nodiscard]] static decltype(auto) builder_result(
+		Self &&self) {
+		if constexpr (std::is_lvalue_reference_v<Self>) {
+			return (self);
+		} else {
+			return std::remove_cvref_t<Self>{std::move(self)};
+		}
+	}
+
 	[[nodiscard]] auto &header(
 		this auto &self,
 		std::string_view name,
@@ -205,7 +225,7 @@ struct ResponseBuilderOps {
 		return self.header(name, std::string{value});
 	}
 
-	[[nodiscard]] auto &&header(
+	[[nodiscard]] decltype(auto) header(
 		this auto &&self,
 		std::string_view name,
 		std::string value)
@@ -213,10 +233,10 @@ struct ResponseBuilderOps {
 			  && std::is_rvalue_reference_v<decltype(self)>
 	{
 		self.response.headers[name] = std::move(value);
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
 
-	[[nodiscard]] auto &&header(
+	[[nodiscard]] decltype(auto) header(
 		this auto &&self,
 		std::string_view name,
 		std::string_view value)
@@ -226,7 +246,7 @@ struct ResponseBuilderOps {
 		return std::forward<decltype(self)>(self).header(name, std::string{value});
 	}
 
-	[[nodiscard]] auto &&header(
+	[[nodiscard]] decltype(auto) header(
 		this auto &&self,
 		std::string_view name,
 		char const *value)
@@ -261,17 +281,17 @@ struct ResponseBuilderOps {
 		return self.location(std::string{value});
 	}
 
-	[[nodiscard]] auto &&location(
+	[[nodiscard]] decltype(auto) location(
 		this auto &&self,
 		std::string value)
 		requires response_builder_like<std::remove_reference_t<decltype(self)>>
 			  && std::is_rvalue_reference_v<decltype(self)>
 	{
 		self.response.headers["Location"] = std::move(value);
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
 
-	[[nodiscard]] auto &&location(
+	[[nodiscard]] decltype(auto) location(
 		this auto &&self,
 		std::string_view value)
 		requires response_builder_like<std::remove_reference_t<decltype(self)>>
@@ -280,7 +300,7 @@ struct ResponseBuilderOps {
 		return std::forward<decltype(self)>(self).location(std::string{value});
 	}
 
-	[[nodiscard]] auto &&location(
+	[[nodiscard]] decltype(auto) location(
 		this auto &&self,
 		char const *value)
 		requires response_builder_like<std::remove_reference_t<decltype(self)>>
@@ -314,17 +334,17 @@ struct ResponseBuilderOps {
 		return self.content_type(std::string{value});
 	}
 
-	[[nodiscard]] auto &&content_type(
+	[[nodiscard]] decltype(auto) content_type(
 		this auto &&self,
 		std::string value)
 		requires response_builder_like<std::remove_reference_t<decltype(self)>>
 			  && std::is_rvalue_reference_v<decltype(self)>
 	{
 		self.response.content_type = std::move(value);
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
 
-	[[nodiscard]] auto &&content_type(
+	[[nodiscard]] decltype(auto) content_type(
 		this auto &&self,
 		std::string_view value)
 		requires response_builder_like<std::remove_reference_t<decltype(self)>>
@@ -333,7 +353,7 @@ struct ResponseBuilderOps {
 		return std::forward<decltype(self)>(self).content_type(std::string{value});
 	}
 
-	[[nodiscard]] auto &&content_type(
+	[[nodiscard]] decltype(auto) content_type(
 		this auto &&self,
 		char const *value)
 		requires response_builder_like<std::remove_reference_t<decltype(self)>>
@@ -351,14 +371,14 @@ struct ResponseBuilderOps {
 		return self;
 	}
 
-	[[nodiscard]] auto &&cookie(
+	[[nodiscard]] decltype(auto) cookie(
 		this auto &&self,
 		CookieBuilder value)
 		requires response_builder_like<std::remove_reference_t<decltype(self)>>
 			  && std::is_rvalue_reference_v<decltype(self)>
 	{
 		self.response.set_cookie(std::move(value));
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
 };
 

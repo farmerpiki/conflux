@@ -88,6 +88,17 @@ constexpr std::string_view kRoutePatternParam = "__conflux_route_pattern";
 	return conflux::utils::ascii_upper(method);
 }
 
+[[nodiscard]] std::string metric_method_label(
+	std::string_view method) {
+	auto const upper = upper_method(method);
+	static constexpr std::array<std::string_view, 9>
+		kKnownMethods{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"};
+	if (std::ranges::contains(kKnownMethods, std::string_view{upper})) {
+		return upper;
+	}
+	return "OTHER";
+}
+
 [[nodiscard]] std::string path_without_query(
 	conflux::http::RequestView const &req,
 	bool include_query) {
@@ -420,7 +431,7 @@ struct ObservabilityRegistry {
 		conflux::http::Response const &resp,
 		std::chrono::steady_clock::duration elapsed) {
 		auto const route = route_label(req, resp);
-		auto const method = upper_method(req.method);
+		auto const method = metric_method_label(req.method);
 		auto const status = std::to_string(resp.status);
 		auto const klass = status_class(resp.status);
 		auto const seconds = std::chrono::duration<double>(elapsed).count();

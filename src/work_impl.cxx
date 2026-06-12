@@ -314,11 +314,11 @@ struct WorkPoolState {
 				queue_counters.note_park_attempt();
 				parked.fetch_add(1, std::memory_order_acq_rel);
 				std::atomic_thread_fence(std::memory_order_seq_cst);
+				std::uint32_t const epoch = wake_epoch.load(std::memory_order_acquire);
 				if (pending.load(std::memory_order_acquire) > 0 || stopping.test(std::memory_order_acquire)) {
 					queue_counters.note_park_recheck_skip();
 					parked.fetch_sub(1, std::memory_order_acq_rel);
 				} else {
-					std::uint32_t const epoch = wake_epoch.load(std::memory_order_acquire);
 					queue_counters.note_futex_wait();
 					work_detail::futex_wait_private(wake_epoch, epoch);
 					parked.fetch_sub(1, std::memory_order_acq_rel);

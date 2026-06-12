@@ -163,6 +163,33 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: observability bounds unknown method metrics cardinality",
+	"[http.facade]") {
+	auto app = http::app();
+	app.use(http::observability({.service_name = "api", .access_log = false}));
+
+	for (auto method: {"X-RANDOM-ONE", "X-RANDOM-TWO", "X-RANDOM-THREE"}) {
+		conflux::http::OwnedRequest req;
+		req.method = method;
+		req.path = "/missing";
+		auto missing = http::router(app).dispatch(req);
+		CHECK(missing.status == kHttpNotFound);
+	}
+
+	conflux::http::OwnedRequest metrics_req;
+	metrics_req.method = "GET";
+	metrics_req.path = "/metrics";
+	auto metrics = http::router(app).dispatch(metrics_req);
+	auto const body = metrics.text_body();
+	CHECK(body.contains(
+		R"(http_requests_total{service="api",route="<unmatched>",method="OTHER",status_class="4xx",status="404"} 3)"));
+	CHECK(body.contains(R"(http_request_duration_seconds_count{service="api",route="<unmatched>",method="OTHER"} 3)"));
+	CHECK_FALSE(body.contains("X-RANDOM-ONE"));
+	CHECK_FALSE(body.contains("X-RANDOM-TWO"));
+	CHECK_FALSE(body.contains("X-RANDOM-THREE"));
+}
+
+TEST_CASE(
 	"http facade: observability metrics include explicit runtime and work sources",
 	"[http.facade]") {
 	auto pool = std::make_shared<http::WorkPool>(http::WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
