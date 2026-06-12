@@ -46,6 +46,7 @@ TEST_CASE(
 	"[http_server_helpers]") {
 	conflux::http::Response resp = conflux::http::Response::text("hello");
 	resp.status_text = std::string{"OK\r\nInjected: bad"};
+	resp.content_type = std::string{"text/plain\r\nSet-Cookie: session=attacker"};
 	resp.headers["X-Good"] = "yes";
 	resp.headers["Bad Header"] = "dropped";
 	resp.headers["X-Bad-Value"] = std::string{"bad\x7F"};
@@ -64,9 +65,11 @@ TEST_CASE(
 	CHECK(wire.find("Bad Header") == std::string::npos);
 	CHECK(wire.find("X-Bad-Value") == std::string::npos);
 	CHECK(wire.find("Content-Length: 999") == std::string::npos);
+	CHECK(wire.find("Content-Type: text/plain") == std::string::npos);
 	CHECK(wire.find("Connection: upgrade") == std::string::npos);
 	CHECK(wire.find("bad=1") == std::string::npos);
 	CHECK(wire.find("Injected") == std::string::npos);
+	CHECK(wire.find("session=attacker") == std::string::npos);
 }
 
 TEST_CASE(

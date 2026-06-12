@@ -191,7 +191,7 @@ export std::string format_response(
 	out += "\r\nDate: ";
 	append_sv(out, http_date_now());
 	out += "\r\n";
-	if (!r.content_type.empty()) {
+	if (!r.content_type.empty() && is_valid_header_value(r.content_type)) {
 		out += "Content-Type: ";
 		out += r.content_type;
 		out += "\r\n";
