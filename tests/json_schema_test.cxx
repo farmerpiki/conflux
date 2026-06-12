@@ -129,3 +129,28 @@ TEST_CASE(
 	CHECK(result.error().code == JsonIssueCode::wrong_kind);
 	CHECK(result.error().member_name == "x");
 }
+
+TEST_CASE(
+	"phase8.3: validate rejects null for non-null root",
+	"[phase8.3]") {
+	auto schema_r = schema_for<Point>();
+	REQUIRE(schema_r.has_value());
+	auto doc_r = parse("null");
+	REQUIRE(doc_r.has_value());
+	auto result = validate(doc_r->root(), schema_r->root());
+	REQUIRE_FALSE(result.has_value());
+	CHECK(result.error().code == JsonIssueCode::wrong_kind);
+}
+
+TEST_CASE(
+	"phase8.3: validate rejects null for non-null required field",
+	"[phase8.3]") {
+	auto schema_r = schema_for<Point>();
+	REQUIRE(schema_r.has_value());
+	auto doc_r = parse(R"({"x": null, "y": 2})");
+	REQUIRE(doc_r.has_value());
+	auto result = validate(doc_r->root(), schema_r->root());
+	REQUIRE_FALSE(result.has_value());
+	CHECK(result.error().code == JsonIssueCode::wrong_kind);
+	CHECK(result.error().member_name == "x");
+}
