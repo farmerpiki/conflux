@@ -38,6 +38,34 @@ struct conflux::json::JsonMembers<OptionalConfig> {
 	}
 };
 
+struct NestedOptionalUser {
+	std::int64_t id{};
+	std::optional<std::string> role{};
+};
+
+template<>
+struct conflux::json::JsonMembers<NestedOptionalUser> {
+	static constexpr auto members() {
+		return std::tuple{
+			conflux::json::json_member("id", &NestedOptionalUser::id),
+			conflux::json::json_member("role", &NestedOptionalUser::role),
+		};
+	}
+};
+
+struct NestedOptionalEnvelope {
+	NestedOptionalUser user{};
+};
+
+template<>
+struct conflux::json::JsonMembers<NestedOptionalEnvelope> {
+	static constexpr auto members() {
+		return std::tuple{
+			conflux::json::json_member("user", &NestedOptionalEnvelope::user),
+		};
+	}
+};
+
 struct UnsafeRawKey {
 	std::int64_t literal_backslash_n{};
 };
@@ -87,6 +115,19 @@ TEST_CASE(
 	CHECK(cfg.required == 5LL);
 	REQUIRE(cfg.optional.has_value());
 	CHECK(*cfg.optional == 42LL);
+}
+
+TEST_CASE(
+	"json: JsonMembers last_wins duplicate nested object clears missing optionals",
+	"[json][codec][members][duplicates]") {
+	JsonParseOptions parse_opts;
+	parse_opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+	JsonReader reader{R"({"user":{"id":1,"role":"admin"},"user":{"id":2}})", parse_opts};
+
+	auto decoded = decode<NestedOptionalEnvelope>(reader);
+	REQUIRE(decoded.has_value());
+	CHECK(decoded->user.id == 2LL);
+	CHECK_FALSE(decoded->user.role.has_value());
 }
 
 TEST_CASE(
