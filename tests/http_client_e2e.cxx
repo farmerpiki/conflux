@@ -408,6 +408,46 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http client: follow_redirects preserves default sensitive headers on same origin") {
+	ensure_redirect_servers();
+	HttpClientOptions opts{};
+	opts.default_headers["Authorization"] = "Bearer default-secret";
+	opts.default_headers["Cookie"] = "session=default-cookie";
+	opts.default_headers["Proxy-Authorization"] = "Basic default-proxy";
+	HttpClient client{opts};
+	auto response = client.blocking_send(
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/same", g_redirect_source_port)).follow_redirects(2));
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(response->body.find("auth=Bearer default-secret") != std::string::npos);
+	CHECK(response->body.find("cookie=session=default-cookie") != std::string::npos);
+	CHECK(response->body.find("Basic default-proxy") == std::string::npos);
+	CHECK(response->body.find(std::format("host=127.0.0.1:{}", g_redirect_source_port)) != std::string::npos);
+}
+
+TEST_CASE(
+	"http client: follow_redirects strips default sensitive headers across host changes") {
+	ensure_redirect_servers();
+	HttpClientOptions opts{};
+	opts.default_headers["Authorization"] = "Bearer default-secret";
+	opts.default_headers["Cookie"] = "session=default-cookie";
+	opts.default_headers["Proxy-Authorization"] = "Basic default-proxy";
+	HttpClient client{opts};
+	auto response = client.blocking_send(
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/cross", g_redirect_source_port))
+			.follow_redirects(2));
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(response->body.find("auth=") != std::string::npos);
+	CHECK(response->body.find("cookie=") != std::string::npos);
+	CHECK(response->body.find("proxy-authorization=") != std::string::npos);
+	CHECK(response->body.find("Bearer default-secret") == std::string::npos);
+	CHECK(response->body.find("session=default-cookie") == std::string::npos);
+	CHECK(response->body.find("Basic default-proxy") == std::string::npos);
+	CHECK(response->body.find(std::format("host=127.0.0.1:{}", g_redirect_target_port)) != std::string::npos);
+}
+
+TEST_CASE(
 	"http client: follow_redirects converts 303 to GET without body") {
 	ensure_redirect_servers();
 	HttpClient client{};

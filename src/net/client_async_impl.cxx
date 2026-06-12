@@ -814,6 +814,7 @@ wroot::Task<void> run_async_request_driver(
 	std::shared_ptr<wroot::TaskSource<ClientResult>> src,
 	std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel) {
 	try {
+		auto effective_opts = opts;
 		ClientRequest current = req;
 		HttpTelemetry total_tel{};
 		for (;;) {
@@ -821,7 +822,7 @@ wroot::Task<void> run_async_request_driver(
 				auto _ = src->try_set_cancelled();
 				break;
 			}
-			auto result = co_await do_async_request(ring, current, opts, cancel);
+			auto result = co_await do_async_request(ring, current, effective_opts, cancel);
 			if (!result) {
 				auto _ = src->try_set_value(wroot::Success<ClientResult>{std::move(result)});
 				break;
@@ -837,7 +838,11 @@ wroot::Task<void> run_async_request_driver(
 				auto _ = src->try_set_value(wroot::Success<ClientResult>{std::move(result)});
 				break;
 			}
-			current = std::move(**next);
+			auto redirected = std::move(**next);
+			if (!client_wire::same_origin(current.url(), redirected.url())) {
+				client_wire::strip_redirect_sensitive_request_headers(effective_opts.default_headers);
+			}
+			current = std::move(redirected);
 		}
 	} catch (wroot::CancelledError const &) { auto _ = src->try_set_cancelled(); } catch (...) {
 		auto _ = src->try_set_exception(std::current_exception());

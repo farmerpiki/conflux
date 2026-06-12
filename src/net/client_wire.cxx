@@ -158,6 +158,20 @@ struct ParsedResponseHead {
 	return a.scheme == b.scheme && a.host == b.host && a.port == b.port;
 }
 
+[[nodiscard]] bool is_redirect_sensitive_request_header(
+	std::string_view name) noexcept {
+	return ascii_iequals(name, "authorization")
+		|| ascii_iequals(name, "cookie")
+		|| ascii_iequals(name, "proxy-authorization");
+}
+
+void strip_redirect_sensitive_request_headers(
+	conflux::http::HttpFields &headers) {
+	headers.erase("authorization");
+	headers.erase("cookie");
+	headers.erase("proxy-authorization");
+}
+
 [[nodiscard]] std::optional<Url> resolve_redirect_target(
 	Url const &base,
 	std::string_view location) {
@@ -245,10 +259,7 @@ struct ParsedResponseHead {
 		if (ascii_iequals(k, "host")) {
 			continue;
 		}
-		if (cross_origin
-			&& (ascii_iequals(k, "authorization")
-				|| ascii_iequals(k, "cookie")
-				|| ascii_iequals(k, "proxy-authorization"))) {
+		if (cross_origin && is_redirect_sensitive_request_header(k)) {
 			continue;
 		}
 		if (drop_body && (ascii_iequals(k, "content-length") || ascii_iequals(k, "content-type"))) {

@@ -555,7 +555,9 @@ bool recv_chunked(
 	std::size_t delivered = 0;
 	if (content_length > max_body) {
 		return std::unexpected(
-			HttpError{.kind = HttpErrorKind::body_too_large, .message = std::format("body exceeds limit {}", max_body)});
+			HttpError{
+				.kind = HttpErrorKind::body_too_large,
+				.message = std::format("body exceeds limit {}", max_body)});
 	}
 	if (!initial_body.empty()) {
 		if (auto emitted = emit_body_chunk(sink, initial_body); !emitted) {
@@ -1162,7 +1164,11 @@ public:
 				result->telemetry = std::move(total_tel);
 				return result;
 			}
-			current = std::move(**next);
+			auto redirected = std::move(**next);
+			if (!client_wire::same_origin(current.url(), redirected.url())) {
+				client_wire::strip_redirect_sensitive_request_headers(effective_opts.default_headers);
+			}
+			current = std::move(redirected);
 		}
 	}
 	[[nodiscard]] ClientStreamResult blocking_send_streaming(
