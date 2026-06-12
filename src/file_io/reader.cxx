@@ -264,7 +264,7 @@ public:
 	}
 	// Read into a caller-owned std::span. The caller must keep `dst` alive until the
 	// Flow resolves.
-	[[nodiscard]] root::Task<std::size_t>
+	[[nodiscard]] root::JoinTask<std::size_t>
 	read_into(FileHandle const &fh, std::uint64_t offset, std::span<std::byte> dst);
 	// Scatter-gather read: fills `iovecs` segments in sequence. The V is
 	// moved into shared state and kept alive until the CQE fires.
@@ -310,7 +310,7 @@ public:
 		std::uint64_t offset,
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max());
-	[[nodiscard]] root::Task<std::size_t>
+	[[nodiscard]] root::JoinTask<std::size_t>
 	write_into(FileHandle const &fh, std::uint64_t offset, std::span<std::byte const> src_view);
 	// Scatter-gather write: sends `iovecs` segments to the file in sequence.
 	// The V is moved into shared state and kept alive until the CQE fires.

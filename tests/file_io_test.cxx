@@ -19,10 +19,24 @@ import conflux.file_io.reader;
 import conflux.file_io.iopoll;
 import conflux.file_io.driver;
 import conflux.file_io_sync;
+import conflux.work.root;
 
 using conflux::uring::CompletionTable;
 using conflux::uring::FileHandle;
 using conflux::uring::IoResult;
+
+static_assert(std::same_as<
+			  decltype(std::declval<conflux::file_io::FileReader &>().read_into(
+				  std::declval<FileHandle const &>(),
+				  std::uint64_t{},
+				  std::declval<std::span<std::byte>>())),
+			  conflux::work::root::JoinTask<std::size_t>>);
+static_assert(std::same_as<
+			  decltype(std::declval<conflux::file_io::FileReader &>().write_into(
+				  std::declval<FileHandle const &>(),
+				  std::uint64_t{},
+				  std::declval<std::span<std::byte const>>())),
+			  conflux::work::root::JoinTask<std::size_t>>);
 
 namespace {
 
