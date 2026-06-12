@@ -129,7 +129,7 @@ public:
 	MpmcRing(MpmcRing &&) = delete;
 	MpmcRing &operator =(MpmcRing &&) = delete;
 	[[nodiscard]] bool try_push(
-		T item) noexcept {
+		T &&item) noexcept {
 		if (capacity_ == 0) {
 			return false;
 		}

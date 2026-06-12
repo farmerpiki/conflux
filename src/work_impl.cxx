@@ -191,10 +191,13 @@ struct WorkPoolState {
 		}
 		std::size_t const start =
 			shards == 1 ? std::size_t{0} : inject_enqueue_cursor.fetch_add(1, std::memory_order_relaxed) % shards;
-		if (inject_rings[start]->try_push(std::move(job))) {
-			pending.fetch_add(1, std::memory_order_release);
-			queue_counters.note_inject_push();
-			return true;
+		for (std::size_t offset = 0; offset < shards; ++offset) {
+			std::size_t const shard = (start + offset) % shards;
+			if (inject_rings[shard]->try_push(std::move(job))) {
+				pending.fetch_add(1, std::memory_order_release);
+				queue_counters.note_inject_push();
+				return true;
+			}
 		}
 		inject_queued.fetch_sub(1, std::memory_order_acq_rel);
 		queue_counters.note_inject_push_full();

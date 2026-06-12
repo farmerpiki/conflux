@@ -123,6 +123,68 @@ TEST_CASE(
 	pool.drain_and_stop();
 }
 TEST_CASE(
+	"work: WorkPool sharded inject retries alternate shards",
+	"[work]") {
+	std::mutex mtx;
+	std::condition_variable cv;
+	int running = -1;
+	bool release_first = false;
+	bool release_third = false;
+	WorkPool pool{
+		WorkPoolOptions{.threads = 1, .max_inject_queue = 2, .inject_queue_shards = 2}
+    };
+	REQUIRE(pool.enqueue([&] {
+		std::unique_lock lk{mtx};
+		running = 0;
+		cv.notify_all();
+		cv.wait(lk, [&] { return release_first; });
+	}));
+	{
+		std::unique_lock lk{mtx};
+		bool const first_started = cv.wait_for(lk, std::chrono::seconds{5}, [&] { return running == 0; });
+		if (!first_started) {
+			release_first = true;
+			release_third = true;
+			lk.unlock();
+			cv.notify_all();
+			pool.stop();
+			REQUIRE(first_started);
+		}
+	}
+	REQUIRE(pool.enqueue([] {}));
+	REQUIRE(pool.enqueue([&] {
+		std::unique_lock lk{mtx};
+		running = 2;
+		cv.notify_all();
+		cv.wait(lk, [&] { return release_third; });
+	}));
+	{
+		std::scoped_lock const lk{mtx};
+		release_first = true;
+	}
+	cv.notify_all();
+	{
+		std::unique_lock lk{mtx};
+		bool const third_started = cv.wait_for(lk, std::chrono::seconds{5}, [&] { return running == 2; });
+		if (!third_started) {
+			release_third = true;
+			lk.unlock();
+			cv.notify_all();
+			pool.stop();
+			REQUIRE(third_started);
+		}
+	}
+
+	bool const queued_on_alternate_shard = pool.enqueue([] {});
+	{
+		std::scoped_lock const lk{mtx};
+		release_third = true;
+	}
+	cv.notify_all();
+	pool.stop();
+	CHECK(queued_on_alternate_shard);
+}
+TEST_CASE(
 	"work: async_run_cancellable_on executes callable on pool",
 	"[work]") {
 	WorkPool pool;
