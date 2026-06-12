@@ -99,6 +99,9 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_into(
 void JsonArena::reset_storage_for_reuse() noexcept {
 	++generation_;
 	storage_->reset();
+	if (uses_internal_hash_index_pool()) {
+		hash_index_pool_.release();
+	}
 }
 
 std::expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
@@ -138,6 +141,9 @@ std::expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 void JsonArena::reset() noexcept {
 	++generation_;
 	storage_ = nullptr;
+	if (uses_internal_hash_index_pool()) {
+		hash_index_pool_.release();
+	}
 	mbr_.release();
 	storage_ = std::make_unique<DocumentStorage>(&mbr_, hash_index_resource_);
 }

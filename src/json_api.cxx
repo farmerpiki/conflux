@@ -2783,9 +2783,13 @@ public:
 class JsonArena {
 	std::size_t initial_slab_;
 	std::pmr::monotonic_buffer_resource mbr_;
+	std::pmr::unsynchronized_pool_resource hash_index_pool_;
 	std::pmr::memory_resource *hash_index_resource_;
 	std::unique_ptr<DocumentStorage> storage_;
 	std::uint32_t generation_{0};
+	[[nodiscard]] bool uses_internal_hash_index_pool() const noexcept {
+		return hash_index_resource_ == &hash_index_pool_;
+	}
 	void reset_storage_for_reuse() noexcept;
 
 public:
@@ -2793,7 +2797,8 @@ public:
 		JsonArenaOptions const &opts = {})
 		: initial_slab_{opts.initial_slab}
 		, mbr_{opts.initial_slab}
-		, hash_index_resource_{(opts.hash_index_resource != nullptr) ? opts.hash_index_resource : &mbr_}
+		, hash_index_pool_{std::pmr::new_delete_resource()}
+		, hash_index_resource_{(opts.hash_index_resource != nullptr) ? opts.hash_index_resource : &hash_index_pool_}
 		, storage_{std::make_unique<DocumentStorage>(&mbr_, hash_index_resource_)} {}
 	JsonArena(JsonArena const &) = delete;
 	JsonArena &operator =(JsonArena const &) = delete;

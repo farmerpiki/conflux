@@ -861,7 +861,7 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
 
 ## Arena-backed parsing (`JsonArena`)
 
-`JsonArena` reuses a single monotonic allocation region across multiple parse calls. Useful for request-scoped JSON: parse, process, then `reset()` the arena rather than allocating and freeing `Document` per request.
+`JsonArena` reuses a monotonic allocation region for parsed JSON storage. Object hash indexes use a separate reclaimable PMR pool by default so repeated `parse_into` reuse does not retain stale indexes; pass `hash_index_resource` only when you want to own that allocation policy. Useful for request-scoped JSON: parse, process, then `reset()` the arena rather than allocating and freeing `Document` per request.
 
 ```cpp
 struct JsonArenaOptions {
