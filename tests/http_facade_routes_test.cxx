@@ -621,6 +621,33 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: route rate limit canonicalizes endpoint remote addresses",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/limited", [] { return http::text("ok"); })
+		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/limited";
+	req.remote_addr = "203.0.113.10:40000";
+	CHECK(http::router(app).dispatch(req).status == kHttpOk);
+
+	req.remote_addr = "203.0.113.10:40001";
+	CHECK(http::router(app).dispatch(req).status == kHttpTooManyRequests);
+
+	auto ipv6_app = http::app();
+	ipv6_app.get("/limited", [] { return http::text("ok"); })
+		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
+
+	req.remote_addr = "[::1]:40000";
+	CHECK(http::router(ipv6_app).dispatch(req).status == kHttpOk);
+
+	req.remote_addr = "[0:0:0:0:0:0:0:1]:40001";
+	CHECK(http::router(ipv6_app).dispatch(req).status == kHttpTooManyRequests);
+}
+
+TEST_CASE(
 	"http facade: route rate limit evicts least recently used client",
 	"[http.facade]") {
 	auto app = http::app();
