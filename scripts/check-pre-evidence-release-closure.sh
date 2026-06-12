@@ -67,12 +67,19 @@ case "$release_sku" in
         ;;
 esac
 
+evidence_root="$(python3 -c 'import pathlib, sys; print((pathlib.Path(sys.argv[1]).resolve().parent / "evidence").resolve())' "$source_root")"
 if ((work_root_explicit == 0)); then
-    work_root="$(mktemp -d "${TMPDIR:-/tmp}/conflux-pre-evidence-${release_sku}.XXXXXXXXXX")"
+    tmp_root="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "${TMPDIR:-/tmp}")"
+    case "$tmp_root" in
+        "$evidence_root"|"$evidence_root"/*)
+            printf 'check-pre-evidence-release-closure: refusing to write under ../evidence for scratch output: %s\n' "$tmp_root" >&2
+            exit 2
+            ;;
+    esac
+    work_root="$(mktemp -d "$tmp_root/conflux-pre-evidence-${release_sku}.XXXXXXXXXX")"
 fi
 
-work_root="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$work_root")"
-evidence_root="$(python3 -c 'import pathlib, sys; print((pathlib.Path(sys.argv[1]).resolve().parent / "evidence").resolve())' "$source_root")"
+work_root="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$work_root")"
 case "$work_root" in
     "$evidence_root"|"$evidence_root"/*)
         printf 'check-pre-evidence-release-closure: refusing to write under ../evidence for scratch output: %s\n' "$work_root" >&2
