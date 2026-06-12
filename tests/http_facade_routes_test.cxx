@@ -541,6 +541,48 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: route auth policy protects raw async owned-request routes",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get(
+		   "/raw-owned",
+		   [](http::OwnedRequest const &req) -> conflux::work::Task<http::Response> { co_return http::text(req.path); })
+		.require_bearer_token("user");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].handler_kind == "app");
+	CHECK(routes[0].bearer_token_policy == "user");
+
+	auto resolve = [](http::Response response) {
+		if (!response.is_deferred()) {
+			return response;
+		}
+		auto deferred = response.deferred_response_ptr();
+		REQUIRE(deferred);
+		REQUIRE(deferred->is_ready());
+		auto completed = deferred->take_ready();
+		REQUIRE(completed.has_value());
+		return std::move(*completed);
+	};
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/raw-owned";
+
+	auto denied = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(denied.has_value());
+	CHECK(resolve(std::move(*denied)).status == kHttpUnauthorized);
+
+	req.headers["authorization"] = "Bearer token";
+	auto ok = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(ok.has_value());
+	auto ok_response = resolve(std::move(*ok));
+	CHECK(ok_response.status == kHttpOk);
+	CHECK(ok_response.text_body() == "/raw-owned");
+}
+
+TEST_CASE(
 	"http facade: route auth policy requires bearer credentials",
 	"[http.facade]") {
 	auto app = http::app();
