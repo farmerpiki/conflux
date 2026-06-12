@@ -764,6 +764,13 @@ struct EndpointBatch {
 [[nodiscard]] root::Task<EndpointBatch> make_empty_batch_task() {
 	co_return EndpointBatch{};
 }
+[[nodiscard]] std::uint16_t random_dns_query_id() {
+	std::uint16_t id{};
+	std::array<unsigned char, sizeof(id)> bytes{};
+	conflux::utils::crypto_random_bytes(bytes);
+	std::memcpy(&id, bytes.data(), sizeof(id));
+	return id;
+}
 // Fire A and AAAA queries in parallel (RFC 8305 §3). Connection-attempt
 // staggering belongs in the caller's connect loop, not here.
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow(
@@ -776,9 +783,8 @@ struct EndpointBatch {
 	AddressFamily prefer,
 	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
-	static thread_local std::mt19937 tl_rng{std::random_device{}()};
-	std::uint16_t const qid_a = static_cast<std::uint16_t>(tl_rng() & 0xFFFFU);
-	std::uint16_t const qid_aaaa = static_cast<std::uint16_t>((static_cast<std::uint32_t>(qid_a) + 1U) & 0xFFFFU);
+	std::uint16_t const qid_a = random_dns_query_id();
+	std::uint16_t const qid_aaaa = random_dns_query_id();
 	auto v4_task =
 		do_v4 ? build_family_flow(ring, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
 				make_empty_batch_task();
