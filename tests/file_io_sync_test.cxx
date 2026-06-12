@@ -281,6 +281,27 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"file_io_sync: conflux::file_io_sync::blocking_read_file_at rejects contained fifos",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	auto fifo_path = std::format("{}/{}", dir.path, "pipe");
+	REQUIRE(::mkfifo(fifo_path.c_str(), 0600) == 0);
+	auto content = conflux::file_io_sync::blocking_read_file_at(dir.fd, "pipe", 4);
+	REQUIRE_FALSE(content.has_value());
+	CHECK(content.error().code().value() == EISDIR);
+}
+
+TEST_CASE(
+	"file_io_sync: conflux::file_io_sync::blocking_read_all_fd rejects character devices",
+	"[file_io_sync][unit]") {
+	conflux::file_io_sync::UniqueFd fd{::open("/dev/zero", O_RDONLY | O_CLOEXEC | O_NONBLOCK)};
+	REQUIRE(fd.valid());
+	auto content = conflux::file_io_sync::blocking_read_all_fd(fd.fd(), 4);
+	REQUIRE_FALSE(content.has_value());
+	CHECK(content.error().code().value() == EISDIR);
+}
+
+TEST_CASE(
 	"file_io_sync: conflux::file_io_sync::blocking_openat_contained opens files below root only",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
