@@ -135,6 +135,31 @@ struct RingFixture {
 		return block_on_ring(&ring, completions, std::move(task), budget);
 	}
 };
+void dispatch_cqe(
+	RingFixture &fx,
+	::io_uring_cqe const &cqe) {
+	auto const ud = cqe.user_data;
+	fx.completions.dispatch(
+		static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
+		static_cast<std::uint32_t>(ud >> 32U),
+		cqe.res,
+		conflux::uring::CqeFlags{cqe.flags});
+}
+bool wait_and_dispatch_one_cqe(
+	RingFixture &fx,
+	std::chrono::seconds timeout = std::chrono::seconds{5}) {
+	::io_uring_cqe *cqe = nullptr;
+	__kernel_timespec ts{.tv_sec = timeout.count(), .tv_nsec = 0};
+	::io_uring_submit_and_wait_timeout(&fx.ring, &cqe, 1, &ts, nullptr);
+	std::array<::io_uring_cqe *, 1> batch{};
+	unsigned const n = ::io_uring_peek_batch_cqe(&fx.ring, batch.data(), 1u);
+	if (n == 0) {
+		return false;
+	}
+	dispatch_cqe(fx, *batch[0]);
+	::io_uring_cq_advance(&fx.ring, 1);
+	return true;
+}
 std::unique_ptr<RingFixture> require_ring_fixture(
 	unsigned entries = 64) {
 	auto fx = RingFixture::make(entries);
@@ -836,22 +861,7 @@ TEST_CASE(
 
 	// Pump exactly one CQE (socket creation) so ConnectOp enters connect_pending.
 	// SINGLE_ISSUER ring on ring-owner thread — safe to peek/submit here.
-	{
-		::io_uring_cqe *cqe = nullptr;
-		__kernel_timespec ts{.tv_sec = 5, .tv_nsec = 0};
-		::io_uring_submit_and_wait_timeout(&fx->ring, &cqe, 1, &ts, nullptr);
-		std::array<::io_uring_cqe *, 1> batch{};
-		unsigned const n = ::io_uring_peek_batch_cqe(&fx->ring, batch.data(), 1u);
-		if (n > 0) {
-			auto const *c = batch[0];
-			fx->completions.dispatch(
-				static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU),
-				static_cast<std::uint32_t>(c->user_data >> 32U),
-				c->res,
-				conflux::uring::CqeFlags{c->flags});
-			::io_uring_cq_advance(&fx->ring, 1);
-		}
-	}
+	REQUIRE(wait_and_dispatch_one_cqe(*fx));
 	// Now in connect_pending — cancel fires cancel_on_owner inline (single-thread ring)
 	task.cancel();
 	bool got_cancel = false;
@@ -863,6 +873,39 @@ TEST_CASE(
 	}
 	CHECK(got_cancel);
 	CHECK(err_code == 0);
+}
+TEST_CASE(
+	"tcp_connect: cancelled successful connect CQE completes cancelled",
+	"[tcp][cancel][uring]") {
+	TcpEchoServer server;
+	REQUIRE(server.ok());
+	auto fx = require_ring_fixture();
+	sockaddr_storage addr = loopback_addr(server.port());
+	auto task = async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
+
+	REQUIRE(wait_and_dispatch_one_cqe(*fx));
+
+	::io_uring_cqe *cqe = nullptr;
+	__kernel_timespec ts{.tv_sec = 5, .tv_nsec = 0};
+	REQUIRE(::io_uring_submit_and_wait_timeout(&fx->ring, &cqe, 1, &ts, nullptr) >= 0);
+	REQUIRE(cqe != nullptr);
+	REQUIRE(cqe->res >= 0);
+
+	task.cancel();
+	dispatch_cqe(*fx, *cqe);
+	::io_uring_cq_advance(&fx->ring, 1);
+
+	bool got_cancel = false;
+	int err_code = 0;
+	try {
+		fx->run(std::move(task), std::chrono::seconds{5});
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
+		got_cancel = true;
+	}
+	CHECK(got_cancel);
+	CHECK(err_code == 0);
+
+	wait_and_dispatch_one_cqe(*fx, std::chrono::seconds{1});
 }
 // ---------------------------------------------------------------------------
 // tcp_connect — submit_on_ring_owner false → immediate complete_cancelled

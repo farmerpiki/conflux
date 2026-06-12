@@ -525,18 +525,6 @@ struct ConnectOp {
 		}
 		auto _ = r.raw().submit();
 	}
-	void submit_cancel_fd_on_owner(
-		SocketTaskRing &r,
-		RingFd auto fd,
-		std::shared_ptr<ConnectOp> self) noexcept {
-		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
-		if (!submit_cancel_fd(r.raw(), fd, r.encode(cs, cg))) {
-			r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-			complete_cancelled();
-			return;
-		}
-		auto _ = r.raw().submit();
-	}
 	void cancel_on_owner(
 		SocketTaskRing &r,
 		std::shared_ptr<ConnectOp> self) noexcept {
@@ -545,7 +533,7 @@ struct ConnectOp {
 		}
 		switch (stage) {
 		case Stage::socket_pending : submit_cancel_ud_on_owner(r, socket_ud, std::move(self)); break;
-		case Stage::connect_pending: submit_cancel_fd_on_owner(r, stream_state->handle.get(), std::move(self)); break;
+		case Stage::connect_pending: submit_cancel_ud_on_owner(r, connect_ud, std::move(self)); break;
 		case Stage::done           : break;
 		}
 	}
@@ -575,6 +563,11 @@ struct ConnectOp {
 		IoResult r) noexcept {
 		stage = Stage::done;
 		if (r.res >= 0) {
+			if (cancel_requested.load(std::memory_order_acquire)) {
+				stream_state.reset();
+				complete_cancelled();
+				return;
+			}
 			complete_value(TcpStream{std::move(stream_state)});
 			return;
 		}
