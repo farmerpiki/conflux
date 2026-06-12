@@ -318,6 +318,35 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http_server_helpers: multipart parser ignores malformed part header names",
+	"[http_server_helpers]") {
+	auto parse = [](std::string_view part_headers) {
+		std::string body;
+		body.reserve(part_headers.size() + 64);
+		body += "--b\r\n";
+		body += part_headers;
+		body += "\r\n\r\nvalue\r\n--b--\r\n";
+		conflux::http::HttpFieldsView form;
+		std::vector<conflux::http::UploadedFile> files;
+		conflux::http::parse_multipart(body, "b", form, files);
+		return std::pair{std::move(form), std::move(files)};
+	};
+
+	auto leading = parse(" Content-Disposition: form-data; name=\"field\"");
+	CHECK(leading.first.empty());
+	CHECK(leading.second.empty());
+
+	auto trailing = parse("Content-Disposition : form-data; name=\"field\"");
+	CHECK(trailing.first.empty());
+	CHECK(trailing.second.empty());
+
+	auto folded =
+		parse(" Content-Disposition: form-data; name=\"upload\"; filename=\"x.txt\"\r\n Content-Type: text/plain");
+	CHECK(folded.first.empty());
+	CHECK(folded.second.empty());
+}
+
+TEST_CASE(
 	"http_server_helpers: complete and incremental chunked decoders agree",
 	"[http_server_helpers]") {
 	std::string body;
