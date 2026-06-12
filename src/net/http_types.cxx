@@ -1152,6 +1152,26 @@ struct Url {
 	void set_query_param(
 		std::string_view name,
 		std::string_view value) {
+		auto aliases_query = [this](std::string_view s) noexcept {
+			if (s.empty() || query.empty()) {
+				return false;
+			}
+			auto const query_begin = reinterpret_cast<std::uintptr_t>(query.data());
+			auto const query_end = query_begin + query.size();
+			auto const view_begin = reinterpret_cast<std::uintptr_t>(s.data());
+			auto const view_end = view_begin + s.size();
+			return view_begin < query_end && query_begin < view_end;
+		};
+		std::optional<std::string> name_copy;
+		std::optional<std::string> value_copy;
+		if (aliases_query(name)) {
+			name_copy.emplace(name);
+			name = *name_copy;
+		}
+		if (aliases_query(value)) {
+			value_copy.emplace(value);
+			value = *value_copy;
+		}
 		query.reserve(
 			query.size()
 			+ (query.empty() ? std::size_t{0} : std::size_t{1})

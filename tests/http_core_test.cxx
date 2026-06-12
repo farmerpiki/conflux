@@ -96,6 +96,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http core: Url::set_query_param accepts views into existing query",
+	"[http.core]") {
+	auto url = chttp::Url::parse("http://example.com/search");
+	REQUIRE(url.has_value());
+	auto const name = std::string(96, 'n');
+	auto const value = std::string(96, 'v');
+	url->query = name + "=" + value;
+	std::string_view name_view{url->query.data(), name.size()};
+	std::string_view value_view{url->query.data() + name.size() + 1UZ, value.size()};
+
+	url->set_query_param(name_view, value_view);
+
+	CHECK(url->query == name + "=" + value + "&" + name + "=" + value);
+}
+
+TEST_CASE(
 	"http core: Url renders origin-form targets and Host header values",
 	"[http.core]") {
 	auto url = chttp::Url::parse("https://example.com:8443/api/v1?q=one");
