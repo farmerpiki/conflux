@@ -190,9 +190,9 @@ class App : public detail::AppRouteVerbAccessors {
 		std::shared_ptr<std::chrono::milliseconds> timeout;
 		std::shared_ptr<ScopedMiddlewareList const> middlewares;
 		std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares;
-#if CONFLUX_HAS_JSON
 		std::shared_ptr<std::size_t> max_body_size;
 		std::size_t app_max_body_size{};
+#if CONFLUX_HAS_JSON
 		std::shared_ptr<AppJsonOptions> json_options;
 #endif
 	};
@@ -225,11 +225,11 @@ class App : public detail::AppRouteVerbAccessors {
 			.rate_limit = route.rate_limit,
 			.timeout = route.timeout,
 			.middlewares = current_group_middlewares(),
-			.context_middlewares = current_group_context_middlewares()
-#if CONFLUX_HAS_JSON
-				,
+			.context_middlewares = current_group_context_middlewares(),
 			.max_body_size = route.max_body_size,
-			.app_max_body_size = cfg_.max_body_size,
+			.app_max_body_size = cfg_.max_body_size
+#if CONFLUX_HAS_JSON
+			,
 			.json_options = json_options_
 #endif
 		};
@@ -345,18 +345,28 @@ class App : public detail::AppRouteVerbAccessors {
 		if (auto limited = detail::route_rate_limit_failure(*policy.rate_limit, req)) {
 			return limited;
 		}
+		auto const limit = route_body_limit(policy);
+		if (limit != 0 && req.body.size() > limit) {
+#if CONFLUX_HAS_JSON
+			return detail::json_body_too_large_problem();
+#else
+			return Response::content_too_large();
+#endif
+		}
 		return std::nullopt;
 	}
 
-#if CONFLUX_HAS_JSON
 	[[nodiscard]] static std::size_t route_body_limit(
 		CapturedRoutePolicy const &policy) {
 		return effective_body_limit(
 			*policy.max_body_size,
 			policy.app_max_body_size,
+#if CONFLUX_HAS_JSON
 			policy.json_options->max_body_size);
-	}
+#else
+			0);
 #endif
+	}
 
 	[[nodiscard]] static Response apply_route_timeout(
 		Response response,

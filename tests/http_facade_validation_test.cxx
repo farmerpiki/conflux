@@ -266,6 +266,34 @@ TEST_CASE(
 	app.post("/body", [](http::BodyText body) { return http::text(body.get()); }).max_body_size(1024);
 
 	CHECK(app.validate().ok());
+
+	conflux::http::OwnedRequest req;
+	req.method = "POST";
+	req.path = "/body";
+	req.body = std::string(1025, 'x');
+
+	auto too_large = http::router(app).dispatch(req);
+	CHECK(too_large.status == kHttpRequestEntityTooLarge);
+}
+
+TEST_CASE(
+	"http facade: plain body extractors honor JSON option fallback body limit",
+	"[http.facade]") {
+	auto cfg = http::Config::public_server();
+	cfg.max_body_size = 0;
+	auto app = http::app(std::move(cfg));
+	app.json_options(http::AppJsonOptions{.max_body_size = 8});
+	app.post("/body", [](http::BodyText body) { return http::text(body.get()); });
+
+	CHECK(app.validate().ok());
+
+	conflux::http::OwnedRequest req;
+	req.method = "POST";
+	req.path = "/body";
+	req.body = "too large";
+
+	auto too_large = http::router(app).dispatch(req);
+	CHECK(too_large.status == kHttpRequestEntityTooLarge);
 }
 
 TEST_CASE(
