@@ -9,7 +9,9 @@ import conflux.work;
 
 export namespace conflux::http {
 
-#if !defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_API_SURFACE_LEVEL >= CONFLUX_API_SURFACE_EXTENDED
+#if (!defined(CONFLUX_INTERFACE_HEADER) || CONFLUX_API_SURFACE_LEVEL >= CONFLUX_API_SURFACE_EXTENDED) \
+	&& !defined(CONFLUX_NET_APP_DEFER_DECLARED)
+	#define CONFLUX_NET_APP_DEFER_DECLARED
 using conflux::work::WorkPool;
 
 template<typename Fn>

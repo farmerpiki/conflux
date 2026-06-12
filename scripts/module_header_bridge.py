@@ -584,6 +584,39 @@ def import_guard_block(import_name: str, exported: bool, for_header: bool, owner
     ]
 
 
+HEADER_API_SURFACE_MODULES = {
+    "conflux.extended": "CONFLUX_API_SURFACE_EXTENDED",
+    "conflux.complete": "CONFLUX_API_SURFACE_COMPLETE",
+    "conflux.http.extended": "CONFLUX_API_SURFACE_EXTENDED",
+}
+
+HEADER_REENTERABLE_SURFACE_MODULES = {
+    "conflux.net.app.defer",
+}
+
+
+def header_api_surface_override_begin(module_name: str) -> list[str]:
+    surface_macro = HEADER_API_SURFACE_MODULES.get(module_name)
+    if surface_macro is None:
+        return []
+    return [
+        "#pragma push_macro(\"CONFLUX_API_SURFACE_LEVEL\")\n",
+        "#undef CONFLUX_API_SURFACE_LEVEL\n",
+        f"#define CONFLUX_API_SURFACE_LEVEL {surface_macro}\n",
+        "\n",
+    ]
+
+
+def header_api_surface_override_end(module_name: str) -> list[str]:
+    if module_name not in HEADER_API_SURFACE_MODULES:
+        return []
+    return [
+        "\n",
+        "#undef CONFLUX_API_SURFACE_LEVEL\n",
+        "#pragma pop_macro(\"CONFLUX_API_SURFACE_LEVEL\")\n",
+    ]
+
+
 def transform_to_header(unit: ModuleUnit) -> tuple[str, list[str]]:
     warnings: list[str] = []
     before_decl = list(unit.lines[: unit.declaration_index])
@@ -605,12 +638,15 @@ def transform_to_header(unit: ModuleUnit) -> tuple[str, list[str]]:
     std_headers = sorted(set(infer_standard_headers(body_text, uses_std_compat=False)) | before_std_headers)
     compat_headers = sorted(set(infer_standard_headers(body_text, uses_std_compat=True)) | before_compat_headers)
 
-    out: list[str] = [
-        "#pragma once\n",
+    out: list[str] = []
+    if unit.module_name not in HEADER_REENTERABLE_SURFACE_MODULES:
+        out.append("#pragma once\n")
+    out.extend([
         f"{GENERATED_BANNER}\n",
         f"#include <{CONFIG_HEADER_RELPATH.as_posix()}>\n",
         "\n",
-    ]
+    ])
+    out.extend(header_api_surface_override_begin(unit.module_name))
     saw_std = False
     saw_std_compat = False
     if std_headers:
@@ -658,6 +694,7 @@ def transform_to_header(unit: ModuleUnit) -> tuple[str, list[str]]:
         warnings.append("unit marked uses_std but no import std line was transformed")
     if not saw_std_compat and unit.uses_std_compat:
         warnings.append("unit marked uses_std_compat but no import std.compat line was transformed")
+    out.extend(header_api_surface_override_end(unit.module_name))
     return "".join(out), warnings
 
 def brace_delta(line: str) -> int:

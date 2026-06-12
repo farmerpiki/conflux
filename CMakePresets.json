@@ -652,6 +652,7 @@
       "inherits": "gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CONFLUX_INTERFACE_MODE": "HEADER_INTERFACE",
         "CONFLUX_ENABLE_TSAN": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "OFF"

@@ -241,6 +241,17 @@ if(_conflux_import_std_supported
     endif()
     set(_conflux_import_std_supported OFF)
 endif()
+if(_conflux_import_std_supported
+        AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+        AND CONFLUX_ENABLE_TSAN)
+    if(CONFLUX_USE_IMPORT_STD STREQUAL "ON")
+        message(FATAL_ERROR
+            "CONFLUX_USE_IMPORT_STD=ON is not supported with GNU ThreadSanitizer builds: "
+            "libstdc++ import std currently exposes TU-local sanitizer symbols through standard-library modules. "
+            "Use CONFLUX_USE_IMPORT_STD=AUTO or OFF for this sanitizer preset.")
+    endif()
+    set(_conflux_import_std_supported OFF)
+endif()
 
 if(CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE")
     if(CONFLUX_USE_IMPORT_STD STREQUAL "ON" AND NOT _conflux_import_std_supported)
