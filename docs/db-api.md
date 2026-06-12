@@ -228,16 +228,16 @@ class Row {
 public:
     int ncols() const noexcept;
     bool is_null(int col) const noexcept;
-    bool is_null(Column col) const noexcept;
+    bool is_null(Column col) const;                 // throws PgError if invalid
     std::string_view get(int col) const noexcept;
-    std::string_view get(Column col) const noexcept;
+    std::string_view get(Column col) const;         // throws PgError if invalid
     std::string_view get(std::string_view col) const;    // throws PgError if missing
     int length(int col) const noexcept;
 
     template<class T> T as(int col) const;
-    template<class T> T as(Column col) const;
+    template<class T> T as(Column col) const;             // throws PgError if invalid
     template<class T> std::optional<T> as_opt(int col) const;
-    template<class T> std::optional<T> as_opt(Column col) const;
+    template<class T> std::optional<T> as_opt(Column col) const; // throws PgError if invalid
     template<class... Ts> std::tuple<Ts...> as_tuple(int start = 0) const;
 };
 ```
