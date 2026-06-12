@@ -66,6 +66,13 @@ TEST_CASE(
 	REQUIRE_FALSE(missing_host.has_value());
 	CHECK(missing_host.error().kind == chttp::UrlErrorKind::missing_host);
 
+	std::string nul_host{"http://metadata.internal"};
+	nul_host.push_back('\0');
+	nul_host += ".attacker.example/";
+	auto invalid_host = chttp::Url::parse(nul_host);
+	REQUIRE_FALSE(invalid_host.has_value());
+	CHECK(invalid_host.error().kind == chttp::UrlErrorKind::invalid_host);
+
 	auto bad_port = chttp::Url::parse("http://example.com:0/");
 	REQUIRE_FALSE(bad_port.has_value());
 	CHECK(bad_port.error().kind == chttp::UrlErrorKind::invalid_port);

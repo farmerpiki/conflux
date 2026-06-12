@@ -1056,6 +1056,7 @@ enum class UrlErrorKind : std::uint8_t {
 	missing_scheme,
 	unsupported_scheme,
 	missing_host,
+	invalid_host,
 	invalid_port,
 	too_long,
 };
@@ -1221,6 +1222,13 @@ std::expected<Url, UrlError> Url::parse(
 
 	if (url.host.empty()) {
 		return std::unexpected(UrlError{UrlErrorKind::missing_host, "empty host"});
+	}
+	auto const has_host_control = std::ranges::any_of(url.host, [](char c) noexcept {
+		auto const uc = static_cast<unsigned char>(c);
+		return uc <= 0x20U || uc == 0x7FU;
+	});
+	if (has_host_control) {
+		return std::unexpected(UrlError{UrlErrorKind::invalid_host, "host contains control or space bytes"});
 	}
 
 	if (authority_end == std::string_view::npos) {
