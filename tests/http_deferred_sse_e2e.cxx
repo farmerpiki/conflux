@@ -58,6 +58,59 @@ TEST_CASE(
 	ch.close();
 	REQUIRE_FALSE(ch.send("hello"));
 }
+
+TEST_CASE(
+	"SseChannel: concurrent on_close callback can re-enter channel",
+	"[sse][http.lifecycle]") {
+	constexpr auto frame_count = 32768;
+	auto ch = std::make_shared<conflux::http::SseChannel>(
+		static_cast<std::size_t>(frame_count),
+		conflux::http::SseOverflowPolicy::DropOldest);
+	bool queued_initial_frames = true;
+	for (int i = 0; i < frame_count; ++i) {
+		queued_initial_frames = ch->send("x") && queued_initial_frames;
+	}
+	REQUIRE(queued_initial_frames);
+
+	std::atomic_bool callback_done{false};
+	std::atomic_bool on_close_done{false};
+	std::atomic_bool close_done{false};
+
+	std::thread sender{[ch] { (void)ch->send(std::string(static_cast<std::size_t>(frame_count) + 1, 'y')); }};
+	std::this_thread::sleep_for(std::chrono::milliseconds{5});
+
+	std::thread registrar{[ch, &callback_done, &on_close_done] {
+		ch->on_close([ch, &callback_done] {
+			(void)ch->send("after-close");
+			callback_done.store(true, std::memory_order_release);
+		});
+		on_close_done.store(true, std::memory_order_release);
+	}};
+	std::this_thread::sleep_for(std::chrono::milliseconds{5});
+
+	std::thread closer{[ch, &close_done] {
+		ch->close();
+		close_done.store(true, std::memory_order_release);
+	}};
+
+	for (int i = 0; i < 200 && !callback_done.load(std::memory_order_acquire); ++i) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+
+	auto const completed = callback_done.load(std::memory_order_acquire)
+						&& on_close_done.load(std::memory_order_acquire)
+						&& close_done.load(std::memory_order_acquire);
+	if (!completed) {
+		sender.detach();
+		registrar.detach();
+		closer.detach();
+	}
+	REQUIRE(completed);
+
+	sender.join();
+	registrar.join();
+	closer.join();
+}
 // ---------------------------------------------------------------------------
 // C2: conflux::http::DeferredResponse timeout
 // ---------------------------------------------------------------------------

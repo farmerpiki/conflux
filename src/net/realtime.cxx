@@ -199,20 +199,16 @@ public:
 	}
 	void on_close(
 		std::function<void()> callback) {
-		if (closed_.test()) {
-			try {
-				callback();
-			} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
-			return;
+		if (!closed_.test()) {
+			std::scoped_lock const lk{mtx_};
+			if (!closed_.test()) {
+				close_callbacks_.push_back(std::move(callback));
+				return;
+			}
 		}
-		std::scoped_lock const lk{mtx_};
-		if (closed_.test()) {
-			try {
-				callback();
-			} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
-			return;
-		}
-		close_callbacks_.push_back(std::move(callback));
+		try {
+			callback();
+		} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
 	}
 	[[nodiscard]] std::string drain() {
 		std::scoped_lock const lk{mtx_};
