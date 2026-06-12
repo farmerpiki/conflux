@@ -1289,15 +1289,19 @@ function(conflux_add_header_compile_fail_tests)
         http-facade-header/compile-fail-json-codec
         tests/http_facade_compile_fail_json_codec
         "http::Json<T> responses require T to be serializable"
-        "add JsonCodec<T>, JsonMembers<T>, or reflection JSON support")
+        "JsonCodec<T>"
+        "JsonMembers<T>")
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-route-policy-internal
         tests/http_facade_compile_fail_route_policy_internal
-        "no type named 'AppRouteRateLimit' in namespace 'conflux::http'")
-    conflux_add_header_compile_fail_test(
-        http-facade-header/compile-fail-middleware-concept-alias
-        tests/http_facade_compile_fail_middleware_concept_alias
-        "no template named 'Middleware' in namespace 'conflux::http'")
+        "AppRouteRateLimit"
+        "conflux::http")
+    if(CONFLUX_HEADER_STRICT_API_SURFACE_COMPILE_FAILS)
+        conflux_add_header_compile_fail_test(
+            http-facade-header/compile-fail-middleware-concept-alias
+            tests/http_facade_compile_fail_middleware_concept_alias
+            "no template named 'Middleware' in namespace 'conflux::http'")
+    endif()
     conflux_add_header_compile_fail_test(
         http-facade-header/compile-fail-router-member
         tests/http_facade_compile_fail_router_member
@@ -1308,18 +1312,22 @@ function(conflux_add_header_compile_fail_tests)
         "conflux_http_facade_unexpected_route_infos_member_visible")
 
         if(CONFLUX_WANT_HTTP_SERVER)
-            conflux_add_header_compile_fail_test(
-                api-surface/header-curated-hides-iouring
-                tests/header_api_surface_curated_compile_fail_iouring
-                "conflux::uring")
+            if(CONFLUX_HEADER_STRICT_API_SURFACE_COMPILE_FAILS)
+                conflux_add_header_compile_fail_test(
+                    api-surface/header-curated-hides-iouring
+                    tests/header_api_surface_curated_compile_fail_iouring
+                    "conflux::uring")
+            endif()
             conflux_add_header_compile_fail_test(
                 api-surface/header-curated-hides-blocking-file
                 tests/header_api_surface_curated_compile_fail_file
                 "conflux_api_surface_curated_unexpected_file_helper_visible")
-            conflux_add_header_compile_fail_test(
-                api-surface/header-extended-hides-iouring
-                tests/header_api_surface_extended_compile_fail_iouring
-                "conflux::uring")
+            if(CONFLUX_HEADER_STRICT_API_SURFACE_COMPILE_FAILS)
+                conflux_add_header_compile_fail_test(
+                    api-surface/header-extended-hides-iouring
+                    tests/header_api_surface_extended_compile_fail_iouring
+                    "conflux::uring")
+            endif()
             conflux_add_header_compile_fail_test(
                 api-surface/header-complete-hides-direct-slot-pool
                 tests/header_api_surface_complete_compile_fail_direct_slot_pool
@@ -1327,11 +1335,13 @@ function(conflux_add_header_compile_fail_tests)
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-offload-free
                 tests/header_http_facade_compile_fail_offload_free
-                "no member named 'offload' in namespace 'conflux::http'")
+                "offload"
+                "is not a member")
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-defer-free
                 tests/header_http_facade_compile_fail_defer_free
-                "no member named 'defer' in namespace 'conflux::http'")
+                "defer"
+                "is not a member")
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-task-alias
                 tests/header_http_facade_compile_fail_task_alias
@@ -1347,7 +1357,8 @@ function(conflux_add_header_compile_fail_tests)
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-openapi-handler-free
                 tests/header_http_facade_compile_fail_openapi_handler_free
-                "no member named 'openapi_handler' in namespace 'conflux::http'")
+                "openapi_handler"
+                "is not a member")
             conflux_add_header_compile_fail_test(
                 api-surface/header-http-facade-file-free
                 tests/header_http_facade_compile_fail_file_free

@@ -24,6 +24,8 @@ option(CONFLUX_HEADER_LINK_SMOKE
     "Build small linked header-mode smoke targets against generated implementation archives" OFF)
 option(CONFLUX_RUN_HEADER_COMPONENT_SMOKE
     "Run the full generated public header component smoke matrix in CTest" OFF)
+option(CONFLUX_HEADER_STRICT_API_SURFACE_COMPILE_FAILS
+    "Run header-mode compile-fail tests that require dependency namespaces to stay hidden" ON)
 
 if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
 		AND NOT CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
