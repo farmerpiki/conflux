@@ -129,6 +129,21 @@ struct TlsStreamRef {
 }
 
 template<typename T>
+wroot::Task<std::size_t> recv_before_deadline(
+	T &t,
+	std::span<std::uint8_t> buf,
+	TP deadline) {
+	if (deadline == TP::max()) {
+		co_return co_await t.recv(buf, std::chrono::milliseconds{0});
+	}
+	auto const now = std::chrono::steady_clock::now();
+	if (now >= deadline) {
+		throw IoError{ETIMEDOUT, "tcp: recv timed out"};
+	}
+	co_return co_await t.recv(buf, std::chrono::ceil<std::chrono::milliseconds>(deadline - now));
+}
+
+template<typename T>
 wroot::Task<std::string> async_recv_until(
 	T &t,
 	std::string_view delim,
@@ -142,17 +157,7 @@ wroot::Task<std::string> async_recv_until(
 		std::size_t n;
 		auto const previous_size = buf.size();
 		try {
-			if (deadline == TP::max()) {
-				n = co_await t.recv(std::span<std::uint8_t>{tmp.data(), tmp.size()}, std::chrono::milliseconds{0});
-			} else {
-				auto const now = std::chrono::steady_clock::now();
-				if (now >= deadline) {
-					throw IoError{ETIMEDOUT, "tcp: recv timed out"};
-				}
-				n = co_await t.recv(
-					std::span<std::uint8_t>{tmp.data(), tmp.size()},
-					std::chrono::ceil<std::chrono::milliseconds>(deadline - now));
-			}
+			n = co_await recv_before_deadline(t, std::span<std::uint8_t>{tmp.data(), tmp.size()}, deadline);
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
 		}
@@ -172,7 +177,8 @@ wroot::Task<bool> async_recv_exact(
 	T &t,
 	std::string &out,
 	std::size_t target,
-	std::size_t cap) {
+	std::size_t cap,
+	TP deadline) {
 	std::array<std::uint8_t, 4096> tmp{};
 	while (out.size() < target) {
 		if (out.size() >= cap) {
@@ -181,7 +187,7 @@ wroot::Task<bool> async_recv_exact(
 		auto const want = std::min(tmp.size(), target - out.size());
 		std::size_t n;
 		try {
-			n = co_await t.recv(std::span<std::uint8_t>{tmp.data(), want});
+			n = co_await recv_before_deadline(t, std::span<std::uint8_t>{tmp.data(), want}, deadline);
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
 		}
@@ -197,13 +203,14 @@ wroot::Task<void> async_recv_to_eof(
 	T &t,
 	std::string &out,
 	std::size_t cap,
-	bool &too_large) {
+	bool &too_large,
+	TP deadline) {
 	too_large = false;
 	std::array<std::uint8_t, 4096> tmp{};
 	for (;;) {
 		std::size_t n;
 		try {
-			n = co_await t.recv(std::span<std::uint8_t>{tmp.data(), tmp.size()});
+			n = co_await recv_before_deadline(t, std::span<std::uint8_t>{tmp.data(), tmp.size()}, deadline);
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
 		}
@@ -224,7 +231,8 @@ wroot::Task<bool> async_recv_chunked(
 	std::string &decoded,
 	std::size_t cap,
 	std::size_t buf_cap,
-	bool &too_large) {
+	bool &too_large,
+	TP deadline) {
 	too_large = false;
 	decoded.clear();
 	decoded.reserve(std::min(encoded.size(), cap));
@@ -245,7 +253,7 @@ wroot::Task<bool> async_recv_chunked(
 		}
 		std::size_t n;
 		try {
-			n = co_await t.recv(std::span<std::uint8_t>{tmp.data(), tmp.size()});
+			n = co_await recv_before_deadline(t, std::span<std::uint8_t>{tmp.data(), tmp.size()}, deadline);
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
 		}
@@ -307,7 +315,8 @@ wroot::Task<std::optional<HttpError>> receive_http1_body(
 	T &stream,
 	ClientResponse &response,
 	HttpTelemetry &tel,
-	BodyReceiveContext ctx) {
+	BodyReceiveContext ctx,
+	TP body_deadline) {
 	if (ctx.method == "HEAD") {
 		response.body.clear();
 	} else if (ctx.chunked) {
@@ -320,7 +329,8 @@ wroot::Task<std::optional<HttpError>> receive_http1_body(
 					decoded,
 					ctx.max_body_size,
 					ctx.max_buffered_size,
-					too_large)) {
+					too_large,
+					body_deadline)) {
 				if (too_large) {
 					co_return HttpError{
 						.kind = HttpErrorKind::body_too_large,
@@ -342,7 +352,12 @@ wroot::Task<std::optional<HttpError>> receive_http1_body(
 		response.body = std::move(decoded);
 	} else if (ctx.has_content_length && ctx.content_length > response.body.size()) {
 		try {
-			if (!co_await async_recv_exact(stream, response.body, ctx.content_length, ctx.max_body_size)) {
+			if (!co_await async_recv_exact(
+					stream,
+					response.body,
+					ctx.content_length,
+					ctx.max_body_size,
+					body_deadline)) {
 				if (response.body.size() >= ctx.max_body_size) {
 					co_return HttpError{
 						.kind = HttpErrorKind::body_too_large,
@@ -364,7 +379,7 @@ wroot::Task<std::optional<HttpError>> receive_http1_body(
 	} else if (!ctx.has_content_length && !ctx.chunked) {
 		bool too_large = false;
 		try {
-			co_await async_recv_to_eof(stream, response.body, ctx.max_body_size, too_large);
+			co_await async_recv_to_eof(stream, response.body, ctx.max_body_size, too_large, body_deadline);
 		} catch (IoError const &e) {
 			co_return HttpError{
 				.kind = HttpErrorKind::read,
@@ -665,15 +680,16 @@ wroot::Task<std::optional<HttpError>> receive_async_client_body(
 	std::chrono::milliseconds write_timeout,
 	ClientResponse &response,
 	HttpTelemetry &tel,
-	BodyReceiveContext body_ctx) {
+	BodyReceiveContext body_ctx,
+	TP body_deadline) {
 #if CONFLUX_HAS_TLS
 	if (tls_stream) {
 		TlsStreamRef tr{*tls_stream, between_bytes, write_timeout};
-		co_return co_await receive_http1_body(tr, response, tel, body_ctx);
+		co_return co_await receive_http1_body(tr, response, tel, body_ctx, body_deadline);
 	}
 #endif
 	PlainStreamRef pr{stream, cancel, between_bytes, write_timeout};
-	co_return co_await receive_http1_body(pr, response, tel, body_ctx);
+	co_return co_await receive_http1_body(pr, response, tel, body_ctx, body_deadline);
 }
 
 wroot::Task<void> close_async_client_stream(
@@ -784,6 +800,8 @@ wroot::Task<ClientResult> do_async_request(
 		co_return std::unexpected(std::move(parsed_response).error());
 	}
 	auto response = std::move(parsed_response->response);
+	TP const body_deadline =
+		timeouts.between_bytes.count() > 0 ? std::chrono::steady_clock::now() + timeouts.between_bytes : TP::max();
 	if (auto berr = co_await receive_async_client_body(
 			stream,
 #if CONFLUX_HAS_TLS
@@ -794,7 +812,8 @@ wroot::Task<ClientResult> do_async_request(
 			timeouts.write,
 			response,
 			tel,
-			parsed_response->body_ctx);
+			parsed_response->body_ctx,
+			body_deadline);
 		berr) {
 		co_return std::unexpected(std::move(*berr));
 	}

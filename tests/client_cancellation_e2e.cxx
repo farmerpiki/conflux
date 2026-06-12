@@ -155,6 +155,7 @@ public:
 		idle_after_accept,
 		idle_after_request,
 		partial_body_then_idle,
+		slow_content_length_body,
 	};
 
 	explicit ScriptedTcpServer(
@@ -253,11 +254,40 @@ private:
 		request_seen_.store(true, std::memory_order_release);
 		if (mode_ == Mode::partial_body_then_idle) {
 			std::string_view wire = "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nab";
-			(void)::send(fd, wire.data(), wire.size(), MSG_NOSIGNAL);
+			auto _ = send_all(fd, wire);
 			body_started_.store(true, std::memory_order_release);
+		}
+		if (mode_ == Mode::slow_content_length_body) {
+			auto _ = send_all(fd, "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\na");
+			body_started_.store(true, std::memory_order_release);
+			std::this_thread::sleep_for(std::chrono::milliseconds{50});
+			if (!st.stop_requested()) {
+				_ = send_all(fd, "b");
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds{50});
+			if (!st.stop_requested()) {
+				_ = send_all(fd, "c");
+			}
 		}
 		idle(st);
 		::close(fd);
+	}
+
+	static bool send_all(
+		int fd,
+		std::string_view wire) noexcept {
+		while (!wire.empty()) {
+			ssize_t const n = ::send(fd, wire.data(), wire.size(), MSG_NOSIGNAL);
+			if (n > 0) {
+				wire.remove_prefix(static_cast<std::size_t>(n));
+				continue;
+			}
+			if (n < 0 && errno == EINTR) {
+				continue;
+			}
+			return false;
+		}
+		return true;
 	}
 
 	static void idle(
@@ -378,6 +408,22 @@ TEST_CASE(
 	"[http][client][timeout][body][uring]") {
 	auto fx = require_ring_fixture();
 	ScriptedTcpServer server{ScriptedTcpServer::Mode::partial_body_then_idle};
+	auto client = make_client(std::chrono::milliseconds{75});
+	auto req = get_request(server.port(), std::chrono::milliseconds{75});
+	auto task = chttp::async_send(client, fx->task_ring, req);
+	auto out = fx->run_to_outcome(std::move(task), std::chrono::seconds{5});
+	REQUIRE(out.is_success());
+	auto result = std::move(out).success().value;
+	REQUIRE_FALSE(result.has_value());
+	CHECK(result.error().kind == chttp::HttpErrorKind::read);
+	CHECK(result.error().phase == chttp::HttpPhase::between_bytes);
+}
+
+TEST_CASE(
+	"http async client: body timeout is not extended by slow fragments",
+	"[http][client][timeout][body][uring]") {
+	auto fx = require_ring_fixture();
+	ScriptedTcpServer server{ScriptedTcpServer::Mode::slow_content_length_body};
 	auto client = make_client(std::chrono::milliseconds{75});
 	auto req = get_request(server.port(), std::chrono::milliseconds{75});
 	auto task = chttp::async_send(client, fx->task_ring, req);
