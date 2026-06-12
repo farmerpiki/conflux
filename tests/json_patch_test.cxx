@@ -96,6 +96,46 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"json: merge_patch applies nested null deletion inside new objects",
+	"[json][merge_patch]") {
+	auto target = parse(R"({})");
+	auto patch = parse(R"({
+		"profile": {
+			"isAdmin": null,
+			"prefs": {"dark": null, "lang": "en"},
+			"roles": [{"name": null}]
+		}
+	})");
+	REQUIRE(target.has_value());
+	REQUIRE(patch.has_value());
+
+	auto merged = merge_patch(*target, *patch);
+	REQUIRE(merged.has_value());
+
+	CHECK_FALSE(merged->root().at_pointer("/profile/isAdmin").has_value());
+	CHECK_FALSE(merged->root().at_pointer("/profile/prefs/dark").has_value());
+	CHECK(*merged->root().at_pointer("/profile/prefs/lang")->as_string() == "en");
+	auto array_null = merged->root().at_pointer("/profile/roles/0/name");
+	REQUIRE(array_null.has_value());
+	CHECK(array_null->is_null());
+}
+
+TEST_CASE(
+	"json: merge_patch applies object patches against non-object targets as empty objects",
+	"[json][merge_patch]") {
+	auto target = parse(R"({"profile": 0})");
+	auto patch = parse(R"({"profile": {"isAdmin": null, "name": "Ada"}})");
+	REQUIRE(target.has_value());
+	REQUIRE(patch.has_value());
+
+	auto merged = merge_patch(*target, *patch);
+	REQUIRE(merged.has_value());
+
+	CHECK_FALSE(merged->root().at_pointer("/profile/isAdmin").has_value());
+	CHECK(*merged->root().at_pointer("/profile/name")->as_string() == "Ada");
+}
+
+TEST_CASE(
 	"json: apply_patch supports RFC 6902 operations without mutating input",
 	"[json][patch]") {
 	auto target = parse(R"({"foo":"bar","numbers":[1,2,3],"obj":{"a":1}})");

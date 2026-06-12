@@ -839,6 +839,7 @@ std::expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
 std::expected<void, JsonError> merge_patch_into(ValueBuilder &out, NodeRef target, NodeRef patch);
 std::expected<void, JsonError>
 merge_patch_into(ObjectBuilder &out, std::string_view name, NodeRef target, NodeRef patch);
+std::expected<void, JsonError> merge_new_patch_member_into(ObjectBuilder &out, std::string_view name, NodeRef patch);
 
 [[nodiscard]] JsonError merge_patch_wrong_kind(
 	JsonKind actual) {
@@ -1030,10 +1031,32 @@ std::expected<void, JsonError> merge_object_members_into(
 		if (patch_value.is_null() || (target && target->find_member(name))) {
 			continue;
 		}
-		if (auto ok = copy_node_into(out, name, patch_value); !ok) {
+		if (auto ok = merge_new_patch_member_into(out, name, patch_value); !ok) {
 			return ok;
 		}
 	}
+	return {};
+}
+
+std::expected<void, JsonError> merge_new_patch_member_into(
+	ObjectBuilder &out,
+	std::string_view name,
+	NodeRef patch) {
+	if (patch.kind() != JsonKind::object) {
+		return copy_node_into(out, name, patch);
+	}
+	auto patch_obj = patch.as_object();
+	if (!patch_obj) {
+		return std::unexpected(std::move(patch_obj).error());
+	}
+	auto child = out.insert_object(name);
+	if (!child) {
+		return std::unexpected(std::move(child).error());
+	}
+	if (auto ok = merge_object_members_into(*child, std::nullopt, *patch_obj); !ok) {
+		return ok;
+	}
+	std::move(*child).commit();
 	return {};
 }
 
