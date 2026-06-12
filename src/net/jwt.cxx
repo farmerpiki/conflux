@@ -148,7 +148,7 @@ struct JwtSegments {
 
 [[nodiscard]] std::expected<void, std::string> validate_jwt_secrets(
 	conflux::http::ResolvedSecretRotation const &secrets) {
-	return conflux::http::validate_secret_bytes(secrets.active, "jwt", secrets.min_secret_bytes);
+	return conflux::http::validate_secret_rotation(secrets, "jwt");
 }
 
 [[nodiscard]] std::array<unsigned char, 32> jwt_signature(
