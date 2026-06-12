@@ -194,11 +194,15 @@ void Environment::Impl::validate_links(
 		stack.push_back(name);
 		auto it = candidate.find(name);
 		if (it != candidate.end()) {
+			std::vector<std::string> deps;
 			for_each_direct_template_dep(it->second, [&](std::string const &dep) {
 				if (candidate.contains(dep)) {
-					dfs(dep);
+					deps.push_back(dep);
 				}
 			});
+			for (auto const &dep: deps) {
+				dfs(dep);
+			}
 		}
 		stack.pop_back();
 		visit_state[name] = 2;
