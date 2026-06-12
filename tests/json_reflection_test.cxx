@@ -42,6 +42,9 @@ struct NestedOptional {
 struct WithNestedOptional {
 	NestedOptional child{};
 };
+struct FloatConfig {
+	float scale{};
+};
 // ---------------------------------------------------------------------------
 // Minimal test runner
 // ---------------------------------------------------------------------------
@@ -130,7 +133,12 @@ void test_decode_array_members() {
 	CHECK(value->weights[1] == 6);
 	CHECK(value->weights[2] == 7);
 }
-
+void test_decode_float_rejects_out_of_range() {
+	auto doc = *parse(R"({"scale":1e100})");
+	auto value = decode<FloatConfig>(doc);
+	REQUIRE(!value.has_value());
+	CHECK(value.error().code == JsonIssueCode::number_out_of_range);
+}
 void test_decode_unknown_member_ignore_policy() {
 	auto doc = *parse(R"({"x": 1, "y": 2, "z": 3})");
 	auto p = decode<Point>(doc, JsonDecodeOptions{.unknown_members = UnknownMemberPolicy::ignore});
@@ -302,6 +310,12 @@ void test_reader_path_decode_array_members() {
 	CHECK(value->points[1].y == 4);
 	CHECK(value->weights[2] == 7);
 }
+void test_reader_path_float_rejects_out_of_range() {
+	JsonReader reader{R"({"scale":1e100})"};
+	auto value = decode<FloatConfig>(reader);
+	REQUIRE(!value.has_value());
+	CHECK(value.error().code == JsonIssueCode::number_out_of_range);
+}
 void test_reader_path_duplicate_vector_last_wins_clears_previous() {
 	JsonParseOptions opts;
 	opts.duplicate_key = DuplicateKeyPolicy::last_wins;
@@ -374,6 +388,7 @@ export int run_tests() {
 		{								   test_decode_skip_field_absent_ok,                     "decode skip field absent ok"},
 		{									   test_decode_nested_aggregate,                         "decode nested aggregate"},
 		{										  test_decode_array_members,                            "decode array members"},
+		{							 test_decode_float_rejects_out_of_range,               "decode float rejects out of range"},
 		{						   test_decode_unknown_member_ignore_policy,             "decode unknown member ignore policy"},
 		{			   test_boundary_reflect_provider_decode_ignore_unknown, "boundary reflect provider decode ignore unknown"},
 		{								test_boundary_reflect_provider_dump,                  "boundary reflect provider dump"},
@@ -390,6 +405,7 @@ export int run_tests() {
 		{								test_reader_path_decode_escaped_key,                  "reader path decode escaped key"},
 		{					  test_reader_path_decode_ignore_unknown_nested,        "reader path decode ignore unknown nested"},
 		{							  test_reader_path_decode_array_members,                "reader path decode array members"},
+		{						test_reader_path_float_rejects_out_of_range,          "reader path float rejects out of range"},
 		{        test_reader_path_duplicate_vector_last_wins_clears_previous,
 		 "reader path duplicate vector last_wins clears previous"                                                              },
 		{test_reader_path_duplicate_nested_last_wins_resets_missing_optional,

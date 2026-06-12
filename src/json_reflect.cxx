@@ -126,6 +126,21 @@ inline void reflect_indent(
 	out.append(static_cast<std::size_t>(depth) * opts.indent, opts.indent_char);
 }
 
+template<std::floating_point M>
+[[nodiscard]] std::expected<M, JsonError> checked_reflect_float(
+	double value) {
+	if (!std::isfinite(value)
+		|| value < static_cast<double>(std::numeric_limits<M>::lowest())
+		|| value > static_cast<double>(std::numeric_limits<M>::max())) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::number_out_of_range,
+				.message = std::format("floating-point value out of range for {}", std::meta::display_string_of(^^M))});
+	}
+	return static_cast<M>(value);
+}
+
 template<ParseMode Mode>
 [[nodiscard]] inline std::expected<void, JsonError> skip_reader_event(
 	JsonReader &reader,
@@ -644,7 +659,11 @@ template<ParseMode Mode, class M>
 		if (!n) {
 			return std::unexpected(std::move(n).error());
 		}
-		out = static_cast<Raw>(*n);
+		auto checked = checked_reflect_float<Raw>(*n);
+		if (!checked) {
+			return std::unexpected(std::move(checked).error());
+		}
+		out = *checked;
 		return {};
 	} else {
 		static_assert(!std::same_as<Raw, Raw>, "no reader decode support for reflected member type");
@@ -904,7 +923,7 @@ template<class M>
 		if (!r) {
 			return std::unexpected(std::move(r).error());
 		}
-		return static_cast<M>(*r);
+		return checked_reflect_float<M>(*r);
 	} else {
 		static_assert(!std::same_as<M, M>, "no decode support for reflected member type");
 	}
