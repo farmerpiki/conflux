@@ -735,20 +735,47 @@ load_bench_info_args() {
 # DB helpers
 # ---------------------------------------------------------------------------
 sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_literal() { printf "'%s'" "$(sql_escape "$1")"; }
+sql_bool() {
+  case "$1" in
+    true|false) printf '%s' "$1" ;;
+    *) echo "invalid SQL boolean for $2: $1" >&2; exit 2 ;;
+  esac
+}
+sql_uint() {
+  [[ "$1" =~ ^[0-9]+$ ]] || { echo "invalid SQL unsigned integer for $2: $1" >&2; exit 2; }
+  printf '%s' "$1"
+}
+sql_number() {
+  [[ "$1" =~ ^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$ ]] || {
+    echo "invalid SQL numeric value for $2: $1" >&2
+    exit 2
+  }
+  printf '%s' "$1"
+}
+sql_jsonb() {
+  local compact
+  compact="$(jq -c . <<< "$1")" || { echo "invalid JSON for $2" >&2; exit 2; }
+  printf "'%s'::jsonb" "$(sql_escape "$compact")"
+}
 
 new_run() {
   local bench="$1" config="$2" extra="$3"
   local waiver_sql="NULL"
-  [[ -n "$WAIVER_REASON" ]] && waiver_sql="'$(sql_escape "$WAIVER_REASON")'"
+  [[ -n "$WAIVER_REASON" ]] && waiver_sql="$(sql_literal "$WAIVER_REASON")"
+  local dirty_sql extra_sql metadata_sql
+  dirty_sql="$(sql_bool "$DIRTY" dirty)"
+  extra_sql="$(sql_jsonb "$extra" config_extra)"
+  metadata_sql="$(sql_jsonb "$METADATA" metadata)"
   psql "$PGURI" -At -q -c "
     INSERT INTO runs
       (name, commit_sha, branch, dirty, host, build_preset, compiler,
        benchmark, config_name, config_extra, machine_id, metadata, waiver_reason)
     VALUES
-      ('$(sql_escape "$NAME")', '$COMMIT', '$BRANCH', $DIRTY,
-       '$HOST', '$PRESET', '$COMPILER',
-       '$(sql_escape "$bench")', '$(sql_escape "$config")', '$(sql_escape "$extra")'::jsonb,
-       '$(sql_escape "$MACHINE_ID")', '$(sql_escape "$METADATA")'::jsonb,
+      ($(sql_literal "$NAME"), $(sql_literal "$COMMIT"), $(sql_literal "$BRANCH"), $dirty_sql,
+       $(sql_literal "$HOST"), $(sql_literal "$PRESET"), $(sql_literal "$COMPILER"),
+       $(sql_literal "$bench"), $(sql_literal "$config"), $extra_sql,
+       $(sql_literal "$MACHINE_ID"), $metadata_sql,
        $waiver_sql)
     RETURNING id;"
 }
@@ -756,10 +783,37 @@ new_run() {
 insert_row() {
   local run_id="$1" bench="$2" variant="$3" iters="$4" total_ns="$5" ns_pi="$6"
   local extra="${7-}"; [[ -z "$extra" ]] && extra='{}'
+  local run_id_sql iters_sql total_ns_sql ns_pi_sql extra_sql
+  run_id_sql="$(sql_uint "$run_id" run_id)"
+  iters_sql="$(sql_uint "$iters" iterations)"
+  total_ns_sql="$(sql_uint "$total_ns" total_ns)"
+  ns_pi_sql="$(sql_number "$ns_pi" ns_per_iter)"
+  extra_sql="$(sql_jsonb "$extra" extra)"
   psql "$PGURI" -At -q -c "
     INSERT INTO results (run_id, benchmark, variant, iterations, total_ns, ns_per_iter, extra)
-    VALUES ($run_id, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
-            $iters, $total_ns, $ns_pi, '$(sql_escape "$extra")'::jsonb);" >/dev/null
+    VALUES ($run_id_sql, $(sql_literal "$bench"), $(sql_literal "$variant"),
+            $iters_sql, $total_ns_sql, $ns_pi_sql, $extra_sql);" >/dev/null
+}
+
+insert_metric_row() {
+  local run_id="$1" bench="$2" variant="$3" iters="$4" total_ns="$5" ns_pi="$6"
+  local metric="$7" value="$8" unit="$9" sample_count="${10}" extra="${11}"
+  local run_id_sql iters_sql total_ns_sql ns_pi_sql value_sql sample_count_sql extra_sql
+  run_id_sql="$(sql_uint "$run_id" run_id)"
+  iters_sql="$(sql_uint "$iters" iterations)"
+  total_ns_sql="$(sql_uint "$total_ns" total_ns)"
+  ns_pi_sql="$(sql_number "$ns_pi" ns_per_iter)"
+  value_sql="$(sql_number "$value" metric_value)"
+  sample_count_sql="$(sql_uint "$sample_count" sample_count)"
+  extra_sql="$(sql_jsonb "$extra" extra)"
+  psql "$PGURI" -At -q -c "
+    INSERT INTO results
+      (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
+       metric, value, unit, sample_count, extra)
+    VALUES
+      ($run_id_sql, $(sql_literal "$bench"), $(sql_literal "$variant"),
+       $iters_sql, $total_ns_sql, $ns_pi_sql,
+       $(sql_literal "$metric"), $value_sql, $(sql_literal "$unit"), $sample_count_sql, $extra_sql);" >/dev/null
 }
 
 standard_extra_jq='del(.config, .variant, .iterations, .total_ns, .ns_per_iter) | if . == {} then {} else . end'
@@ -785,14 +839,7 @@ record_with_reps() {
   cp "$tmpf" "$rawf"
 
   while IFS=$'\t' read -r variant iters total ns_pi ex; do
-    psql "$PGURI" -At -q -c "
-      INSERT INTO results
-        (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
-         metric, value, unit, sample_count, extra)
-      VALUES
-        ($run_id, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
-         $iters, $total, $ns_pi,
-         'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
+    insert_metric_row "$run_id" "$bench" "$variant" "$iters" "$total" "$ns_pi" ns_per_iter "$ns_pi" ns 1 "$ex"
   done < <(jq -r -R "$standard_rows_jq" "$tmpf")
 
   psql "$PGURI" -At -q -c "
@@ -925,14 +972,7 @@ run_compare() {
         local ex
         ex=$(jq -c --argjson raw "$raw_ex" --argjson round "$round" --argjson pos "$pos" \
           '$raw + {round:$round, position:$pos}' <<< '{}')
-        psql "$PGURI" -At -q -c "
-          INSERT INTO results
-            (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
-             metric, value, unit, sample_count, extra)
-          VALUES
-            ($rid, 'work', '$(sql_escape "$variant")',
-             $iters, $total, $ns_pi,
-             'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
+        insert_metric_row "$rid" work "$variant" "$iters" "$total" "$ns_pi" ns_per_iter "$ns_pi" ns 1 "$ex"
       done < <(jq -r -R "$standard_rows_jq" "$tmpf")
       rm -f "$tmpf"
     done
