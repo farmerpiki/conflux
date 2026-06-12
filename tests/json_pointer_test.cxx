@@ -113,3 +113,15 @@ TEST_CASE(
 		CHECK(*by_index->as_number()->to_i64() == 30LL);
 	}
 }
+
+TEST_CASE(
+	"json: pointer array index overflow is rejected",
+	"[json][path]") {
+	auto doc = parse(R"(["zero","one"])");
+	REQUIRE(doc.has_value());
+	auto path = JsonPath::from_pointer("/18446744073709551616");
+	REQUIRE(path.has_value());
+	auto resolved = doc->root().at(*path);
+	REQUIRE_FALSE(resolved.has_value());
+	CHECK(resolved.error().code == JsonIssueCode::index_out_of_range);
+}
