@@ -79,10 +79,11 @@ if ((work_root_explicit == 0)); then
     work_root="$(mktemp -d "$tmp_root/conflux-pre-evidence-${release_sku}.XXXXXXXXXX")"
 fi
 
-work_root="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$work_root")"
-case "$work_root" in
+work_root_real="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$work_root")"
+work_root="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$work_root")"
+case "$work_root_real" in
     "$evidence_root"|"$evidence_root"/*)
-        printf 'check-pre-evidence-release-closure: refusing to write under ../evidence for scratch output: %s\n' "$work_root" >&2
+        printf 'check-pre-evidence-release-closure: refusing to write under ../evidence for scratch output: %s\n' "$work_root_real" >&2
         exit 2
         ;;
 esac
