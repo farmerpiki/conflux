@@ -182,6 +182,10 @@ public:
 	explicit TlsServerContext(
 		TlsServerOptions const &opts)
 		: ctx_{tls_detail::make_server_ctx(opts)} {}
+	TlsServerContext(TlsServerContext const &) = delete;
+	TlsServerContext &operator =(TlsServerContext const &) = delete;
+	TlsServerContext(TlsServerContext &&) = delete;
+	TlsServerContext &operator =(TlsServerContext &&) = delete;
 	SSL_CTX *add_vhost(
 		std::string_view hostname,
 		TlsServerOptions const &opts) {
