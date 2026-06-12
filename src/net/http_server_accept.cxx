@@ -25,8 +25,6 @@ import conflux.net.tls;
 #endif
 import :state;
 using namespace conflux::socket_io;
-using conflux::uring::DirectFd;
-using conflux::uring::OsFd;
 
 #if CONFLUX_HTTP_TRACE
 	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
@@ -58,20 +56,14 @@ void Ring::reject_accepted_socket_during_shutdown(
 		++pressure_counters_.accept_rejected;
 	}
 	if (accepted_sockets_direct) {
-		auto const ud = pack(Op::DirectSlotClose, 0, fd);
 		if (direct_slots_ && direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(fd))) {
 			if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
 				conflux::utils::eprintln(std::format("handle_accept shutdown: mark_closing failed slot={}", fd));
 			}
 		}
-		if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
-			defer_op([this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
-		}
+		submit_direct_slot_close_or_defer(fd);
 	} else {
-		auto const ud = pack(Op::Close, 0, fd);
-		if (!submit_close(raw_, OsFd::from_os(fd), ud)) {
-			defer_op([this, fd, ud] { submit_close(raw_, OsFd::from_os(fd), ud); });
-		}
+		submit_os_close_or_defer(fd);
 	}
 	if (!cqe_has_more(flg)
 		&& drain_control != nullptr
@@ -94,10 +86,7 @@ bool Ring::adopt_direct_accept_slot_or_disable(
 		std::format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", fd));
 	accepted_sockets_direct = false;
 	submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
-	auto const ud = pack(Op::DirectSlotClose, 0, fd);
-	if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
-		defer_op([this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
-	}
+	submit_direct_slot_close_or_defer(fd);
 	return false;
 }
 

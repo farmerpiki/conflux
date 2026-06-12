@@ -634,6 +634,8 @@ struct Ring {
 	// the CQE reap frees ring capacity.
 	void defer_op(conflux::detail::small_move_only_function<void()> op);
 	void cancel_multishot_recv_or_defer(int fd, std::uint32_t gen);
+	void submit_direct_slot_close_or_defer(int fd);
+	void submit_os_close_or_defer(int fd);
 	void drain_pending_ops();
 	void defer_queue_send_if_current(int fd, std::uint32_t gen);
 	void defer_handle_send_complete_if_current(int fd, std::uint32_t gen);

@@ -182,6 +182,22 @@ void Ring::cancel_accept_or_defer() {
 	cancel_accept_or_defer(listen_fd);
 }
 
+void Ring::submit_direct_slot_close_or_defer(
+	int fd) {
+	auto const ud = pack(Op::DirectSlotClose, 0, fd);
+	if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
+		defer_op([this, fd] { submit_direct_slot_close_or_defer(fd); });
+	}
+}
+
+void Ring::submit_os_close_or_defer(
+	int fd) {
+	auto const ud = pack(Op::Close, 0, fd);
+	if (!submit_close(raw_, OsFd::from_os(fd), ud)) {
+		defer_op([this, fd] { submit_os_close_or_defer(fd); });
+	}
+}
+
 void Ring::close_listen_socket() noexcept {
 	if (listen_fd < 0) {
 		return;
