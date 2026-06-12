@@ -750,6 +750,7 @@ void Ring::finish_mapped_send(
 void Ring::fail_send(
 	int fd,
 	Conn &conn) {
+	conn.send_queued = false;
 	if (conn.mapped_file) {
 		conn.mapped_file.reset();
 	}
@@ -780,6 +781,7 @@ bool Ring::handle_tls_send_progress(
 		return false;
 	}
 	if (res <= 0) {
+		conn.send_queued = false;
 		queue_close(fd);
 		return true;
 	}
@@ -879,6 +881,7 @@ void Ring::handle_plain_send_progress(
 		}
 		finish_plain_send(fd, conn);
 	} else {
+		conn.send_queued = false;
 		conn.send_buf = conflux::file_io::FixedBuffer{};
 		conn.send_buf_base_written = 0;
 		conn.send_buf_len = 0;
@@ -966,6 +969,7 @@ void Ring::handle_send_zc(
 		break;
 	case conflux::http::SendZcCqeAction::close_after_error: fail_send(fd, conn); break;
 	case conflux::http::SendZcCqeAction::close_after_notification:
+		conn.send_queued = false;
 		conn.own_response.clear();
 		conn.mapped_file.reset();
 		conn.closing = false; // queue_close early-returns when closing==true

@@ -263,6 +263,11 @@ void Ring::handle_fd_shutdown(
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 		return;
 	}
+	if (fd_table[ufd].send_queued) {
+		fd_table[ufd].close_after_send = true;
+		fd_table[ufd].closing = false;
+		return;
+	}
 	submit_conn_close_or_defer(fd, gen);
 }
 
@@ -288,6 +293,11 @@ void Ring::queue_close(
 			fd_table[ufd].zc_state.close_after_notification = true;
 			fd_table[ufd].closing = true;
 			invalidate_recv_if_armed(fd);
+			return;
+		}
+		if (fd_table[ufd].send_queued) {
+			fd_table[ufd].close_after_send = true;
+			submit_fd_shutdown_or_defer(fd, gen);
 			return;
 		}
 	}
