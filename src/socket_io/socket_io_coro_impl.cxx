@@ -1290,10 +1290,12 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::chrono::steady_clock::time_point deadline) {
 	auto const now = std::chrono::steady_clock::now();
 	if (deadline <= now) {
-		co_return;
+		auto [task, src] = wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation = false});
+		auto _ = src.try_set_value(wroot::Success<void>{});
+		return std::move(task);
 	}
 	auto const millis = std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
-	co_await async_sleep_for(ring, millis);
+	return async_sleep_for(ring, millis);
 }
 
 } // namespace conflux::socket_io

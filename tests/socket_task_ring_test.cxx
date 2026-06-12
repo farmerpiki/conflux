@@ -1436,6 +1436,26 @@ TEST_CASE(
 	CHECK(result.outcome.cancelled().reason == conflux::work::root::CancelReason::deadline);
 	REQUIRE(src.try_set_cancelled(conflux::work::root::CancelReason::requested));
 }
+
+TEST_CASE(
+	"sync_wait_socket_race cancels losing timeout_at trigger",
+	"[timeout][race][uring]") {
+	auto fx = require_ring_fixture();
+	auto [work, src] = conflux::work::root::make_task_source<int>();
+	auto raced = conflux::work::race::race<int>(
+		conflux::work::race::race_options{},
+		conflux::work::race::candidate("work", std::move(work)),
+		conflux::work::race::trigger(
+			"deadline",
+			timeout_at(fx->task_ring, std::chrono::steady_clock::now() + std::chrono::seconds{30}),
+			conflux::work::root::CancelReason::deadline));
+
+	REQUIRE(src.try_set_value(conflux::work::root::Success<int>{7}));
+	auto result = sync_wait_socket_race(fx->task_ring, std::move(raced), std::chrono::seconds{2});
+	CHECK(result.winner.label == "work");
+	REQUIRE(result.outcome.is_success());
+	CHECK(result.outcome.success().value == 7);
+}
 // ---------------------------------------------------------------------------
 // AC-9: submit_on_owner failure — cancel_requested set, drain via accept CQE
 // ---------------------------------------------------------------------------
