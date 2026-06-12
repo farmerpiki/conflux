@@ -163,8 +163,10 @@ auto with_transaction(
 				co_await body(c);
 			} catch (...) { err = std::current_exception(); }
 			if (!err) {
-				co_await c.query("COMMIT");
-				co_return;
+				try {
+					co_await c.query("COMMIT");
+					co_return;
+				} catch (...) { err = std::current_exception(); }
 			}
 		} else {
 			std::optional<R> result{};
@@ -172,8 +174,10 @@ auto with_transaction(
 				result.emplace(co_await body(c));
 			} catch (...) { err = std::current_exception(); }
 			if (!err) {
-				co_await c.query("COMMIT");
-				co_return std::move(*result);
+				try {
+					co_await c.query("COMMIT");
+					co_return std::move(*result);
+				} catch (...) { err = std::current_exception(); }
 			}
 		}
 		try {

@@ -325,7 +325,7 @@ template<class Body>
 root::Task<...> with_transaction(Pool& p, TxOptions opt, Body&& body);
 ```
 
-`body` is a coroutine lambda that receives a `Connection&`. On success it commits and returns the body value. On exception it rolls back and rethrows. `PgError` values with serialization (`40001`) or deadlock (`40P01`) SQLSTATEs retry until `max_retries` is exhausted.
+`body` is a coroutine lambda that receives a `Connection&`. On success it commits and returns the body value. On body or commit exception it rolls back best-effort and rethrows. `PgError` values with serialization (`40001`) or deadlock (`40P01`) SQLSTATEs retry until `max_retries` is exhausted.
 
 ```cpp
 auto id = co_await with_transaction(pool, {},
