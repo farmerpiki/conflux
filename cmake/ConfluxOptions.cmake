@@ -501,6 +501,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     endif()
 endif()
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
+option(CONFLUX_ENABLE_CPU_DISPATCH
+    "Guard compiled ISA-specific fast paths with runtime CPU feature checks for portable distribution builds" OFF)
 set(CONFLUX_SIMD_SELECTION "AUTO" CACHE STRING
     "Select SIMD binding policy for ISA-specific fast paths (AUTO|DIRECT|RUNTIME)")
 set_property(CACHE CONFLUX_SIMD_SELECTION PROPERTY STRINGS AUTO DIRECT RUNTIME)
@@ -516,7 +518,11 @@ endif()
 
 set(_conflux_simd_selection "${CONFLUX_SIMD_SELECTION}")
 if(_conflux_simd_selection STREQUAL "AUTO")
-    set(_conflux_simd_selection DIRECT)
+    if(CONFLUX_ENABLE_CPU_DISPATCH)
+        set(_conflux_simd_selection RUNTIME)
+    else()
+        set(_conflux_simd_selection DIRECT)
+    endif()
 endif()
 set(_conflux_simd_selection_direct OFF)
 set(_conflux_simd_selection_runtime OFF)
@@ -536,7 +542,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"
 endif()
 
 set(_conflux_cpu_feature_probes_runtime OFF)
-if(_conflux_simd_selection_runtime)
+if(CONFLUX_ENABLE_CPU_DISPATCH OR _conflux_simd_selection_runtime)
     set(_conflux_cpu_feature_probes_runtime ON)
 endif()
 

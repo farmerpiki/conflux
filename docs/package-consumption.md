@@ -59,7 +59,9 @@ target_link_libraries(myapp PRIVATE conflux::core conflux::json conflux::file_io
 ## CPU / ISA Dispatch for Distribution Packages
 
 Distribution packages should build with a portable compiler baseline and enable
-`CONFLUX_SIMD_SELECTION=RUNTIME`.
+`CONFLUX_SIMD_SELECTION=RUNTIME`. Existing package scripts that still use
+`CONFLUX_ENABLE_CPU_DISPATCH=ON` with the default `CONFLUX_SIMD_SELECTION=AUTO`
+continue to resolve SIMD scan binding to `RUNTIME`.
 This allows Conflux to compile optional ISA-specific objects such as
 AES-NI/PCLMUL or AVX2 SIMD scan helpers while selecting supported scan helpers
 at runtime. On Linux x86 Clang/GCC builds, JSON stdsimd scan helpers use ELF
@@ -70,9 +72,10 @@ that lack those features and falls back to scalar code.
 `CONFLUX_SIMD_SELECTION=DIRECT` removes runtime AVX2 probes from selected SIMD
 scan call sites. While the stdsimd objects are built with `-mavx2`, direct
 `STDX`/`STD26` builds are AVX2-specific and must only be shipped when package
-metadata declares that CPU baseline. `CONFLUX_SIMD_SELECTION=AUTO` resolves to
-`DIRECT` and is intended for local appliance and benchmark builds where every
-deployment target is known to support the selected ISA-specific objects.
+metadata declares that CPU baseline. With `CONFLUX_ENABLE_CPU_DISPATCH=OFF`,
+`CONFLUX_SIMD_SELECTION=AUTO` resolves to `DIRECT` and is intended for local
+appliance and benchmark builds where every deployment target is known to support
+the selected ISA-specific objects.
 
 Do not ship packages built with `-march=native` or unconditional deployment ISA
 flags unless the package metadata declares that CPU baseline.
