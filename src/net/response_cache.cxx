@@ -100,7 +100,12 @@ bool cache_control_directive_contains(
 	std::string_view cc,
 	std::string_view directive) {
 	return std::ranges::any_of(conflux::http::header_items(cc), [&](conflux::http::HeaderItem item) {
-		return conflux::http::ascii_iequals(item.name, directive);
+		if (conflux::http::ascii_iequals(item.name, directive)) {
+			return true;
+		}
+		return std::ranges::any_of(item.params, [&](conflux::http::HeaderParam param) {
+			return conflux::http::ascii_iequals(param.name, directive);
+		});
 	});
 }
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
@@ -110,6 +115,9 @@ std::chrono::seconds parse_max_age(
 	for (auto const item: conflux::http::header_items(cc)) {
 		if (!item.has_value || !conflux::http::ascii_iequals(item.name, "max-age")) {
 			continue;
+		}
+		if (item.params.begin() != item.params.end()) {
+			break;
 		}
 		auto const val = conflux::utils::trim(item.value);
 		long v = 0;
