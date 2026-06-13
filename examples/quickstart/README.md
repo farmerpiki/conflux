@@ -13,10 +13,10 @@ and non-blocking; use the advanced explicit offload/work-pool examples for disk,
 DNS, database, client HTTP, sleeps, contended locks, or CPU-heavy work. Request
 bodies are bounded and buffered in memory in the preview server API.
 
-`json_crud.cxx` and `json_reflect_crud.cxx` use a mutex-protected in-memory
-vector only as tiny demo state for local curl experiments. Do not copy that
-storage shape into services; production handlers should call non-blocking
-storage or explicitly leave the ring context before blocking or contending.
+`json_crud.cxx` and `json_reflect_crud.cxx` use in-memory demo state only for
+local curl experiments. Do not copy that storage shape into services;
+production handlers should call non-blocking storage or explicitly leave the
+ring context before blocking or contending.
 
 Use `examples/advanced/` for `conflux.extended`, explicit providers, work pools,
 database coroutines, raw runtime setup, HTTP/3, and other lower-level

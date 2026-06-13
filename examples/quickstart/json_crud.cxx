@@ -18,10 +18,6 @@ struct CreateTodo {
 };
 
 struct TodoStore {
-	// Tiny demo state for local curl experiments only. Service handlers should
-	// not block or contend on the HTTP ring context; use non-blocking storage or
-	// explicit offload instead.
-	std::mutex mu;
 	std::vector<Todo> todos;
 	std::int64_t next_id{1};
 };
@@ -55,13 +51,9 @@ int main() {
 	auto store = std::make_shared<TodoStore>();
 	app.state(store);
 
-	app.get("/todos", [](http::State<TodoStore> store) {
-		std::lock_guard lock{store->mu};
-		return http::json(TodoList{.items = store->todos});
-	});
+	app.get("/todos", [](http::State<TodoStore> store) { return http::json(TodoList{.items = store->todos}); });
 
 	app.get<"/todos/{id:i64}">([](std::int64_t id, http::State<TodoStore> store) -> http::Result<http::Json<Todo>> {
-		std::lock_guard lock{store->mu};
 		auto it = std::ranges::find(store->todos, id, &Todo::id);
 		if (it == store->todos.end()) {
 			return std::unexpected{http::problem::not_found("todo_not_found", "todo not found")};
@@ -75,7 +67,6 @@ int main() {
 			if (body->title.empty()) {
 				return std::unexpected{http::problem::bad_request("invalid_todo", "title is required")};
 			}
-			std::lock_guard lock{store->mu};
 			auto todo = Todo{.id = store->next_id++, .title = body->title};
 			store->todos.push_back(todo);
 			return http::created(todo).location(std::format("/todos/{}", todo.id));
