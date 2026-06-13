@@ -18,8 +18,9 @@ struct CreateTodo {
 };
 
 struct TodoStore {
-	// Toy in-memory storage for the quickstart. Real services should use
-	// non-blocking storage instead.
+	// Tiny demo state for local curl experiments only. Service handlers should
+	// not block or contend on the HTTP ring context; use non-blocking storage or
+	// explicit offload instead.
 	std::mutex mu;
 	std::vector<Todo> todos;
 	std::int64_t next_id{1};
