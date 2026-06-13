@@ -5,6 +5,14 @@ module;
 #include <signal.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#if CONFLUX_HAS_TLS
+	#include <openssl/bio.h>
+	#include <openssl/buffer.h>
+	#include <openssl/evp.h>
+	#include <openssl/pem.h>
+	#include <openssl/rsa.h>
+	#include <openssl/x509.h>
+#endif
 
 export module conflux.tests.support;
 
@@ -14,7 +22,136 @@ import conflux.net.config;
 import conflux.net.http_server;
 import conflux.net.router;
 import conflux.net.vhost;
+
+namespace {
+
+#if CONFLUX_HAS_TLS
+struct TestBioDeleter {
+	void operator ()(
+		BIO *p) const noexcept {
+		BIO_free(p);
+	}
+};
+struct TestEvpPkeyDeleter {
+	void operator ()(
+		EVP_PKEY *p) const noexcept {
+		EVP_PKEY_free(p);
+	}
+};
+struct TestEvpPkeyCtxDeleter {
+	void operator ()(
+		EVP_PKEY_CTX *p) const noexcept {
+		EVP_PKEY_CTX_free(p);
+	}
+};
+struct TestX509Deleter {
+	void operator ()(
+		X509 *p) const noexcept {
+		X509_free(p);
+	}
+};
+
+using TestUniqueBio = std::unique_ptr<BIO, TestBioDeleter>;
+using TestUniqueEvpPkey = std::unique_ptr<EVP_PKEY, TestEvpPkeyDeleter>;
+using TestUniqueEvpPkeyCtx = std::unique_ptr<EVP_PKEY_CTX, TestEvpPkeyCtxDeleter>;
+using TestUniqueX509 = std::unique_ptr<X509, TestX509Deleter>;
+
+[[nodiscard]] TestUniqueEvpPkey make_test_private_key() {
+	TestUniqueEvpPkeyCtx ctx{EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr)};
+	if (!ctx || EVP_PKEY_keygen_init(ctx.get()) <= 0 || EVP_PKEY_CTX_set_rsa_keygen_bits(ctx.get(), 2048) <= 0) {
+		throw std::runtime_error{"test TLS keygen init failed"};
+	}
+	EVP_PKEY *raw = nullptr;
+	if (EVP_PKEY_keygen(ctx.get(), &raw) <= 0 || raw == nullptr) {
+		throw std::runtime_error{"test TLS keygen failed"};
+	}
+	return TestUniqueEvpPkey{raw};
+}
+
+[[nodiscard]] TestUniqueX509 make_test_certificate(
+	EVP_PKEY *key) {
+	TestUniqueX509 cert{X509_new()};
+	if (!cert) {
+		throw std::runtime_error{"test TLS X509_new failed"};
+	}
+	if (X509_set_version(cert.get(), 2) != 1) {
+		throw std::runtime_error{"test TLS X509_set_version failed"};
+	}
+	if (ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), 1) != 1) {
+		throw std::runtime_error{"test TLS serial failed"};
+	}
+	if (X509_gmtime_adj(X509_get_notBefore(cert.get()), 0) == nullptr
+		|| X509_gmtime_adj(X509_get_notAfter(cert.get()), 24 * 60 * 60) == nullptr) {
+		throw std::runtime_error{"test TLS validity failed"};
+	}
+	if (X509_set_pubkey(cert.get(), key) != 1) {
+		throw std::runtime_error{"test TLS pubkey failed"};
+	}
+	X509_NAME *name = X509_get_subject_name(cert.get());
+	auto const *localhost = reinterpret_cast<unsigned char const *>("localhost");
+	if (X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, localhost, -1, -1, 0) != 1) {
+		throw std::runtime_error{"test TLS subject failed"};
+	}
+	if (X509_set_issuer_name(cert.get(), name) != 1) {
+		throw std::runtime_error{"test TLS issuer failed"};
+	}
+	if (X509_sign(cert.get(), key, EVP_sha256()) <= 0) {
+		throw std::runtime_error{"test TLS cert sign failed"};
+	}
+	return cert;
+}
+
+[[nodiscard]] std::string bio_string(
+	BIO *bio) {
+	BUF_MEM *mem = nullptr;
+	BIO_get_mem_ptr(bio, &mem);
+	if (mem == nullptr || mem->data == nullptr) {
+		return {};
+	}
+	return std::string{mem->data, mem->length};
+}
+
+[[nodiscard]] std::pair<std::string, std::string> make_test_cert_pem_pair() {
+	auto key = make_test_private_key();
+	auto cert = make_test_certificate(key.get());
+	TestUniqueBio cert_bio{BIO_new(BIO_s_mem())};
+	TestUniqueBio key_bio{BIO_new(BIO_s_mem())};
+	if (!cert_bio || !key_bio) {
+		throw std::runtime_error{"test TLS memory BIO failed"};
+	}
+	if (PEM_write_bio_X509(cert_bio.get(), cert.get()) != 1
+		|| PEM_write_bio_PrivateKey(key_bio.get(), key.get(), nullptr, nullptr, 0, nullptr, nullptr) != 1) {
+		throw std::runtime_error{"test TLS PEM write failed"};
+	}
+	return {bio_string(cert_bio.get()), bio_string(key_bio.get())};
+}
+#endif
+
+} // namespace
+
 export namespace conflux::tests {
+
+std::pair<std::string, std::string> const &cached_test_cert() {
+#if CONFLUX_HAS_TLS
+	static std::pair<std::string, std::string> const bytes = make_test_cert_pem_pair();
+	return bytes;
+#else
+	static std::pair<std::string, std::string> const bytes{};
+	return bytes;
+#endif
+}
+
+void configure_test_tls(
+	conflux::http::Config &cfg) {
+#if CONFLUX_HAS_TLS
+	auto const &[cert_pem, key_pem] = cached_test_cert();
+	cfg.cert_pem = cert_pem;
+	cfg.key_pem = key_pem;
+#else
+	std::ignore = cfg;
+	throw std::runtime_error{"TLS support is disabled"};
+#endif
+}
 
 enum class SocketReadEnd {
 	eof,

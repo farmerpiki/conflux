@@ -4,6 +4,7 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
         PRIVATE
             tls_external.cxx
         PRIVATE FILE_SET CXX_MODULES FILES
+            support.cxx
             external_support.cxx
     )
     target_link_libraries(conflux_tls_external
@@ -25,6 +26,7 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
             PRIVATE
                 libcurl_external.cxx
             PRIVATE FILE_SET CXX_MODULES FILES
+                support.cxx
                 external_support.cxx
         )
         target_link_libraries(conflux_libcurl_external
@@ -40,6 +42,7 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
             PRIVATE
                 libcurl_external.cxx
             PRIVATE FILE_SET CXX_MODULES FILES
+                support.cxx
                 external_support.cxx
         )
         target_compile_definitions(conflux_libcurl_external_stress
@@ -60,6 +63,7 @@ if(CONFLUX_HAS_HTTP2 STREQUAL "true")
         PRIVATE
             h2_external.cxx
         PRIVATE FILE_SET CXX_MODULES FILES
+            support.cxx
             external_support.cxx
     )
     target_link_libraries(conflux_h2_external
@@ -72,6 +76,7 @@ if(CONFLUX_HAS_HTTP3 STREQUAL "true")
         PRIVATE
             h3_external.cxx
         PRIVATE FILE_SET CXX_MODULES FILES
+            support.cxx
             external_support.cxx
     )
     target_link_libraries(conflux_h3_external

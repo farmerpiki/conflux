@@ -1,9 +1,7 @@
 // Plain TU — Catch2 macros with templates trigger GCC's TU-local entity
 // exposure rule inside module units; keep this file header-only.
 #include <catch2/catch_test_macros.hpp>
-#include <cstdlib>
 #include <openssl/ssl.h>
-#include <unistd.h>
 
 import std;
 import conflux.types;
@@ -22,49 +20,9 @@ import conflux.tests.support;
 #if CONFLUX_HAS_HTTP3
 namespace {
 
-struct TempPathCleanup {
-	std::string path;
-	~TempPathCleanup() {
-		if (!path.empty()) {
-			::unlink(path.c_str());
-		}
-	}
-};
-struct TempCert {
-	std::string cert_path;
-	std::string key_path;
-	TempCert() {
-		char cert_tmp[] = "/tmp/conflux_http3_test_cert_XXXXXX.pem";
-		char key_tmp[] = "/tmp/conflux_http3_test_key_XXXXXX.pem";
-		int cert_fd = ::mkstemps(cert_tmp, 4);
-		int key_fd = ::mkstemps(key_tmp, 4);
-		REQUIRE(cert_fd >= 0);
-		REQUIRE(key_fd >= 0);
-		::close(cert_fd);
-		::close(key_fd);
-		TempPathCleanup cert_cleanup{cert_tmp};
-		TempPathCleanup key_cleanup{key_tmp};
-		auto const cmd = std::format(
-			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
-			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
-			key_tmp,
-			cert_tmp);
-		REQUIRE(::system(cmd.c_str()) == 0);
-		cert_path = cert_tmp;
-		key_path = key_tmp;
-		cert_cleanup.path.clear();
-		key_cleanup.path.clear();
-	}
-	~TempCert() {
-		::unlink(cert_path.c_str());
-		::unlink(key_path.c_str());
-	}
-};
-[[nodiscard]] conflux::http::Config http3_test_config(
-	TempCert const &cert) {
+[[nodiscard]] conflux::http::Config http3_test_config() {
 	auto cfg = conflux::tests::mw_config();
-	cfg.cert_file = cert.cert_path;
-	cfg.key_file = cert.key_path;
+	conflux::tests::configure_test_tls(cfg);
 	cfg.http3.enabled = true;
 	return cfg;
 }
@@ -91,8 +49,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"http3 alt-svc uses the actual bound port") {
-	TempCert const cert;
-	auto cfg = http3_test_config(cert);
+	auto cfg = http3_test_config();
 
 	conflux::http::Router router;
 	router.get("/ping", [](conflux::http::RequestView const &) {
@@ -114,8 +71,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"http3 is not advertised for VHostRouter servers") {
-	TempCert const cert;
-	auto cfg = http3_test_config(cert);
+	auto cfg = http3_test_config();
 
 	conflux::http::Router def;
 	def.get("/ping", [](conflux::http::RequestView const &) {

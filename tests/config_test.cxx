@@ -223,6 +223,33 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"net.config: in-memory TLS credentials satisfy TLS requirements",
+	"[net.config]") {
+	Config cfg = Config::development();
+	cfg.cert_pem = "-----BEGIN CERTIFICATE-----\nsmall-test-cert\n-----END CERTIFICATE-----\n";
+	cfg.key_pem = "-----BEGIN PRIVATE KEY-----\nsmall-test-key\n-----END PRIVATE KEY-----\n";
+	cfg.http_redirect_to_https = true;
+	cfg.https_redirect_hosts.push_back("localhost");
+
+	auto issues = validate_config(cfg);
+	CHECK_FALSE(
+		std::ranges::any_of(issues, [](ConfigIssue const &issue) { return issue.key == "http_redirect_to_https"; }));
+
+	cfg.cert_file = "cert.pem";
+	issues = validate_config(cfg);
+	CHECK(std::ranges::any_of(issues, [](ConfigIssue const &issue) {
+		return issue.code == ConfigIssueCode::incompatible_options && issue.key == "credentials";
+	}));
+
+	cfg.cert_file.clear();
+	cfg.key_pem.clear();
+	issues = validate_config(cfg);
+	CHECK(std::ranges::any_of(issues, [](ConfigIssue const &issue) {
+		return issue.code == ConfigIssueCode::invalid_value && issue.key == "cert_pem";
+	}));
+}
+
+TEST_CASE(
 	"net.config: ini parses perf/isolation knobs",
 	"[net.config]") {
 	TempIni ini{R"ini(

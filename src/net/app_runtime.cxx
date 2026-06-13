@@ -400,33 +400,54 @@ void App::validate_openapi_completeness(
 
 void App::validate_tls_config(
 	ValidationReport &report) const {
-	auto const primary_cert = !cfg_.cert_file.empty();
-	auto const primary_key = !cfg_.key_file.empty();
-	auto const primary_tls = primary_cert && primary_key;
-	if (primary_cert != primary_key) {
+	auto const primary_file_cert = !cfg_.cert_file.empty();
+	auto const primary_file_key = !cfg_.key_file.empty();
+	auto const primary_pem_cert = !cfg_.cert_pem.empty();
+	auto const primary_pem_key = !cfg_.key_pem.empty();
+	auto const primary_file_tls = primary_file_cert && primary_file_key;
+	auto const primary_pem_tls = primary_pem_cert && primary_pem_key;
+	auto const primary_tls = primary_file_tls || primary_pem_tls;
+	if (primary_file_cert != primary_file_key) {
 		report.issues.push_back(
 			ValidationIssue{
 				.message = "TLS config invalid: cert_file and key_file must be set together",
 				.method = "APP",
 				.path = "config"});
 	}
+	if (primary_pem_cert != primary_pem_key) {
+		report.issues.push_back(
+			ValidationIssue{
+				.message = "TLS config invalid: cert_pem and key_pem must be set together",
+				.method = "APP",
+				.path = "config"});
+	}
+	if ((primary_file_cert || primary_file_key) && (primary_pem_cert || primary_pem_key)) {
+		report.issues.push_back(
+			ValidationIssue{
+				.message = "TLS config invalid: choose either cert_file/key_file or cert_pem/key_pem",
+				.method = "APP",
+				.path = "config"});
+	}
 	if (cfg_.http3.enabled && !primary_tls) {
 		report.issues.push_back(
 			ValidationIssue{
-				.message = "TLS config invalid: HTTP/3 requires cert_file and key_file",
+				.message = "TLS config invalid: HTTP/3 requires TLS credentials",
 				.method = "APP",
 				.path = "config"});
 	}
 	if (cfg_.http_redirect_to_https && !primary_tls) {
 		report.issues.push_back(
 			ValidationIssue{
-				.message = "TLS config invalid: HTTPS redirect requires cert_file and key_file",
+				.message = "TLS config invalid: HTTPS redirect requires TLS credentials",
 				.method = "APP",
 				.path = "config"});
 	}
 	for (auto const &host: cfg_.virtual_hosts) {
-		auto const host_cert = !host.cert_file.empty();
-		auto const host_key = !host.key_file.empty();
+		auto const host_file_cert = !host.cert_file.empty();
+		auto const host_file_key = !host.key_file.empty();
+		auto const host_pem_cert = !host.cert_pem.empty();
+		auto const host_pem_key = !host.key_pem.empty();
+		auto const host_has_tls = (host_file_cert && host_file_key) || (host_pem_cert && host_pem_key);
 		if (host.hostname.empty()) {
 			report.issues.push_back(
 				ValidationIssue{
@@ -434,7 +455,7 @@ void App::validate_tls_config(
 					.method = "APP",
 					.path = "config"});
 		}
-		if (host_cert != host_key) {
+		if (host_file_cert != host_file_key) {
 			report.issues.push_back(
 				ValidationIssue{
 					.message = std::format(
@@ -443,11 +464,29 @@ void App::validate_tls_config(
 					.method = "APP",
 					.path = "config"});
 		}
-		if ((host_cert || host_key) && !primary_tls) {
+		if (host_pem_cert != host_pem_key) {
 			report.issues.push_back(
 				ValidationIssue{
 					.message = std::format(
-						"TLS config invalid: virtual host '{}' requires primary cert_file and key_file",
+						"TLS config invalid: virtual host '{}' cert_pem and key_pem must be set together",
+						host.hostname),
+					.method = "APP",
+					.path = "config"});
+		}
+		if ((host_file_cert || host_file_key) && (host_pem_cert || host_pem_key)) {
+			report.issues.push_back(
+				ValidationIssue{
+					.message = std::format(
+						"TLS config invalid: virtual host '{}' chooses both file and PEM credentials",
+						host.hostname),
+					.method = "APP",
+					.path = "config"});
+		}
+		if (host_has_tls && !primary_tls) {
+			report.issues.push_back(
+				ValidationIssue{
+					.message = std::format(
+						"TLS config invalid: virtual host '{}' requires primary TLS credentials",
 						host.hostname),
 					.method = "APP",
 					.path = "config"});

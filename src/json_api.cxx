@@ -224,10 +224,11 @@ struct JsonError {
 	std::optional<std::string> from_pointer{};
 	std::string message{};
 	[[nodiscard]] JsonError with_prefix(
-		JsonPath const &prefix) const & {
-		JsonError copy = *this;
+		this JsonError const &self,
+		JsonPath const &prefix) {
+		JsonError copy = self;
 		JsonPath full;
-		full.reserve(prefix.size() + path.size());
+		full.reserve(prefix.size() + self.path.size());
 		for (auto const &s: prefix) {
 			if (holds_alternative<JsonPathMember>(s)) {
 				full.push_member(get<JsonPathMember>(s).name);
@@ -235,7 +236,7 @@ struct JsonError {
 				full.push_index(get<JsonPathIndex>(s).index);
 			}
 		}
-		for (auto const &s: path) {
+		for (auto const &s: self.path) {
 			if (holds_alternative<JsonPathMember>(s)) {
 				full.push_member(get<JsonPathMember>(s).name);
 			} else {
@@ -244,10 +245,6 @@ struct JsonError {
 		}
 		copy.path = std::move(full);
 		return copy;
-	}
-	[[nodiscard]] JsonError with_prefix(
-		JsonPath const &prefix) && {
-		return static_cast<JsonError const &>(*this).with_prefix(prefix);
 	}
 };
 
@@ -3043,8 +3040,7 @@ template<typename T>
 std::expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 template<typename T>
 	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-std::expected<Document, JsonError>
-parse_borrowed(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+std::expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 template<typename T>
 	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
 std::expected<Document, JsonError>

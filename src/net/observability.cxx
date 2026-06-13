@@ -154,7 +154,9 @@ void append_headers_json(
 	conflux::http::HttpFieldsView const &headers,
 	std::vector<std::string> const &sensitive,
 	bool redact) {
-	out += std::format(R"(,"{}":{{)", key);
+	out += ',';
+	detail::append_json_string(out, key);
+	out += ":{";
 	bool first = true;
 	for (auto const &[name, value]: headers) {
 		if (!first) {
@@ -162,7 +164,9 @@ void append_headers_json(
 		}
 		first = false;
 		auto const logged = (redact && is_sensitive(sensitive, name)) ? kRedacted : value;
-		out += std::format(R"({}:{})", detail::json_string(name), detail::json_string(logged));
+		detail::append_json_string(out, name);
+		out += ':';
+		detail::append_json_string(out, logged);
 	}
 	out += '}';
 }
@@ -176,23 +180,49 @@ void append_headers_json(
 	auto const route = route_label(req, resp);
 	auto const request_id = req.header("x-request-id");
 	auto const traceparent = req.header("traceparent");
+	auto const method = upper_method(req.method);
+	auto const path = path_without_query(req, opts.log_query_string);
+	auto const status_class_value = status_class(resp.status);
+	auto const user_agent = req.header("user-agent");
 	auto const ms = std::chrono::duration<double, std::milli>(elapsed).count();
-	std::string line = std::format(
-		R"({{"event":"http_request","service":{},"request_id":{},"trace_id":{},"method":{},"path":{},"route":{},"status":{},"status_class":{},"duration_ms":{},"bytes_in":{},"bytes_out":{},"remote_addr":{},"user_agent":{},"rejection_reason":null}})",
-		detail::json_string(opts.service_name),
-		detail::json_string(request_id),
-		detail::json_string(traceparent),
-		detail::json_string(upper_method(req.method)),
-		detail::json_string(path_without_query(req, opts.log_query_string)),
-		detail::json_string(route),
-		resp.status,
-		detail::json_string(status_class(resp.status)),
-		ms,
-		req.body.size(),
-		resp.content_length(),
-		detail::json_string(req.remote_addr),
-		detail::json_string(req.header("user-agent")));
-	line.pop_back();
+	std::string line;
+	line.reserve(
+		256
+		+ opts.service_name.size()
+		+ request_id.size()
+		+ traceparent.size()
+		+ method.size()
+		+ path.size()
+		+ route.size()
+		+ req.remote_addr.size()
+		+ user_agent.size());
+	line += R"({"event":"http_request","service":)";
+	detail::append_json_string(line, opts.service_name);
+	line += R"(,"request_id":)";
+	detail::append_json_string(line, request_id);
+	line += R"(,"trace_id":)";
+	detail::append_json_string(line, traceparent);
+	line += R"(,"method":)";
+	detail::append_json_string(line, method);
+	line += R"(,"path":)";
+	detail::append_json_string(line, path);
+	line += R"(,"route":)";
+	detail::append_json_string(line, route);
+	line += R"(,"status":)";
+	detail::append_decimal(line, resp.status);
+	line += R"(,"status_class":)";
+	detail::append_json_string(line, status_class_value);
+	line += R"(,"duration_ms":)";
+	line += std::format("{}", ms);
+	line += R"(,"bytes_in":)";
+	detail::append_decimal(line, req.body.size());
+	line += R"(,"bytes_out":)";
+	detail::append_decimal(line, resp.content_length());
+	line += R"(,"remote_addr":)";
+	detail::append_json_string(line, req.remote_addr);
+	line += R"(,"user_agent":)";
+	detail::append_json_string(line, user_agent);
+	line += R"(,"rejection_reason":null)";
 	if (opts.log_request_headers) {
 		append_headers_json(line, "request_headers", req.headers, sensitive, opts.redact_sensitive_headers);
 	}

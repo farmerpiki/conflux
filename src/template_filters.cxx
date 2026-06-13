@@ -9,6 +9,8 @@ import conflux.file_io_sync;
 
 namespace conflux::templates {
 
+using conflux::utils::ascii_lower_inplace;
+using conflux::utils::ascii_upper_inplace;
 using conflux::utils::eprintln;
 
 TmplValue apply_length_filter(
@@ -48,9 +50,7 @@ TmplValue apply_upper_filter(
 	TmplValue const &val,
 	ValueToString value_to_string_fn) {
 	auto s = value_to_string_fn(val);
-	for (auto &c: s) {
-		c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-	}
+	ascii_upper_inplace(s);
 	return TmplValue{std::move(s)};
 }
 template<class ValueToString>
@@ -58,9 +58,7 @@ TmplValue apply_lower_filter(
 	TmplValue const &val,
 	ValueToString value_to_string_fn) {
 	auto s = value_to_string_fn(val);
-	for (auto &c: s) {
-		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-	}
+	ascii_lower_inplace(s);
 	return TmplValue{std::move(s)};
 }
 template<class ValueToString>
@@ -75,7 +73,7 @@ TmplValue apply_title_filter(
 			continue;
 		}
 		if (next_upper) {
-			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+			ascii_upper_inplace(std::span<char>{&c, 1});
 			next_upper = false;
 		}
 	}

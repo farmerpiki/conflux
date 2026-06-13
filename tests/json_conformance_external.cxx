@@ -708,7 +708,7 @@ TEST_CASE(
 	REQUIRE_FALSE(doc.has_value());
 	// The offset reported should be raw-byte offset including BOM.
 	REQUIRE(doc.error().source.has_value());
-	CHECK(doc.error().source->offset >= 3);
+	CHECK(doc.error().source->offset == 6UZ);
 }
 // ---------------------------------------------------------------------------
 // v11 Phase 1 — owned input buffer + zero-copy number lexemes.
