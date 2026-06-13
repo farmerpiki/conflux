@@ -84,6 +84,107 @@ TEST_CASE(
 	CHECK_THROWS_AS(std::rethrow_exception(rejected_out.failure().error), root::WorkError);
 }
 TEST_CASE(
+	"work: WorkPool max_inject_queue zero rejects external enqueue",
+	"[work]") {
+	WorkPool pool{
+		WorkPoolOptions{.threads = 1, .max_inject_queue = 0}
+    };
+	CHECK_FALSE(pool.enqueue([] {}));
+}
+TEST_CASE(
+	"work: WorkPool max_inject_queue is exact for non power of two",
+	"[work]") {
+	std::mutex mtx;
+	std::condition_variable cv;
+	bool blocker_started = false;
+	bool release_blocker = false;
+	WorkPool pool{
+		WorkPoolOptions{.threads = 1, .max_inject_queue = 3}
+    };
+	REQUIRE(pool.enqueue([&] {
+		std::unique_lock lk{mtx};
+		blocker_started = true;
+		cv.notify_all();
+		cv.wait(lk, [&] { return release_blocker; });
+	}));
+	{
+		std::unique_lock lk{mtx};
+		REQUIRE(cv.wait_for(lk, std::chrono::seconds{5}, [&] { return blocker_started; }));
+	}
+	CHECK(pool.enqueue([] {}));
+	CHECK(pool.enqueue([] {}));
+	CHECK(pool.enqueue([] {}));
+	CHECK_FALSE(pool.enqueue([] {}));
+	{
+		std::scoped_lock const lk{mtx};
+		release_blocker = true;
+	}
+	cv.notify_all();
+	pool.drain_and_stop();
+}
+TEST_CASE(
+	"work: WorkPool sharded inject retries alternate shards",
+	"[work]") {
+	std::mutex mtx;
+	std::condition_variable cv;
+	int running = -1;
+	bool release_first = false;
+	bool release_third = false;
+	WorkPool pool{
+		WorkPoolOptions{.threads = 1, .max_inject_queue = 2, .inject_queue_shards = 2}
+    };
+	REQUIRE(pool.enqueue([&] {
+		std::unique_lock lk{mtx};
+		running = 0;
+		cv.notify_all();
+		cv.wait(lk, [&] { return release_first; });
+	}));
+	{
+		std::unique_lock lk{mtx};
+		bool const first_started = cv.wait_for(lk, std::chrono::seconds{5}, [&] { return running == 0; });
+		if (!first_started) {
+			release_first = true;
+			release_third = true;
+			lk.unlock();
+			cv.notify_all();
+			pool.stop();
+			REQUIRE(first_started);
+		}
+	}
+	REQUIRE(pool.enqueue([] {}));
+	REQUIRE(pool.enqueue([&] {
+		std::unique_lock lk{mtx};
+		running = 2;
+		cv.notify_all();
+		cv.wait(lk, [&] { return release_third; });
+	}));
+	{
+		std::scoped_lock const lk{mtx};
+		release_first = true;
+	}
+	cv.notify_all();
+	{
+		std::unique_lock lk{mtx};
+		bool const third_started = cv.wait_for(lk, std::chrono::seconds{5}, [&] { return running == 2; });
+		if (!third_started) {
+			release_third = true;
+			lk.unlock();
+			cv.notify_all();
+			pool.stop();
+			REQUIRE(third_started);
+		}
+	}
+
+	bool const queued_on_alternate_shard = pool.enqueue([] {});
+	{
+		std::scoped_lock const lk{mtx};
+		release_third = true;
+	}
+	cv.notify_all();
+	pool.stop();
+	CHECK(queued_on_alternate_shard);
+}
+TEST_CASE(
 	"work: async_run_cancellable_on executes callable on pool",
 	"[work]") {
 	WorkPool pool;
@@ -329,6 +430,20 @@ TEST_CASE(
 	auto [v, i] = sync_wait(join_all(async_run_on(pool, [] {}), async_run_on(pool, [] { return 7; })));
 	CHECK(i == 7);
 	static_assert(std::is_same_v<decltype(v), std::monostate>);
+}
+TEST_CASE(
+	"work: join_all treats abandoned child as requested cancellation",
+	"[work]") {
+	auto [abandoned, abandoned_src] = root::make_task_source<int>();
+	auto [sibling, sibling_src] = root::make_task_source<int>();
+	auto abandoned_holder = std::make_optional(std::move(abandoned_src));
+	auto joined = join_all(std::move(abandoned), std::move(sibling));
+
+	abandoned_holder.reset();
+	REQUIRE(sibling_src.try_set_value(root::Success<int>{2}));
+	auto out = root::blocking_join(std::move(joined));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::requested);
 }
 TEST_CASE(
 	"work: join_all stress — ready-hook arm vs fire race",

@@ -58,6 +58,69 @@ TEST_CASE(
 	ch.close();
 	REQUIRE_FALSE(ch.send("hello"));
 }
+
+TEST_CASE(
+	"SseChannel: concurrent on_close callback can re-enter channel",
+	"[sse][http.lifecycle]") {
+	struct CallbackState {
+		std::mutex mtx{};
+		std::condition_variable cv{};
+		bool callback_done{false};
+		bool on_close_done{false};
+		bool close_done{false};
+	};
+
+	auto ch = std::make_shared<conflux::http::SseChannel>();
+	auto state = std::make_shared<CallbackState>();
+	std::barrier start{3};
+
+	std::thread registrar{[ch, state, &start] {
+		start.arrive_and_wait();
+		ch->on_close([ch, state] {
+			(void)ch->send("after-close");
+			{
+				std::scoped_lock const lk{state->mtx};
+				state->callback_done = true;
+			}
+			state->cv.notify_all();
+		});
+		{
+			std::scoped_lock const lk{state->mtx};
+			state->on_close_done = true;
+		}
+		state->cv.notify_all();
+	}};
+
+	std::thread closer{[ch, state, &start] {
+		start.arrive_and_wait();
+		ch->close();
+		{
+			std::scoped_lock const lk{state->mtx};
+			state->close_done = true;
+		}
+		state->cv.notify_all();
+	}};
+
+	start.arrive_and_wait();
+
+	bool callback_done = false;
+	{
+		std::unique_lock lk{state->mtx};
+		callback_done = state->cv.wait_for(lk, std::chrono::seconds{5}, [&] {
+			return state->callback_done && state->on_close_done && state->close_done;
+		});
+	}
+
+	auto const completed = callback_done;
+	if (!completed) {
+		registrar.detach();
+		closer.detach();
+	}
+	REQUIRE(completed);
+
+	registrar.join();
+	closer.join();
+}
 // ---------------------------------------------------------------------------
 // C2: conflux::http::DeferredResponse timeout
 // ---------------------------------------------------------------------------

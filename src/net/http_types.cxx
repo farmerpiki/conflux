@@ -1056,6 +1056,7 @@ enum class UrlErrorKind : std::uint8_t {
 	missing_scheme,
 	unsupported_scheme,
 	missing_host,
+	invalid_host,
 	invalid_port,
 	too_long,
 };
@@ -1151,6 +1152,26 @@ struct Url {
 	void set_query_param(
 		std::string_view name,
 		std::string_view value) {
+		auto aliases_query = [this](std::string_view s) noexcept {
+			if (s.empty() || query.empty()) {
+				return false;
+			}
+			auto const query_begin = reinterpret_cast<std::uintptr_t>(query.data());
+			auto const query_end = query_begin + query.size();
+			auto const view_begin = reinterpret_cast<std::uintptr_t>(s.data());
+			auto const view_end = view_begin + s.size();
+			return view_begin < query_end && query_begin < view_end;
+		};
+		std::optional<std::string> name_copy;
+		std::optional<std::string> value_copy;
+		if (aliases_query(name)) {
+			name_copy.emplace(name);
+			name = *name_copy;
+		}
+		if (aliases_query(value)) {
+			value_copy.emplace(value);
+			value = *value_copy;
+		}
 		query.reserve(
 			query.size()
 			+ (query.empty() ? std::size_t{0} : std::size_t{1})
@@ -1221,6 +1242,13 @@ std::expected<Url, UrlError> Url::parse(
 
 	if (url.host.empty()) {
 		return std::unexpected(UrlError{UrlErrorKind::missing_host, "empty host"});
+	}
+	auto const has_host_control = std::ranges::any_of(url.host, [](char c) noexcept {
+		auto const uc = static_cast<unsigned char>(c);
+		return uc <= 0x20U || uc == 0x7FU;
+	});
+	if (has_host_control) {
+		return std::unexpected(UrlError{UrlErrorKind::invalid_host, "host contains control or space bytes"});
 	}
 
 	if (authority_end == std::string_view::npos) {

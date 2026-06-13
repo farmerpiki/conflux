@@ -81,8 +81,7 @@ ObjHashTable *ObjHashTable::create(
 	std::uint32_t member_count,
 	std::uint64_t hash_seed,
 	std::pmr::memory_resource *mr) noexcept {
-	std::size_t const bytes =
-		sizeof(ObjHashTable) + sizeof(ObjHashSlot) * capacity + sizeof(char const *) * member_count;
+	std::size_t const bytes = ObjHashTable::allocation_bytes(capacity, member_count);
 	void *mem = nullptr;
 	try {
 		mem = mr->allocate(bytes, alignof(ObjHashTable));
@@ -101,8 +100,7 @@ void ObjHashTable::destroy(
 		return;
 	}
 	auto *mr = t->mr;
-	std::size_t const bytes =
-		sizeof(ObjHashTable) + sizeof(ObjHashSlot) * t->capacity + sizeof(char const *) * t->member_count;
+	std::size_t const bytes = ObjHashTable::allocation_bytes(t->capacity, t->member_count);
 	t->~ObjHashTable();
 	mr->deallocate(t, bytes, alignof(ObjHashTable));
 }

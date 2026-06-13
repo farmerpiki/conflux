@@ -83,6 +83,24 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http1_parser: request target with control byte returns BadRequest") {
+	using namespace conflux::http1;
+	using namespace std::string_literals;
+	ParserLimits const limits{};
+
+	for (std::string const &raw: {
+			 "GET /slow/\nforged HTTP/1.1\r\n\r\n"s,
+			 "GET /slow/\rforged HTTP/1.1\r\n\r\n"s,
+			 "GET /slow/\x1b[31m HTTP/1.1\r\n\r\n"s,
+			 "GET /slow/\x7f HTTP/1.1\r\n\r\n"s,
+		 }) {
+		ParsedRequest out;
+		auto status = parse_request(raw, limits, out);
+		REQUIRE(status == ParseStatus::BadRequest);
+	}
+}
+
+TEST_CASE(
 	"http1_parser: incomplete header line over limit returns HeaderLineTooLarge") {
 	using namespace conflux::http1;
 	ParserLimits limits{};

@@ -238,6 +238,20 @@ struct SendZcCqeOutcome {
 	bool adaptive_disabled{};
 };
 
+[[nodiscard]] bool send_zc_cqe_matches_connection(
+	std::uint32_t connection_generation,
+	std::uint32_t cqe_generation,
+	SendZcCqeState const &state,
+	bool notification) noexcept {
+	if (connection_generation == cqe_generation) {
+		return true;
+	}
+	return notification
+		&& state.waiting_notification
+		&& state.close_after_notification
+		&& connection_generation == cqe_generation + 1;
+}
+
 [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 	SendZcCqeState &state,
 	conflux::http::SendZcMetrics &metrics,

@@ -182,10 +182,16 @@ public:
 	explicit TlsServerContext(
 		TlsServerOptions const &opts)
 		: ctx_{tls_detail::make_server_ctx(opts)} {}
-	void add_vhost(
+	TlsServerContext(TlsServerContext const &) = delete;
+	TlsServerContext &operator =(TlsServerContext const &) = delete;
+	TlsServerContext(TlsServerContext &&) = delete;
+	TlsServerContext &operator =(TlsServerContext &&) = delete;
+	SSL_CTX *add_vhost(
 		std::string_view hostname,
 		TlsServerOptions const &opts) {
-		vhost_ctxs_.emplace(ascii_lower(hostname), tls_detail::make_server_ctx(opts));
+		auto [it, inserted] = vhost_ctxs_.emplace(ascii_lower(hostname), tls_detail::make_server_ctx(opts));
+		(void)inserted;
+		return it->second.get();
 	}
 	// Install SNI servername callback dispatching to vhost contexts. No-op if
 	// no vhosts were added. Caller must keep this TlsServerContext alive while

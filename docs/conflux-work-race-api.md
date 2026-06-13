@@ -38,8 +38,10 @@ auto result = co_await race::race<Response>(
 ```
 
 For the common single-operation shape, `race::with_timeout(work, timeout_task)`
-is the same first-completion race with `"work"` and `"deadline"` labels.
-`race::with_timeout(work, duration)` uses the generic fallback timeout trigger.
+is a first-completion race with `"work"` and `"deadline"` labels. When the
+deadline wins it requests cancellation on the work task and returns without
+waiting for that loser to terminate. `race::with_timeout(work, duration)` uses
+the generic fallback timeout trigger with the same loser behavior.
 
 Use `race::until_stop_token(token)` to turn a `std::stop_token` into a
 `"stop_token"` trigger. This generic helper uses a blocking fallback thread; use
@@ -84,14 +86,13 @@ unfinished loser work.
 When `race_options::collect_loser_outcomes` is true, drained loser outcomes are
 included in `race_result<T>::loser_outcomes`. This is complete only for waiting
 policies such as `request_cancel_and_wait`; non-waiting policies can have late
-loser outcomes after the race result has already been returned.
+loser outcomes after the race result has already been returned, and those late
+outcomes are discarded.
 
-`loser_cleanup_policy::fail_after_cleanup_deadline` starts a lightweight cleanup
-timer after a winner is selected under `request_cancel_and_wait`. If unfinished
-losers do not reach terminal completion before `loser_cleanup_budget`, the race
-fails with `race_cleanup_error` and abandons consumed live losers to a drop sink.
-Detach-style cleanup policies remain reserved for owner-bound integrations and
-fail setup visibly in bare `race`.
+Bare `race` accepts only the default `loser_cleanup_policy::wait_unbounded`
+with a zero `loser_cleanup_budget`. Deadline and detach-style cleanup policies
+are reserved for owner-bound integrations that can provide a bounded timer
+backend; unsupported cleanup budgets fail setup visibly in bare `race`.
 
 Blocking socket callers should use `sync_wait_socket_race(ring, task, budget)`
 from `conflux.socket_io.blocking`. It uses the same ring pump as

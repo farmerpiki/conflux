@@ -220,6 +220,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: inline path args ignore preexisting middleware params",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/todos/{id:i64}">([](std::int64_t id) { return http::text(std::format("todo={}", id)); });
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/todos/42";
+	req.params.set("__conflux_observe_route", "1");
+	req.params.set("id", "1");
+
+	auto response = http::router(app).dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "todo=42");
+}
+
+TEST_CASE(
 	"http facade: fixed typed routes support task handlers",
 	"[http.facade]") {
 	auto app = http::app();
@@ -241,6 +258,32 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: async inline path args ignore preexisting middleware params",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/async-todos/{id:i64}">([](std::int64_t id) -> conflux::work::Task<http::Response> {
+		co_return http::text(std::format("todo={}", id));
+	});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/async-todos/42";
+	req.params.set("__conflux_observe_route", "1");
+	req.params.set("id", "1");
+
+	auto dispatched = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(dispatched.has_value());
+	REQUIRE(dispatched->is_deferred());
+	auto deferred = dispatched->deferred_response_ptr();
+	REQUIRE(deferred);
+	REQUIRE(deferred->is_ready());
+	auto completed = deferred->take_ready();
+	REQUIRE(completed.has_value());
+	CHECK(completed->status == kHttpOk);
+	CHECK(completed->text_body() == "todo=42");
+}
+
+TEST_CASE(
 	"http facade: positional path extractors dispatch by capture order",
 	"[http.facade]") {
 	auto app = http::app();
@@ -259,6 +302,25 @@ TEST_CASE(
 	conflux::http::OwnedRequest req;
 	req.method = "GET";
 	req.path = "/teams/core/users/42";
+
+	auto response = http::router(app).dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.text_body() == "core:42");
+}
+
+TEST_CASE(
+	"http facade: PathAt ignores preexisting middleware params",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/teams/{team}/users/{id:u64}">([](http::PathAt<0> team, http::PathAt<1, std::uint64_t> id) {
+		return http::text(std::format("{}:{}", team.get(), id.get()));
+	});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/teams/core/users/42";
+	req.params.set("jwt_sub", "attacker");
+	req.params.set("team", "shadow");
 
 	auto response = http::router(app).dispatch(req);
 	CHECK(response.status == kHttpOk);

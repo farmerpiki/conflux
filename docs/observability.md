@@ -23,7 +23,9 @@ Redacted headers are `Authorization`, `Proxy-Authorization`, `Cookie`,
 `Set-Cookie`, `X-Api-Key`, `X-Api-Token`, `X-Auth-Token`, and `X-CSRF-Token`.
 Add service-specific names with `extra_sensitive_headers`.
 
-Metrics intentionally use low-cardinality labels:
+Metrics intentionally use low-cardinality labels. HTTP method labels are
+normalized to the standard method set, with unknown or extension methods
+reported as `OTHER` to avoid attacker-controlled series growth:
 
 ```text
 http_requests_total{service,route,method,status_class,status}

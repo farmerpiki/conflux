@@ -17,9 +17,7 @@ module;
 	#define CONFLUX_WORK_CFP_ACTIVE 0
 #endif
 #if CONFLUX_WORK_CFP_ACTIVE
-	#include <cerrno>
 	#include <sys/mman.h>
-	#include <unistd.h>
 #endif
 
 export module conflux.work.carrier.coro;
@@ -38,55 +36,32 @@ import conflux.work.carrier;
 #if CONFLUX_WORK_CFP_ACTIVE
 namespace conflux::work::carrier::pool {
 
-inline void write_stderr(
-	std::string_view message) noexcept {
-	while (!message.empty()) {
-		auto const n = ::write(STDERR_FILENO, message.data(), message.size());
-		if (n > 0) {
-			message.remove_prefix(static_cast<std::size_t>(n));
-			continue;
-		}
-		if (n < 0 && errno == EINTR) {
-			continue;
-		}
-		break;
-	}
-}
-
 struct FrameArena {
 	static constexpr std::size_t kCap = 8u * 1024u * 1024u;
-	static constexpr std::size_t kAlign = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
-	static constexpr std::size_t kHeaderSize = kAlign;
+	static constexpr std::size_t kDefaultAlign = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
+
+	struct Header {
+		FrameArena *arena;
+		void *raw;
+		std::size_t previous_top;
+		std::size_t next_top;
+		std::size_t allocation_size;
+		std::size_t alignment;
+		bool pooled;
+	};
 
 	char *base_ = nullptr;
 	std::size_t top_ = 0;
 	std::size_t pool_alloc_count_ = 0;
 	std::size_t fallback_count_ = 0;
 	std::size_t largest_frame_ = 0;
+	std::mutex mtx_{};
+
 	FrameArena() noexcept {
 		void *p = mmap(nullptr, kCap, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		if (p != MAP_FAILED) {
 			base_ = static_cast<char *>(p);
 		}
-	}
-	~FrameArena() noexcept {
-		if (!base_) {
-			return;
-		}
-		auto total = pool_alloc_count_ + fallback_count_;
-		if (total > 0 && fallback_count_ * 100u > total) {
-			try {
-				auto message = std::format(
-					"conflux work: coro frame pool fallback rate {:.1f}% "
-					"({}/{} allocs, largest frame {} B)\n",
-					100.0 * static_cast<double>(fallback_count_) / static_cast<double>(total),
-					fallback_count_,
-					total,
-					largest_frame_);
-				write_stderr(message);
-			} catch (...) {} // NOLINT(bugprone-empty-catch): diagnostic emission must not block slab teardown.
-		}
-		munmap(base_, kCap);
 	}
 	FrameArena(FrameArena const &) = delete;
 	FrameArena &operator =(FrameArena const &) = delete;
@@ -96,43 +71,95 @@ struct FrameArena {
 		return (n + a - 1u) & ~(a - 1u);
 	}
 	[[nodiscard]] void *alloc(
-		std::size_t sz) {
-		std::size_t need = align_up(sz + kHeaderSize, kAlign);
-		if (base_ && top_ + need <= kCap) {
-			char *hdr = base_ + top_;
-			hdr[0] = 1;
-			top_ += need;
-			++pool_alloc_count_;
+		std::size_t sz,
+		std::size_t requested_align) {
+		std::size_t const alignment = std::max({requested_align, alignof(Header), kDefaultAlign});
+		if (sz > std::numeric_limits<std::size_t>::max() - sizeof(Header) - (alignment - 1u)) {
+			throw std::bad_alloc{};
+		}
+		auto const payload_from = [](char *raw, std::size_t align) {
+			auto start = reinterpret_cast<std::uintptr_t>(raw + sizeof(Header));
+			return reinterpret_cast<char *>(align_up(start, align));
+		};
+		{
+			std::scoped_lock const lk{mtx_};
+			if (base_) {
+				char *payload = payload_from(base_ + top_, alignment);
+				auto const next_top = align_up(static_cast<std::size_t>((payload + sz) - base_), kDefaultAlign);
+				if (next_top <= kCap) {
+					auto *hdr = reinterpret_cast<Header *>(payload - sizeof(Header));
+					*hdr = Header{
+						.arena = this,
+						.raw = nullptr,
+						.previous_top = top_,
+						.next_top = next_top,
+						.allocation_size = sz,
+						.alignment = alignment,
+						.pooled = true};
+					top_ = next_top;
+					++pool_alloc_count_;
+					if (sz > largest_frame_) {
+						largest_frame_ = sz;
+					}
+					return payload;
+				}
+			}
+		}
+		return fallback_alloc(sz, alignment, payload_from);
+	}
+	template<class PayloadFrom>
+	[[nodiscard]] void *fallback_alloc(
+		std::size_t sz,
+		std::size_t alignment,
+		PayloadFrom payload_from) {
+		std::size_t const bytes = sizeof(Header) + sz + alignment - 1u;
+		void *raw = ::operator new(bytes, std::align_val_t{alignment});
+		char *payload = payload_from(static_cast<char *>(raw), alignment);
+		auto *hdr = reinterpret_cast<Header *>(payload - sizeof(Header));
+		*hdr = Header{
+			.arena = nullptr,
+			.raw = raw,
+			.previous_top = 0,
+			.next_top = 0,
+			.allocation_size = sz,
+			.alignment = alignment,
+			.pooled = false};
+		{
+			std::scoped_lock const lk{mtx_};
+			++fallback_count_;
 			if (sz > largest_frame_) {
 				largest_frame_ = sz;
 			}
-			return hdr + kHeaderSize;
 		}
-		++fallback_count_;
-		if (sz > largest_frame_) {
-			largest_frame_ = sz;
-		}
-		void *raw = ::operator new(sz + kHeaderSize, std::align_val_t{kAlign});
-		static_cast<char *>(raw)[0] = 0;
-		return static_cast<char *>(raw) + kHeaderSize;
+		return payload;
 	}
-	void dealloc(
-		void *ptr,
-		std::size_t sz) noexcept {
-		char *hdr = static_cast<char *>(ptr) - kHeaderSize;
-		if (hdr[0] == 0) {
-			::operator delete(static_cast<void *>(hdr), sz + kHeaderSize, std::align_val_t{kAlign});
-			return;
-		}
-		std::size_t need = align_up(sz + kHeaderSize, kAlign);
-		if (hdr == base_ + top_ - need) {
-			top_ -= need;
+	void dealloc_pooled(
+		Header *hdr) noexcept {
+		std::scoped_lock const lk{mtx_};
+		if (top_ == hdr->next_top) {
+			top_ = hdr->previous_top;
 		}
 	}
 };
 [[nodiscard]] inline FrameArena &frame_arena() noexcept {
-	thread_local FrameArena arena;
-	return arena;
+	// EagerChain is movable across threads. Keep arena metadata and mmaps alive
+	// for process lifetime so a later cross-thread destroy can read the frame
+	// header and return storage to the owning arena without touching unmapped
+	// thread-local state.
+	thread_local FrameArena *arena = new FrameArena;
+	return *arena;
+}
+inline void dealloc_frame(
+	void *ptr) noexcept {
+	if (ptr == nullptr) {
+		return;
+	}
+	auto *hdr = reinterpret_cast<FrameArena::Header *>(static_cast<char *>(ptr) - sizeof(FrameArena::Header));
+	if (hdr->pooled) {
+		hdr->arena->dealloc_pooled(hdr);
+		return;
+	}
+	::operator delete(hdr->raw, std::align_val_t{hdr->alignment});
 }
 
 } // namespace conflux::work::carrier::pool
@@ -171,12 +198,23 @@ struct EagerChainPromise {
 #if CONFLUX_WORK_CFP_ACTIVE
 	[[nodiscard]] static void *operator new(
 		std::size_t sz) {
-		return pool::frame_arena().alloc(sz);
+		return pool::frame_arena().alloc(sz, pool::FrameArena::kDefaultAlign);
+	}
+	[[nodiscard]] static void *operator new(
+		std::size_t sz,
+		std::align_val_t align) {
+		return pool::frame_arena().alloc(sz, static_cast<std::size_t>(align));
 	}
 	static void operator delete(
 		void *ptr,
-		std::size_t sz) noexcept {
-		pool::frame_arena().dealloc(ptr, sz);
+		std::size_t) noexcept {
+		pool::dealloc_frame(ptr);
+	}
+	static void operator delete(
+		void *ptr,
+		std::size_t,
+		std::align_val_t) noexcept {
+		pool::dealloc_frame(ptr);
 	}
 #endif
 };
@@ -203,12 +241,23 @@ struct EagerChainPromise<void> {
 #if CONFLUX_WORK_CFP_ACTIVE
 	[[nodiscard]] static void *operator new(
 		std::size_t sz) {
-		return pool::frame_arena().alloc(sz);
+		return pool::frame_arena().alloc(sz, pool::FrameArena::kDefaultAlign);
+	}
+	[[nodiscard]] static void *operator new(
+		std::size_t sz,
+		std::align_val_t align) {
+		return pool::frame_arena().alloc(sz, static_cast<std::size_t>(align));
 	}
 	static void operator delete(
 		void *ptr,
-		std::size_t sz) noexcept {
-		pool::frame_arena().dealloc(ptr, sz);
+		std::size_t) noexcept {
+		pool::dealloc_frame(ptr);
+	}
+	static void operator delete(
+		void *ptr,
+		std::size_t,
+		std::align_val_t) noexcept {
+		pool::dealloc_frame(ptr);
 	}
 #endif
 };

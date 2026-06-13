@@ -60,6 +60,20 @@ ObjectBuilder::~ObjectBuilder() noexcept {
 	abort_if_open();
 }
 
+static void commit_insert_member(
+	BuilderState &state,
+	ParentSlot const &parent,
+	std::size_t node_idx) {
+	std::size_t const member_index = parent.parent_local_members->size();
+	parent.parent_local_members->push_back(
+		{static_cast<std::uint32_t>(parent.name_off),
+		 static_cast<std::uint32_t>(parent.name_len),
+		 static_cast<std::uint32_t>(node_idx),
+		 kStorageInputView});
+	auto const name = std::string_view{state.built_input.data() + parent.name_off, parent.name_len};
+	parent.parent_dup_check->emplace(std::hash<std::string_view>{}(name), static_cast<std::uint32_t>(member_index));
+}
+
 void ObjectBuilder::commit() && noexcept {
 	if ((frame_.state == nullptr) || frame_.committed) {
 		return;
@@ -84,14 +98,8 @@ void ObjectBuilder::commit() && noexcept {
 		st->root_node = node_idx;
 		st->child_active = false;
 		break;
-	case ParentSlot::Kind::insert_member:
-		frame_.parent.parent_local_members->push_back(
-			{static_cast<std::uint32_t>(frame_.parent.name_off),
-			 static_cast<std::uint32_t>(frame_.parent.name_len),
-			 static_cast<std::uint32_t>(node_idx),
-			 kStorageInputView});
-		break;
-	case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
+	case ParentSlot::Kind::insert_member: commit_insert_member(*st, frame_.parent, node_idx); break;
+	case ParentSlot::Kind::append_child : frame_.parent.parent_local_children->push_back(node_idx); break;
 	}
 	st->active_depth = frame_.depth - 1;
 	frame_.local_members.clear();
@@ -157,14 +165,8 @@ void ArrayBuilder::commit() && noexcept {
 		st->root_node = static_cast<std::uint32_t>(node_idx);
 		st->child_active = false;
 		break;
-	case ParentSlot::Kind::insert_member:
-		frame_.parent.parent_local_members->push_back(
-			{static_cast<std::uint32_t>(frame_.parent.name_off),
-			 static_cast<std::uint32_t>(frame_.parent.name_len),
-			 static_cast<std::uint32_t>(node_idx),
-			 kStorageInputView});
-		break;
-	case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
+	case ParentSlot::Kind::insert_member: commit_insert_member(*st, frame_.parent, node_idx); break;
+	case ParentSlot::Kind::append_child : frame_.parent.parent_local_children->push_back(node_idx); break;
 	}
 	st->active_depth = frame_.depth - 1;
 	frame_.local_children.clear();
@@ -634,7 +636,6 @@ static std::expected<std::size_t, JsonError> reserve_owned_member_name(
 	if (frame.has_member(name)) {
 		return std::unexpected(duplicate_member_error(name));
 	}
-	frame.track_member(name);
 	auto *st = frame.state;
 	std::size_t const name_off = st->built_input.size();
 	st->built_input.append(name.data(), name.size());
@@ -648,7 +649,6 @@ static std::expected<void, JsonError> reserve_borrowed_member_name(
 	if (frame.has_member(name)) {
 		return std::unexpected(duplicate_member_error(name));
 	}
-	frame.track_member(name);
 	return {};
 }
 
@@ -664,7 +664,8 @@ static ParentSlot begin_insert_child(
 		.name_off = name_off,
 		.name_len = name.size(),
 		.arena_start = name_off,
-		.parent_local_members = &frame.local_members};
+		.parent_local_members = &frame.local_members,
+		.parent_dup_check = &frame.dup_check};
 }
 
 static ParentSlot begin_append_child(
@@ -690,6 +691,7 @@ std::expected<void, JsonError> ObjectBuilder::do_insert_node(
 		 static_cast<std::uint32_t>(name.size()),
 		 static_cast<std::uint32_t>(node_idx),
 		 kStorageInputView});
+	frame_.track_member(name, frame_.local_members.size() - 1);
 	return {};
 }
 std::expected<void, JsonError> ObjectBuilder::do_insert_node_view(
@@ -705,6 +707,7 @@ std::expected<void, JsonError> ObjectBuilder::do_insert_node_view(
 	m.name_flags = kMemberExternalView;
 	frame_.local_external_ptrs_.push_back(name.data());
 	frame_.local_members.push_back(m);
+	frame_.track_member(name, frame_.local_members.size() - 1);
 	return {};
 }
 std::expected<void, JsonError> ObjectBuilder::insert_null(

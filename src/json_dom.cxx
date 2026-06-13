@@ -231,8 +231,16 @@ std::expected<NodeRef, JsonError> NodeRef::at(
 							.message = "non-numeric JSON Pointer segment on array"});
 				}
 				std::size_t idx = 0;
-				for (char const ch: name) {
-					idx = idx * 10 + static_cast<std::size_t>(ch - '0');
+				auto const *first = name.data();
+				auto const *last = first + name.size();
+				auto const [ptr, ec] = std::from_chars(first, last, idx, 10);
+				if (ec == std::errc::result_out_of_range || ptr != last) {
+					return set_path(
+						JsonError{
+							.stage = JsonStage::lookup,
+							.code = JsonIssueCode::index_out_of_range,
+							.requested_index = std::numeric_limits<std::size_t>::max(),
+							.message = "array index out of range"});
 				}
 				auto arr = cur.as_array();
 				if (!arr) {
@@ -670,7 +678,7 @@ std::expected<void, JsonError> Document::warm_member_indices(
 		}
 		std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(mem_count));
 		std::size_t const est_bytes =
-			cap > 0 ? sizeof(ObjHashTable) + static_cast<std::size_t>(cap) * sizeof(ObjHashSlot) : 0;
+			cap > 0 ? ObjHashTable::allocation_bytes(cap, static_cast<std::uint32_t>(mem_count)) : 0;
 		if (objects_warmed >= opts.max_objects) {
 			break;
 		}

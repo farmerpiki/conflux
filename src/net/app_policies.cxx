@@ -7,7 +7,6 @@ import conflux.net.http.response;
 import conflux.net.http.server_types;
 import conflux.net.http.types;
 import conflux.net.rate_limit;
-import conflux.utils;
 
 export namespace conflux::http::detail {
 
@@ -60,10 +59,7 @@ struct AppRouteRateLimit {
 	}
 
 	auto const now = std::chrono::steady_clock::now();
-	auto const key = req.remote_addr.empty() ? std::string{"unknown"} :
-											   conflux::utils::parse_ip(req.remote_addr)
-												   .transform(conflux::utils::ip_to_string)
-												   .value_or(std::string{req.remote_addr});
+	auto const key = rate_limit_remote_key(req.remote_addr);
 	auto retry_after = static_cast<unsigned>(policy.options.window.count());
 	bool allowed = false;
 

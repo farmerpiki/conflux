@@ -76,6 +76,26 @@ TEST_CASE(
 	CHECK(!result.has_value());
 }
 
+TEST_CASE(
+	"jwt: weak previous rotation secret fails closed",
+	"[jwt][auth]") {
+	std::string const active = "active-secret-32bytes";
+	auto forged_with_empty_previous = conflux::http::jwt_sign_unchecked(R"({"sub":"admin"})", "");
+
+	conflux::http::JwtOptions opts;
+	opts.secrets =
+		conflux::http::ResolvedSecretRotation{.active = active, .previous = {std::string{}}, .min_secret_bytes = 16};
+	opts.verify_exp = false;
+
+	auto decoded = conflux::http::jwt_decode(forged_with_empty_previous, opts);
+	REQUIRE_FALSE(decoded.has_value());
+	CHECK(decoded.error() == "auth secret 'jwt.previous[0]': resolved secret is empty");
+
+	auto signed_result = conflux::http::jwt_sign(R"({"sub":"user"})", opts);
+	REQUIRE_FALSE(signed_result.has_value());
+	CHECK(signed_result.error() == "auth secret 'jwt.previous[0]': resolved secret is empty");
+}
+
 namespace {
 
 std::int64_t jwt_test_now() {

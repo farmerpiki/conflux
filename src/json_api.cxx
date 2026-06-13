@@ -538,6 +538,20 @@ struct ObjHashTable {
 		std::uint32_t member_count,
 		std::uint64_t hash_seed,
 		std::pmr::memory_resource *mr = std::pmr::new_delete_resource()) noexcept;
+	[[nodiscard]] static constexpr std::size_t allocation_bytes(
+		std::uint32_t capacity,
+		std::uint32_t member_count) noexcept {
+		constexpr auto max = std::numeric_limits<std::size_t>::max();
+		std::size_t bytes = sizeof(ObjHashTable);
+		if (capacity > (max - bytes) / sizeof(ObjHashSlot)) {
+			return max;
+		}
+		bytes += sizeof(ObjHashSlot) * static_cast<std::size_t>(capacity);
+		if (member_count > (max - bytes) / sizeof(char const *)) {
+			return max;
+		}
+		return bytes + sizeof(char const *) * static_cast<std::size_t>(member_count);
+	}
 	static void destroy(ObjHashTable *t) noexcept;
 };
 constexpr std::uint32_t kHashThreshold = 32;
@@ -2405,8 +2419,8 @@ namespace detail {
 	return static_cast<std::uint32_t>(h);
 #endif
 }
-// Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity AND
-// at kMaxHashIndexBytes / sizeof(ObjHashSlot) (FI-7 — std::byte-budget cap).
+// Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity and by
+// the full ObjHashTable byte budget (slots plus pointer cache).
 // Returns 0 on overflow so the caller can fall back to linear scan.
 [[nodiscard]] inline std::uint32_t clamped_capacity(
 	std::uint32_t count) noexcept {
@@ -2419,6 +2433,12 @@ namespace detail {
 	}
 	if (cap < count) {
 		return 0; // Object too large to index — fall back to linear scan.
+	}
+	while (cap > count && ObjHashTable::allocation_bytes(cap, count) > kMaxHashIndexBytes) {
+		cap >>= 1U;
+	}
+	if (ObjHashTable::allocation_bytes(cap, count) > kMaxHashIndexBytes) {
+		return 0;
 	}
 	return cap;
 }
@@ -2783,9 +2803,13 @@ public:
 class JsonArena {
 	std::size_t initial_slab_;
 	std::pmr::monotonic_buffer_resource mbr_;
+	std::pmr::unsynchronized_pool_resource hash_index_pool_;
 	std::pmr::memory_resource *hash_index_resource_;
 	std::unique_ptr<DocumentStorage> storage_;
 	std::uint32_t generation_{0};
+	[[nodiscard]] bool uses_internal_hash_index_pool() const noexcept {
+		return hash_index_resource_ == &hash_index_pool_;
+	}
 	void reset_storage_for_reuse() noexcept;
 
 public:
@@ -2793,7 +2817,8 @@ public:
 		JsonArenaOptions const &opts = {})
 		: initial_slab_{opts.initial_slab}
 		, mbr_{opts.initial_slab}
-		, hash_index_resource_{(opts.hash_index_resource != nullptr) ? opts.hash_index_resource : &mbr_}
+		, hash_index_pool_{std::pmr::new_delete_resource()}
+		, hash_index_resource_{(opts.hash_index_resource != nullptr) ? opts.hash_index_resource : &hash_index_pool_}
 		, storage_{std::make_unique<DocumentStorage>(&mbr_, hash_index_resource_)} {}
 	JsonArena(JsonArena const &) = delete;
 	JsonArena &operator =(JsonArena const &) = delete;
@@ -2805,6 +2830,10 @@ public:
 
 	[[nodiscard]] std::expected<ArenaDocument, JsonError>
 	parse_borrowed_into(std::string_view input, JsonParseOptions const &opts = {});
+	template<typename T>
+		requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+	[[nodiscard]] std::expected<ArenaDocument, JsonError>
+	parse_borrowed_into(T &&, JsonParseOptions const & = {}) = delete;
 
 	[[nodiscard]] std::expected<ArenaDocument, JsonError>
 	parse_moved_into(std::string input, JsonParseOptions const &opts = {});
@@ -3012,6 +3041,17 @@ parse(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_res
 template<typename T>
 	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
 std::expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError>
+parse_borrowed(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError>
+parse_borrowed_unsafe(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse_view(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 
 } // namespace conflux::json
 

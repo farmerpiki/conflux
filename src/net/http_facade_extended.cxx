@@ -1,7 +1,9 @@
 module;
 #include <cerrno>
 #include <chrono>
+#include <fcntl.h>
 #include <memory>
+#include <sys/stat.h>
 
 export module conflux.http.extended;
 
@@ -26,6 +28,7 @@ template<class T>
 using Task = conflux::work::Task<T>;
 using Next = Router::Handler;
 using AsyncNext = Router::AsyncNext;
+inline constexpr std::size_t kBlockingFileResponseMaxBytes = std::size_t{16} * 1024 * 1024;
 
 #if !defined(CONFLUX_INTERFACE_HEADER)
 template<class F>
@@ -53,13 +56,77 @@ concept Middleware = ViewMiddleware<F> || RequestMiddleware<F> || AsyncMiddlewar
 
 [[nodiscard]] Response blocking_file_response(
 	std::filesystem::path const &path,
-	std::string content_type = "application/octet-stream") {
+	std::string content_type = "application/octet-stream",
+	std::size_t max_bytes = kBlockingFileResponseMaxBytes) {
 	auto path_string = path.string();
-	auto body = conflux::file_io_sync::blocking_read_text_file(path_string, std::numeric_limits<std::size_t>::max());
+	auto raw_fd = ::open(path_string.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+	if (raw_fd < 0) {
+		auto const err = errno;
+		if (err == ENOENT || err == ENOTDIR) {
+			return Response::not_found("file not found");
+		}
+		if (err == ELOOP || err == EINVAL) {
+			return Response::forbidden("file is outside the allowed path");
+		}
+		return Response::internal_error("failed to read file");
+	}
+	auto file = conflux::file_io_sync::UniqueFd{raw_fd};
+	auto stat = conflux::file_io_sync::blocking_fstat(file.fd());
+	if (!stat) {
+		return Response::internal_error("failed to read file");
+	}
+	if (!S_ISREG(stat->mode)) {
+		return Response::forbidden("file is not a regular file");
+	}
+	auto body = conflux::file_io_sync::blocking_read_all_fd(file.fd(), max_bytes);
 	if (!body) {
 		auto const err = errnum(body);
+		if (err == EFBIG) {
+			return Response::content_too_large();
+		}
+		return Response::internal_error("failed to read file");
+	}
+	return Response::with_body(std::move(*body), std::move(content_type));
+}
+
+[[nodiscard]] Response blocking_file_response(
+	std::filesystem::path const &root,
+	std::filesystem::path const &relative_path,
+	std::string content_type = "application/octet-stream",
+	std::size_t max_bytes = kBlockingFileResponseMaxBytes) {
+	auto root_string = root.string();
+	auto root_fd = conflux::file_io_sync::UniqueFd{::open(root_string.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
+	if (!root_fd) {
+		auto const err = errno;
 		if (err == ENOENT || err == ENOTDIR) {
-			return Response::not_found(path.string());
+			return Response::not_found("file not found");
+		}
+		return Response::internal_error("failed to read file");
+	}
+	auto relative = relative_path.generic_string();
+	auto file = conflux::file_io_sync::blocking_openat_contained(root_fd.fd(), relative, O_RDONLY | O_NONBLOCK);
+	if (!file) {
+		auto const err = errnum(file);
+		if (err == ENOENT || err == ENOTDIR) {
+			return Response::not_found("file not found");
+		}
+		if (err == ELOOP || err == EXDEV || err == EINVAL) {
+			return Response::forbidden("file is outside the allowed root");
+		}
+		return Response::internal_error("failed to read file");
+	}
+	auto stat = conflux::file_io_sync::blocking_fstat(file->fd());
+	if (!stat) {
+		return Response::internal_error("failed to read file");
+	}
+	if (!S_ISREG(stat->mode)) {
+		return Response::forbidden("file is not a regular file");
+	}
+	auto body = conflux::file_io_sync::blocking_read_all_fd(file->fd(), max_bytes);
+	if (!body) {
+		auto const err = errnum(body);
+		if (err == EFBIG) {
+			return Response::content_too_large();
 		}
 		return Response::internal_error("failed to read file");
 	}

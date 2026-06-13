@@ -53,6 +53,12 @@ constexpr bool is_tchar(
 	}
 }
 
+constexpr bool is_request_target_char(
+	char c) noexcept {
+	auto const u = static_cast<unsigned char>(c);
+	return u > 0x20U && u != 0x7FU;
+}
+
 struct HeaderBounds {
 	std::size_t request_line_end{};
 	std::size_t header_start{};
@@ -132,6 +138,9 @@ struct HeaderBlockResult {
 	auto sp2 = rest.find(' ');
 	out.target = sp2 != std::string_view::npos ? rest.substr(0, sp2) : rest;
 	if (out.target.empty()) {
+		return conflux::http1::ParseStatus::BadRequest;
+	}
+	if (!std::ranges::all_of(out.target, is_request_target_char)) {
 		return conflux::http1::ParseStatus::BadRequest;
 	}
 	out.version = sp2 != std::string_view::npos ? rest.substr(sp2 + 1) : std::string_view{};

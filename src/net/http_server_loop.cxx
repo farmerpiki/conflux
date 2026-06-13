@@ -216,16 +216,11 @@ void Ring::defer_op(
 }
 
 void Ring::cancel_multishot_recv_or_defer(
-	OsFd handle) {
-	if (!submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0))) {
-		defer_op([this, handle] { cancel_multishot_recv_or_defer(handle); });
-	}
-}
-
-void Ring::cancel_multishot_recv_or_defer(
-	DirectFd handle) {
-	if (!submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0))) {
-		defer_op([this, handle] { cancel_multishot_recv_or_defer(handle); });
+	int fd,
+	std::uint32_t gen) {
+	auto const recv_ud = pack(Op::Recv, gen, fd);
+	if (!submit_cancel_by_ud(raw_, recv_ud, pack(Op::Nop, 0, 0))) {
+		defer_op([this, fd, gen] { cancel_multishot_recv_or_defer(fd, gen); });
 	}
 }
 
@@ -273,14 +268,25 @@ void Ring::defer_start_streamed_body_if_current(
 }
 
 void Ring::queue_multishot_accept() {
-	bool const submitted = listen_fixed ? submit_accept_multishot_borrowed(
+	client_addr_len = sizeof(client_addr);
+	// Direct accepted sockets cannot be queried with getpeername(), so keep
+	// one in-flight accept owner for the shared peer-address buffer.
+	bool const submitted = accepted_sockets_direct ? submit_accept_direct_borrowed(
+														 raw_,
+														 DirectFd::from_direct(static_cast<std::uint32_t>(listen_fd)),
+														 reinterpret_cast<sockaddr *>(&client_addr),
+														 &client_addr_len,
+														 pack(Op::Accept, 0, listen_fd),
+														 0,
+														 IORING_FILE_INDEX_ALLOC) :
+						   listen_fixed ? submit_accept_multishot_borrowed(
 											  raw_,
 											  DirectFd::from_direct(static_cast<std::uint32_t>(listen_fd)),
 											  reinterpret_cast<sockaddr *>(&client_addr),
 											  &client_addr_len,
 											  pack(Op::Accept, 0, listen_fd),
 											  caps,
-											  accepted_sockets_direct) :
+											  false) :
 										  submit_accept_multishot_borrowed(
 											  raw_,
 											  OsFd::from_os(listen_fd),
@@ -288,7 +294,7 @@ void Ring::queue_multishot_accept() {
 											  &client_addr_len,
 											  pack(Op::Accept, 0, listen_fd),
 											  caps,
-											  accepted_sockets_direct);
+											  false);
 	if (!submitted) {
 		defer_op([this] { queue_multishot_accept(); });
 	}
@@ -307,20 +313,20 @@ void Ring::queue_multishot_recv(
 	int fd) {
 	auto &conn = conn_for(fd);
 	auto const arm = resolve_recv_arm_policy(conn);
-	bool const submitted = accepted_sockets_direct ? submit_recv_multishot(
-														 raw_,
-														 DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
-														 *buf_ring_,
-														 pack(Op::Recv, conn.gen, fd),
-														 use_recv_bundle,
-														 arm) :
-													 submit_recv_multishot(
-														 raw_,
-														 OsFd::from_os(fd),
-														 *buf_ring_,
-														 pack(Op::Recv, conn.gen, fd),
-														 use_recv_bundle,
-														 arm);
+	bool const submitted = conn.accepted_direct ? submit_recv_multishot(
+													  raw_,
+													  DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
+													  *buf_ring_,
+													  pack(Op::Recv, conn.gen, fd),
+													  use_recv_bundle,
+													  arm) :
+												  submit_recv_multishot(
+													  raw_,
+													  OsFd::from_os(fd),
+													  *buf_ring_,
+													  pack(Op::Recv, conn.gen, fd),
+													  use_recv_bundle,
+													  arm);
 	if (!submitted) {
 		defer_op([this, fd] { queue_multishot_recv(fd); });
 		return;
@@ -465,8 +471,6 @@ conflux::http::RunStatus Ring::run_loop() {
 		bool const overflowed = ring_integrity_suspect();
 		if (overflowed) {
 			note_cq_overflow();
-		} else {
-			try_grow_cq_after_overflow();
 		}
 
 		if (count == 0) {

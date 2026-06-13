@@ -2,6 +2,7 @@
 
 import std;
 import conflux.net.router;
+import conflux.work;
 
 TEST_CASE(
 	"router: wildcard {*path} captures entire tail") {
@@ -70,6 +71,22 @@ TEST_CASE(
 	auto resp = router.dispatch(req);
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.text_body() == "hello world");
+}
+
+TEST_CASE(
+	"router: malformed route pattern is rejected") {
+	conflux::http::Router router;
+	CHECK_THROWS_AS(
+		router.get(
+			"/admin/{tenant}/{action",
+			[](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("bad"); }),
+		std::invalid_argument);
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/admin/acme";
+	auto resp = router.dispatch(req);
+	REQUIRE(resp.status == 404);
 }
 
 TEST_CASE(
@@ -156,4 +173,77 @@ TEST_CASE(
 	req.path = "/boom";
 	auto resp = router.dispatch(req);
 	REQUIRE(resp.status == 500);
+}
+
+TEST_CASE(
+	"router: explicit HEAD route wins before GET fallback") {
+	conflux::http::Router router;
+	router.add("HEAD", "/secret", [](conflux::http::OwnedRequest const &) {
+		return conflux::http::Response::forbidden("head denied");
+	});
+	router.get("/secret", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("get ok"); });
+
+	conflux::http::OwnedRequest req;
+	req.method = "HEAD";
+	req.path = "/secret";
+	auto resp = router.dispatch(req);
+
+	CHECK(resp.status == conflux::http::kHttpForbidden);
+	CHECK(resp.head_only);
+}
+
+TEST_CASE(
+	"router: explicit HEAD context route wins before GET fallback") {
+	conflux::http::Router router;
+	router.add_context(
+		"HEAD",
+		"/secret",
+		[](conflux::http::RequestView const &,
+		   conflux::http::RequestContext const &) -> conflux::work::Task<conflux::http::Response> {
+			co_return conflux::http::Response::forbidden("head denied");
+		});
+	router.get_context(
+		"/secret",
+		[](conflux::http::RequestView const &, conflux::http::RequestContext const &)
+			-> conflux::work::Task<conflux::http::Response> { co_return conflux::http::Response::text("get ok"); });
+
+	conflux::http::OwnedRequest req;
+	req.method = "HEAD";
+	req.path = "/secret";
+	auto resp = router.dispatch_context(req, conflux::http::RequestContext{});
+	REQUIRE(resp.has_value());
+	REQUIRE(resp->is_deferred());
+	auto deferred = resp->deferred_response_ptr();
+	REQUIRE(deferred->is_ready());
+	auto completed = deferred->take_ready();
+	REQUIRE(completed.has_value());
+
+	CHECK(completed->status == conflux::http::kHttpForbidden);
+	CHECK(completed->head_only);
+}
+
+TEST_CASE(
+	"router: group middleware protects context routes") {
+	conflux::http::Router router;
+	router.group("/admin", [](auto &group) {
+		group.use([](conflux::http::RequestView const &, auto const &) {
+			return conflux::http::Response::unauthorized("Bearer");
+		});
+		group.get_context(
+			"/context",
+			[](conflux::http::RequestView const &, conflux::http::RequestContext const &)
+				-> conflux::work::Task<conflux::http::Response> { co_return conflux::http::Response::text("secret"); });
+	});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/admin/context";
+	auto resp = router.dispatch_context(req, conflux::http::RequestContext{});
+	REQUIRE(resp.has_value());
+	REQUIRE(resp->is_deferred());
+	auto deferred = resp->deferred_response_ptr();
+	REQUIRE(deferred->is_ready());
+	auto completed = deferred->take_ready();
+	REQUIRE(completed.has_value());
+	CHECK(completed->status == 401);
 }

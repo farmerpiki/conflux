@@ -123,7 +123,7 @@ void Ring::tls_queue_send(
 	};
 
 	conn.send_queued = true;
-	bool const submitted = accepted_sockets_direct ?
+	bool const submitted = conn.accepted_direct ?
 							   submit_tls_send(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
 							   submit_tls_send(OsFd::from_os(fd));
 	if (!submitted) {
@@ -217,7 +217,7 @@ void Ring::handle_send_tls_complete(
 
 	if (conn.tls_sending_response) {
 		if (conn.mapped_file) {
-			if (conn.mapped_delivered < conn.mapped_file->size) {
+			if (conn.mapped_delivered < conn.mapped_file->window().size()) {
 				write_mapped_tls_chunk(fd, conn);
 				return;
 			}
@@ -259,7 +259,7 @@ void Ring::handle_send_tls_complete(
 		if (handle_sse_send_complete(fd, conn)) {
 			return;
 		}
-		if (conn.is_ws) {
+		if (conn.is_ws && !conn.close_after_send) {
 			handoff_tls_ws(conn, fd);
 			return;
 		}
@@ -331,6 +331,17 @@ void Ring::phase1b_tls_one(
 	int n{};
 	while ((n = SSL_read(conn.ssl.get(), plain.data(), static_cast<int>(plain.size()))) > 0) {
 		conn.partial.append(plain.data(), static_cast<std::size_t>(n));
+		if (conn.partial.size() > raw_receive_cap()) {
+			if (conn.send_queued) {
+				conn.partial.clear();
+				conn.tls_rx_cipher.clear();
+				queue_close(conn.fd);
+			} else {
+				reject_oversized_receive_buffer(conn.fd, conn);
+			}
+			rc.res = -1;
+			return;
+		}
 	}
 	int const ssl_err = SSL_get_error(conn.ssl.get(), n);
 	if (ssl_err == SSL_ERROR_ZERO_RETURN

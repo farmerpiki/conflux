@@ -199,20 +199,16 @@ public:
 	}
 	void on_close(
 		std::function<void()> callback) {
-		if (closed_.test()) {
-			try {
-				callback();
-			} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
-			return;
+		if (!closed_.test()) {
+			std::scoped_lock const lk{mtx_};
+			if (!closed_.test()) {
+				close_callbacks_.push_back(std::move(callback));
+				return;
+			}
 		}
-		std::scoped_lock const lk{mtx_};
-		if (closed_.test()) {
-			try {
-				callback();
-			} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
-			return;
-		}
-		close_callbacks_.push_back(std::move(callback));
+		try {
+			callback();
+		} catch (...) {} // NOLINT(bugprone-empty-catch): close observer callbacks are best-effort.
 	}
 	[[nodiscard]] std::string drain() {
 		std::scoped_lock const lk{mtx_};
@@ -595,7 +591,6 @@ public:
 	~WsConn() noexcept {
 		stop_keepalive();
 		if (!closed_.test_and_set()) {
-			notify_close_noexcept();
 			::shutdown(fd_, SHUT_WR);
 		}
 	}
@@ -739,6 +734,13 @@ private:
 			invoke_close_callback(callback);
 		}
 	}
+	void mark_remote_close_noexcept() noexcept {
+		if (closed_.test_and_set()) {
+			return;
+		}
+		notify_close_noexcept();
+		stop_keepalive();
+	}
 	void stop_keepalive() noexcept {
 		if (!keepalive_thread_.joinable()) {
 			return;
@@ -784,6 +786,7 @@ private:
 			if (ssl_) {
 				auto rc = SSL_read(ssl_.get(), tmp.data(), static_cast<int>(tmp.size()));
 				if (rc <= 0) {
+					mark_remote_close_noexcept();
 					return false;
 				}
 				buf_.append(tmp.data(), static_cast<std::size_t>(rc));
@@ -792,6 +795,7 @@ private:
 #endif
 			auto rc = ::recv(fd_, tmp.data(), tmp.size(), 0);
 			if (rc <= 0) {
+				mark_remote_close_noexcept();
 				return false;
 			}
 			buf_.append(tmp.data(), static_cast<std::size_t>(rc));
@@ -990,6 +994,7 @@ private:
 		}
 		if (!ok) {
 			note_pressure_close_noexcept();
+			mark_remote_close_noexcept();
 		}
 		return ok;
 	}

@@ -1127,6 +1127,9 @@ public:
 		std::uint64_t generation = 0;
 		{
 			std::scoped_lock const lk{mtx_};
+			if (active_child_cancel_) {
+				return 0;
+			}
 			generation = ++active_child_generation_;
 			active_child_cancel_ = child;
 			if (cancel_requested_.load(std::memory_order_acquire)) {

@@ -228,16 +228,16 @@ class Row {
 public:
     int ncols() const noexcept;
     bool is_null(int col) const noexcept;
-    bool is_null(Column col) const noexcept;
+    bool is_null(Column col) const;                 // throws PgError if invalid
     std::string_view get(int col) const noexcept;
-    std::string_view get(Column col) const noexcept;
+    std::string_view get(Column col) const;         // throws PgError if invalid
     std::string_view get(std::string_view col) const;    // throws PgError if missing
     int length(int col) const noexcept;
 
     template<class T> T as(int col) const;
-    template<class T> T as(Column col) const;
+    template<class T> T as(Column col) const;             // throws PgError if invalid
     template<class T> std::optional<T> as_opt(int col) const;
-    template<class T> std::optional<T> as_opt(Column col) const;
+    template<class T> std::optional<T> as_opt(Column col) const; // throws PgError if invalid
     template<class... Ts> std::tuple<Ts...> as_tuple(int start = 0) const;
 };
 ```
@@ -325,7 +325,7 @@ template<class Body>
 root::Task<...> with_transaction(Pool& p, TxOptions opt, Body&& body);
 ```
 
-`body` is a coroutine lambda that receives a `Connection&`. On success it commits and returns the body value. On exception it rolls back and rethrows. `PgError` values with serialization (`40001`) or deadlock (`40P01`) SQLSTATEs retry until `max_retries` is exhausted.
+`body` is a coroutine lambda that receives a `Connection&`. On success it commits and returns the body value. On body or commit exception it rolls back best-effort and rethrows. `PgError` values with serialization (`40001`) or deadlock (`40P01`) SQLSTATEs retry until `max_retries` is exhausted.
 
 ```cpp
 auto id = co_await with_transaction(pool, {},

@@ -74,11 +74,12 @@ void Ring::queue_send_mapped(
 	auto &conn = conn_for(fd);
 	std::size_t skip = conn.written;
 	std::size_t ni{};
+	auto const mapped_window = conn.mapped_file ? conn.mapped_file->window() : std::span<std::byte const>{};
 
 	// iov[0]: remaining header bytes
 	if (skip < conn.own_response.size()) {
 		std::span<char> const hdr_span{conn.own_response};
-		if (send_zc_enabled_ && conn.mapped_file && conn.mapped_file->size >= send_zc_threshold_) {
+		if (send_zc_enabled_ && mapped_window.size() >= send_zc_threshold_) {
 			auto submit_header = [&]<RingFd Handle>(Handle handle) {
 				return submit_send_borrowed(
 					raw_,
@@ -87,7 +88,7 @@ void Ring::queue_send_mapped(
 					hdr_span.subspan(skip).size(),
 					pack(Op::Send, conn.gen, fd));
 			};
-			bool const submitted = accepted_sockets_direct ?
+			bool const submitted = conn.accepted_direct ?
 									   submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
 									   submit_header(OsFd::from_os(fd));
 			if (!submitted) {
@@ -104,12 +105,11 @@ void Ring::queue_send_mapped(
 		skip -= conn.own_response.size();
 	}
 	// iov[1]: remaining file bytes (honouring offset for range requests)
-	if (conn.mapped_file && skip < conn.mapped_file->size) {
-		auto const win = conn.mapped_file->window();
+	if (skip < mapped_window.size()) {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 		conn.writev_iov[ni++] = {
-			.iov_base = const_cast<void *>(static_cast<void const *>(win.subspan(skip).data())),
-			.iov_len = win.size() - skip};
+			.iov_base = const_cast<void *>(static_cast<void const *>(mapped_window.subspan(skip).data())),
+			.iov_len = mapped_window.size() - skip};
 	}
 
 	if (ni == 0) {
@@ -150,8 +150,8 @@ void Ring::queue_send_mapped(
 		}
 		return true;
 	};
-	(void)(accepted_sockets_direct ? submit_tail(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
-									 submit_tail(OsFd::from_os(fd)));
+	(void)(conn.accepted_direct ? submit_tail(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+								  submit_tail(OsFd::from_os(fd)));
 }
 
 // triggered from handle_send once the header bytes are acked.
@@ -169,9 +169,8 @@ void Ring::queue_send_streamed(
 	auto submit_header = [&]<RingFd Handle>(Handle handle) {
 		return submit_send_borrowed(raw_, handle, hdr_view.data(), hdr_view.size(), pack(Op::Send, conn.gen, fd));
 	};
-	bool const submitted = accepted_sockets_direct ?
-							   submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
-							   submit_header(OsFd::from_os(fd));
+	bool const submitted = conn.accepted_direct ? submit_header(DirectFd::from_direct(static_cast<std::uint32_t>(fd))) :
+												  submit_header(OsFd::from_os(fd));
 	if (!submitted) {
 		defer_op([this, fd] { queue_send_streamed(fd); });
 	}
@@ -217,7 +216,7 @@ void Ring::start_streamed_body(
 			static_cast<std::size_t>(remaining),
 			fd,
 			std::move(*pipe),
-			accepted_sockets_direct))
+			conn.accepted_direct))
 		.detach();
 }
 
@@ -407,7 +406,7 @@ void Ring::note_send_zc_tls_bypass_if_candidate(
 	}
 	std::size_t candidate_bytes{};
 	if (conn.mapped_file) {
-		candidate_bytes = static_cast<std::size_t>(conn.mapped_file->size);
+		candidate_bytes = conn.mapped_file->window().size();
 	} else if (conn.streamed_file) {
 		candidate_bytes = static_cast<std::size_t>(conn.streamed_file->send_size);
 	} else if (conn.has_response && conn.own_response.size() >= conn.written) {
@@ -581,7 +580,7 @@ void Ring::submit_plain_response_send(
 void Ring::queue_plain_response_send(
 	int fd,
 	Conn &conn) {
-	if (accepted_sockets_direct) {
+	if (conn.accepted_direct) {
 		submit_plain_response_send(fd, conn, DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
 	} else {
 		submit_plain_response_send(fd, conn, OsFd::from_os(fd));
@@ -713,7 +712,7 @@ void Ring::handle_send_complete(
 	if (handle_sse_send_complete(fd, conn)) {
 		return;
 	}
-	if (conn.is_ws) {
+	if (conn.is_ws && !conn.close_after_send) {
 		handoff_plain_ws(conn, fd);
 		return;
 	}
@@ -750,6 +749,7 @@ void Ring::finish_mapped_send(
 void Ring::fail_send(
 	int fd,
 	Conn &conn) {
+	conn.send_queued = false;
 	if (conn.mapped_file) {
 		conn.mapped_file.reset();
 	}
@@ -780,6 +780,7 @@ bool Ring::handle_tls_send_progress(
 		return false;
 	}
 	if (res <= 0) {
+		conn.send_queued = false;
 		queue_close(fd);
 		return true;
 	}
@@ -879,6 +880,7 @@ void Ring::handle_plain_send_progress(
 		}
 		finish_plain_send(fd, conn);
 	} else {
+		conn.send_queued = false;
 		conn.send_buf = conflux::file_io::FixedBuffer{};
 		conn.send_buf_base_written = 0;
 		conn.send_buf_len = 0;
@@ -922,10 +924,17 @@ void Ring::handle_send_zc(
 	conflux::uring::CqeFlags flags,
 	std::uint32_t gen) {
 	auto const ufd = static_cast<std::size_t>(fd);
-	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+	if (ufd >= fd_table.size()) {
 		return;
 	}
 	auto &conn = fd_table[ufd];
+	if (!conflux::http::send_zc_cqe_matches_connection(
+			conn.gen,
+			gen,
+			conn.zc_state,
+			flags.any(conflux::uring::cqe_flags::notif))) {
+		return;
+	}
 	auto const is_mapped = conn.mapped_file != nullptr;
 	auto const total = is_mapped ? conn.mapped_total : conn.own_response.size();
 	auto const outcome = conflux::http::observe_send_zc_cqe(
@@ -959,6 +968,7 @@ void Ring::handle_send_zc(
 		break;
 	case conflux::http::SendZcCqeAction::close_after_error: fail_send(fd, conn); break;
 	case conflux::http::SendZcCqeAction::close_after_notification:
+		conn.send_queued = false;
 		conn.own_response.clear();
 		conn.mapped_file.reset();
 		conn.closing = false; // queue_close early-returns when closing==true

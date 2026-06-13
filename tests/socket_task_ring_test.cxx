@@ -135,6 +135,31 @@ struct RingFixture {
 		return block_on_ring(&ring, completions, std::move(task), budget);
 	}
 };
+void dispatch_cqe(
+	RingFixture &fx,
+	::io_uring_cqe const &cqe) {
+	auto const ud = cqe.user_data;
+	fx.completions.dispatch(
+		static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
+		static_cast<std::uint32_t>(ud >> 32U),
+		cqe.res,
+		conflux::uring::CqeFlags{cqe.flags});
+}
+bool wait_and_dispatch_one_cqe(
+	RingFixture &fx,
+	std::chrono::seconds timeout = std::chrono::seconds{5}) {
+	::io_uring_cqe *cqe = nullptr;
+	__kernel_timespec ts{.tv_sec = timeout.count(), .tv_nsec = 0};
+	::io_uring_submit_and_wait_timeout(&fx.ring, &cqe, 1, &ts, nullptr);
+	std::array<::io_uring_cqe *, 1> batch{};
+	unsigned const n = ::io_uring_peek_batch_cqe(&fx.ring, batch.data(), 1u);
+	if (n == 0) {
+		return false;
+	}
+	dispatch_cqe(fx, *batch[0]);
+	::io_uring_cq_advance(&fx.ring, 1);
+	return true;
+}
 std::unique_ptr<RingFixture> require_ring_fixture(
 	unsigned entries = 64) {
 	auto fx = RingFixture::make(entries);
@@ -650,14 +675,16 @@ TEST_CASE(
 	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// Cancellation — submit_on_ring_owner false → try_set_cancelled
+// Cancellation — submit_on_ring_owner false leaves borrowed I/O pending
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"cancellation: submit_on_ring_owner false triggers try_set_cancelled",
+	"cancellation: submit_on_ring_owner false leaves borrowed read pending",
 	"[tcp][cancel]") {
-	// Verifies Finding 9 fix: when submit_on_owner returns false,
-	// try_set_cancelled is called rather than silently hanging.
+	// If a cancel request cannot be posted, the original borrowed recv is still
+	// live in the kernel. The public task must not complete as cancelled until a
+	// CQE arrives for the original operation, otherwise callers could reuse/free
+	// the borrowed buffer too early.
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	bool owner_called = false;
@@ -678,16 +705,14 @@ TEST_CASE(
 	REQUIRE(stream.valid());
 	std::array<std::uint8_t, 64> buf{};
 	auto read_task = stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()});
-	// cancel → cancel hook → submit_on_owner → lambda returns false
-	// with fix: try_set_cancelled() fires immediately
 	read_task.cancel();
-	bool got_cancel = false;
-	try {
-		fx->run(std::move(read_task));
-	} catch (std::exception const &) { got_cancel = true; }
 	CHECK(owner_called);
-	CHECK(got_cancel);
-	// close drains the unsubmitted read SQE
+
+	std::array<std::uint8_t, 4> msg{'p', 'i', 'n', 'g'};
+	fx->run(stream.async_write_all_copy(std::span<std::uint8_t const>{msg.data(), msg.size()}));
+	std::size_t const n = fx->run(std::move(read_task));
+	CHECK(n == msg.size());
+	CHECK(std::equal(msg.begin(), msg.end(), buf.begin()));
 	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
@@ -836,22 +861,7 @@ TEST_CASE(
 
 	// Pump exactly one CQE (socket creation) so ConnectOp enters connect_pending.
 	// SINGLE_ISSUER ring on ring-owner thread — safe to peek/submit here.
-	{
-		::io_uring_cqe *cqe = nullptr;
-		__kernel_timespec ts{.tv_sec = 5, .tv_nsec = 0};
-		::io_uring_submit_and_wait_timeout(&fx->ring, &cqe, 1, &ts, nullptr);
-		std::array<::io_uring_cqe *, 1> batch{};
-		unsigned const n = ::io_uring_peek_batch_cqe(&fx->ring, batch.data(), 1u);
-		if (n > 0) {
-			auto const *c = batch[0];
-			fx->completions.dispatch(
-				static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU),
-				static_cast<std::uint32_t>(c->user_data >> 32U),
-				c->res,
-				conflux::uring::CqeFlags{c->flags});
-			::io_uring_cq_advance(&fx->ring, 1);
-		}
-	}
+	REQUIRE(wait_and_dispatch_one_cqe(*fx));
 	// Now in connect_pending — cancel fires cancel_on_owner inline (single-thread ring)
 	task.cancel();
 	bool got_cancel = false;
@@ -863,6 +873,39 @@ TEST_CASE(
 	}
 	CHECK(got_cancel);
 	CHECK(err_code == 0);
+}
+TEST_CASE(
+	"tcp_connect: cancelled successful connect CQE completes cancelled",
+	"[tcp][cancel][uring]") {
+	TcpEchoServer server;
+	REQUIRE(server.ok());
+	auto fx = require_ring_fixture();
+	sockaddr_storage addr = loopback_addr(server.port());
+	auto task = async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
+
+	REQUIRE(wait_and_dispatch_one_cqe(*fx));
+
+	::io_uring_cqe *cqe = nullptr;
+	__kernel_timespec ts{.tv_sec = 5, .tv_nsec = 0};
+	REQUIRE(::io_uring_submit_and_wait_timeout(&fx->ring, &cqe, 1, &ts, nullptr) >= 0);
+	REQUIRE(cqe != nullptr);
+	REQUIRE(cqe->res >= 0);
+
+	task.cancel();
+	dispatch_cqe(*fx, *cqe);
+	::io_uring_cq_advance(&fx->ring, 1);
+
+	bool got_cancel = false;
+	int err_code = 0;
+	try {
+		fx->run(std::move(task), std::chrono::seconds{5});
+	} catch (IoError const &e) { err_code = e.code().value(); } catch (std::exception const &) {
+		got_cancel = true;
+	}
+	CHECK(got_cancel);
+	CHECK(err_code == 0);
+
+	wait_and_dispatch_one_cqe(*fx, std::chrono::seconds{1});
 }
 // ---------------------------------------------------------------------------
 // tcp_connect — submit_on_ring_owner false → immediate complete_cancelled
@@ -887,7 +930,6 @@ TEST_CASE(
 		opts};
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto task = async_tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
-	// cancel → hook → submit_on_owner returns false → complete_cancelled
 	task.cancel();
 	bool got_cancel = false;
 	int err_code = 0;
@@ -1436,6 +1478,26 @@ TEST_CASE(
 	REQUIRE(result.outcome.is_cancelled());
 	CHECK(result.outcome.cancelled().reason == conflux::work::root::CancelReason::deadline);
 	REQUIRE(src.try_set_cancelled(conflux::work::root::CancelReason::requested));
+}
+
+TEST_CASE(
+	"sync_wait_socket_race cancels losing timeout_at trigger",
+	"[timeout][race][uring]") {
+	auto fx = require_ring_fixture();
+	auto [work, src] = conflux::work::root::make_task_source<int>();
+	auto raced = conflux::work::race::race<int>(
+		conflux::work::race::race_options{},
+		conflux::work::race::candidate("work", std::move(work)),
+		conflux::work::race::trigger(
+			"deadline",
+			timeout_at(fx->task_ring, std::chrono::steady_clock::now() + std::chrono::seconds{30}),
+			conflux::work::root::CancelReason::deadline));
+
+	REQUIRE(src.try_set_value(conflux::work::root::Success<int>{7}));
+	auto result = sync_wait_socket_race(fx->task_ring, std::move(raced), std::chrono::seconds{2});
+	CHECK(result.winner.label == "work");
+	REQUIRE(result.outcome.is_success());
+	CHECK(result.outcome.success().value == 7);
 }
 // ---------------------------------------------------------------------------
 // AC-9: submit_on_owner failure — cancel_requested set, drain via accept CQE

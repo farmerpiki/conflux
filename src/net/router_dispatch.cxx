@@ -117,11 +117,31 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::HttpFieldsView const &matched_params,
 	std::string const &route_pattern,
 	[[maybe_unused]] bool observe_route) {
-	auto all_params = req.params;
-	for (auto const &[k, v]: matched_params) {
-		if (!all_params.get(k)) {
-			all_params.emplace_back(k, v);
+	constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
+	constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
+	auto const jwt_claim_overrides = [&](std::string_view key) {
+		return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
+			   && matched_params.get(key).has_value();
+	};
+
+	conflux::http::HttpFieldsView all_params;
+	all_params.reserve(matched_params.size() + req.params.size() + 1);
+	for (auto key: kJwtClaimParams) {
+		if (jwt_claim_overrides(key)) {
+			all_params.emplace_back(key, *req.params.get(key));
 		}
+	}
+	for (auto const &[k, v]: matched_params) {
+		if (jwt_claim_overrides(k)) {
+			continue;
+		}
+		all_params.emplace_back(k, v);
+	}
+	for (auto const &[k, v]: req.params) {
+		if (k == kJwtAuthoritative || jwt_claim_overrides(k)) {
+			continue;
+		}
+		all_params.emplace_back(k, v);
 	}
 #if CONFLUX_ROUTER_LAZY_ROUTE_METADATA
 	if (observe_route && !all_params.get("__conflux_route_pattern")) {
@@ -213,11 +233,35 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::RequestView const &req,
 	conflux::http::HttpFieldsView const &matched_params,
 	std::string const &route_pattern) {
+	constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
+	constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
+	auto const jwt_claim_overrides = [&](std::string_view key) {
+		return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
+			   && matched_params.get(key).has_value();
+	};
+
 	auto matched = req.to_owned();
-	for (auto &[k, v]: matched_params) {
-		matched.params.emplace_back(std::string{k}, std::string{v});
+	conflux::http::HttpFields params;
+	params.reserve(matched_params.size() + matched.params.size() + 1);
+	for (auto key: kJwtClaimParams) {
+		if (jwt_claim_overrides(key)) {
+			params.emplace_back(std::string{key}, std::string{*req.params.get(key)});
+		}
 	}
-	matched.params.emplace_back("__conflux_route_pattern", route_pattern);
+	for (auto const &[k, v]: matched_params) {
+		if (jwt_claim_overrides(k)) {
+			continue;
+		}
+		params.emplace_back(std::string{k}, std::string{v});
+	}
+	for (auto const &[k, v]: matched.params) {
+		if (k == kJwtAuthoritative || jwt_claim_overrides(k)) {
+			continue;
+		}
+		params.emplace_back(std::string{k}, std::string{v});
+	}
+	params.emplace_back("__conflux_route_pattern", route_pattern);
+	matched.params = std::move(params);
 	return matched;
 }
 
@@ -303,12 +347,33 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 	} catch (...) { return conflux::http::Response::internal_error(); }
 }
 
+template<typename Handler, typename Ctx>
+[[nodiscard]] conflux::work::root::Task<conflux::http::Response> run_context_route_task(
+	Handler handler,
+	conflux::http::OwnedRequest req,
+	Ctx ctx,
+	std::string route_pattern,
+	bool should_annotate,
+	bool is_head,
+	conflux::work::root::Cancellation cancel) {
+	conflux::http::RequestView const view{req};
+	auto resp = co_await cancel.await(handler(view, ctx));
+	if (is_head) {
+		resp.head_only = true;
+	}
+	if (should_annotate) {
+		resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
+	}
+	co_return resp;
+}
+
 export template<typename ContextRouteRange, typename Ctx>
 [[nodiscard]] std::optional<DeferredRouteTask> dispatch_context_route_tasks(
 	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
-	ContextRouteRange const &context_routes) {
+	ContextRouteRange const &context_routes,
+	bool is_head) {
 	if (context_routes.empty()) {
 		return std::nullopt;
 	}
@@ -320,58 +385,68 @@ export template<typename ContextRouteRange, typename Ctx>
 								 (route.exact_path == path_sv) :
 								 conflux::http::detail::match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
-			auto all_params = req.params;
-			for (auto const &[k, v]: matched_params) {
-				if (!all_params.get(k)) {
-					all_params.emplace_back(k, v);
+			constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
+			constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
+			auto const jwt_claim_overrides = [&](std::string_view key) {
+				return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
+					   && matched_params.get(key).has_value();
+			};
+
+			auto matched_req = req.to_owned();
+			conflux::http::HttpFields params;
+			params.reserve(matched_params.size() + matched_req.params.size() + 1);
+			for (auto key: kJwtClaimParams) {
+				if (jwt_claim_overrides(key)) {
+					params.emplace_back(std::string{key}, std::string{*req.params.get(key)});
 				}
+			}
+			for (auto const &[k, v]: matched_params) {
+				if (jwt_claim_overrides(k)) {
+					continue;
+				}
+				params.emplace_back(std::string{k}, std::string{v});
+			}
+			for (auto const &[k, v]: matched_req.params) {
+				if (k == kJwtAuthoritative || jwt_claim_overrides(k)) {
+					continue;
+				}
+				params.emplace_back(std::string{k}, std::string{v});
 			}
 			std::string pattern;
 			if (observe_route) {
 				pattern = route.path_pattern;
-				all_params.emplace_back_owned_value("__conflux_route_pattern", pattern);
+				params.emplace_back("__conflux_route_pattern", pattern);
 			}
-			conflux::http::RequestView const matched_view{
-				req.method,
-				req.path,
-				req.version,
-				req.remote_addr,
-				req.is_tls,
-				std::move(all_params),
-				req.headers,
-				req.query,
-				req.form,
-				req.cookies,
-				req.files,
-				req.body};
+			matched_req.params = std::move(params);
 			DeferredTaskOptions options{};
 			if (route.timeout && *route.timeout > std::chrono::milliseconds{0}) {
 				options.timeout = *route.timeout;
 			}
 			return DeferredRouteTask{
 				.task = [](auto handler,
-						   conflux::http::RequestView req,
+						   conflux::http::OwnedRequest req,
 						   Ctx const &ctx,
 						   std::string route_pattern,
-						   bool should_annotate) -> conflux::work::root::Task<conflux::http::Response> {
+						   bool should_annotate,
+						   bool is_head) -> conflux::work::root::Task<conflux::http::Response> {
 					return conflux::work::root::make_cancellable_task(
 						[handler = std::move(handler),
 						 req = std::move(req),
 						 ctx,
 						 route_pattern = std::move(route_pattern),
-						 should_annotate](conflux::work::root::Cancellation) mutable
+						 should_annotate,
+						 is_head](conflux::work::root::Cancellation cancel) mutable
 							-> conflux::work::root::Task<conflux::http::Response> {
-							if (!should_annotate) {
-								return handler(req, ctx);
-							}
-							return [](auto child,
-									  std::string route_pattern) -> conflux::work::root::Task<conflux::http::Response> {
-								auto resp = co_await std::move(child);
-								resp.headers.set("__conflux-route-pattern", std::move(route_pattern));
-								co_return resp;
-							}(handler(req, ctx), std::move(route_pattern));
+							return run_context_route_task(
+								std::move(handler),
+								std::move(req),
+								ctx,
+								std::move(route_pattern),
+								should_annotate,
+								is_head,
+								std::move(cancel));
 						});
-				}(route.handler, std::move(matched_view), ctx, std::move(pattern), observe_route),
+				}(route.handler, std::move(matched_req), ctx, std::move(pattern), observe_route, is_head),
 				.options = options,
 			};
 		}
@@ -384,8 +459,10 @@ export template<typename ContextRouteRange, typename Ctx>
 	conflux::http::RequestView const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
-	ContextRouteRange const &context_routes) {
-	auto deferred_task = conflux::http::detail::dispatch_context_route_tasks(req, ctx, path_sv, context_routes);
+	ContextRouteRange const &context_routes,
+	bool is_head = false) {
+	auto deferred_task =
+		conflux::http::detail::dispatch_context_route_tasks(req, ctx, path_sv, context_routes, is_head);
 	if (!deferred_task) {
 		return std::nullopt;
 	}

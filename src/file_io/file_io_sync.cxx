@@ -626,6 +626,16 @@ export std::expected<FileStat, IoError> blocking_stat_at(
 		.ino = stx.stx_ino,
 		.mode = stx.stx_mode};
 }
+
+[[nodiscard]] std::expected<void, IoError> require_regular_read_source(
+	FileStat const &st) noexcept {
+	if (!S_ISREG(st.mode)) {
+		return std::unexpected{
+			IoError{EISDIR, "file_io_sync: not a regular file"}
+        };
+	}
+	return {};
+}
 // ───────────────────────────────────────────────────────────────────────
 // Low-level: blocking_read_all_fd
 // ───────────────────────────────────────────────────────────────────────
@@ -636,6 +646,9 @@ export std::expected<std::string, IoError> blocking_read_all_fd(
 	auto st = blocking_fstat(fd);
 	if (!st) {
 		return std::unexpected{st.error()};
+	}
+	if (auto regular = require_regular_read_source(*st); !regular) {
+		return std::unexpected{regular.error()};
 	}
 	if (st->size > max_bytes) {
 		return std::unexpected{
@@ -678,7 +691,7 @@ export std::expected<std::string, IoError> blocking_read_all_fd(
 export std::expected<std::string, IoError> blocking_read_text_file(
 	std::string_view path,
 	std::size_t max_bytes = std::size_t{16} * 1024 * 1024) {
-	auto file = blocking_open_file(path, O_RDONLY);
+	auto file = blocking_open_file(path, O_RDONLY | O_NONBLOCK);
 	if (!file) {
 		return std::unexpected{file.error()};
 	}
@@ -713,7 +726,7 @@ export std::expected<std::string, IoError> blocking_read_file_at(
 		return std::unexpected{parts.error()};
 	}
 
-	auto file = blocking_openat_contained(root_fd, contained_relative_path, O_RDONLY);
+	auto file = blocking_openat_contained(root_fd, contained_relative_path, O_RDONLY | O_NONBLOCK);
 	if (!file) {
 		return std::unexpected{file.error()};
 	}

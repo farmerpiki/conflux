@@ -490,6 +490,99 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app group policies protect raw async request-view routes",
+	"[http.facade]") {
+	auto app = http::app();
+	app.group("/api", [](auto &api) {
+		api.require_bearer_token("user").rate_limit("api", {.requests = 1, .window = std::chrono::seconds{60}});
+		(void)api.get("/raw-async", [](http::RequestView const &) -> conflux::work::Task<http::Response> {
+			co_return http::text("secret");
+		});
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].path == "/api/raw-async");
+	CHECK(routes[0].handler_kind == "app");
+	CHECK(routes[0].bearer_token_policy == "user");
+	CHECK(routes[0].rate_limit == "api");
+
+	auto resolve = [](http::Response response) {
+		if (!response.is_deferred()) {
+			return response;
+		}
+		auto deferred = response.deferred_response_ptr();
+		REQUIRE(deferred);
+		REQUIRE(deferred->is_ready());
+		auto completed = deferred->take_ready();
+		REQUIRE(completed.has_value());
+		return std::move(*completed);
+	};
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/api/raw-async";
+	req.remote_addr = "203.0.113.50";
+
+	auto denied = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(denied.has_value());
+	CHECK(resolve(std::move(*denied)).status == kHttpUnauthorized);
+
+	req.headers["authorization"] = "Bearer token";
+	auto first = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(first.has_value());
+	auto first_response = resolve(std::move(*first));
+	CHECK(first_response.status == kHttpOk);
+	CHECK(first_response.text_body() == "secret");
+
+	auto second = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(second.has_value());
+	CHECK(resolve(std::move(*second)).status == kHttpTooManyRequests);
+}
+
+TEST_CASE(
+	"http facade: route auth policy protects raw async owned-request routes",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get(
+		   "/raw-owned",
+		   [](http::OwnedRequest const &req) -> conflux::work::Task<http::Response> { co_return http::text(req.path); })
+		.require_bearer_token("user");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].handler_kind == "app");
+	CHECK(routes[0].bearer_token_policy == "user");
+
+	auto resolve = [](http::Response response) {
+		if (!response.is_deferred()) {
+			return response;
+		}
+		auto deferred = response.deferred_response_ptr();
+		REQUIRE(deferred);
+		REQUIRE(deferred->is_ready());
+		auto completed = deferred->take_ready();
+		REQUIRE(completed.has_value());
+		return std::move(*completed);
+	};
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/raw-owned";
+
+	auto denied = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(denied.has_value());
+	CHECK(resolve(std::move(*denied)).status == kHttpUnauthorized);
+
+	req.headers["authorization"] = "Bearer token";
+	auto ok = http::router(app).dispatch_context(req, http::RequestContext{});
+	REQUIRE(ok.has_value());
+	auto ok_response = resolve(std::move(*ok));
+	CHECK(ok_response.status == kHttpOk);
+	CHECK(ok_response.text_body() == "/raw-owned");
+}
+
+TEST_CASE(
 	"http facade: route auth policy requires bearer credentials",
 	"[http.facade]") {
 	auto app = http::app();
@@ -567,6 +660,33 @@ TEST_CASE(
 
 	req.remote_addr = "::1";
 	CHECK(http::router(app).dispatch(req).status == kHttpTooManyRequests);
+}
+
+TEST_CASE(
+	"http facade: route rate limit canonicalizes endpoint remote addresses",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/limited", [] { return http::text("ok"); })
+		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/limited";
+	req.remote_addr = "203.0.113.10:40000";
+	CHECK(http::router(app).dispatch(req).status == kHttpOk);
+
+	req.remote_addr = "203.0.113.10:40001";
+	CHECK(http::router(app).dispatch(req).status == kHttpTooManyRequests);
+
+	auto ipv6_app = http::app();
+	ipv6_app.get("/limited", [] { return http::text("ok"); })
+		.rate_limit("tiny", http::AppRateLimitOptions{.requests = 1, .window = std::chrono::seconds{60}});
+
+	req.remote_addr = "[::1]:40000";
+	CHECK(http::router(ipv6_app).dispatch(req).status == kHttpOk);
+
+	req.remote_addr = "[0:0:0:0:0:0:0:1]:40001";
+	CHECK(http::router(ipv6_app).dispatch(req).status == kHttpTooManyRequests);
 }
 
 TEST_CASE(

@@ -180,7 +180,7 @@ void Ring::handle_deferred_poll(
 			conn.has_response = true;
 		} else {
 			conn.mapped_file = ready->take_mapped_file();
-			conn.mapped_total = conn.own_response.size() + conn.mapped_file->size;
+			conn.mapped_total = conn.own_response.size() + conn.mapped_file->window().size();
 			conn.mapped_delivered = 0;
 			conn.has_response = false;
 		}
@@ -207,8 +207,9 @@ void Ring::handle_conn_close(
 	int fd,
 	int res,
 	std::uint32_t gen) {
-	HTTP_TRACE(std::format("conn_close fd={} res={} gen={} direct={}", fd, res, gen, accepted_sockets_direct));
-	if (direct_slots_ && accepted_sockets_direct) {
+	bool const direct = conn_uses_direct(fd);
+	HTTP_TRACE(std::format("conn_close fd={} res={} gen={} direct={}", fd, res, gen, direct));
+	if (direct_slots_ && direct) {
 		auto const slot = static_cast<std::uint32_t>(fd);
 		if (res >= 0 || res == -EBADF) {
 			if (res == -EBADF) {

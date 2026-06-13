@@ -569,7 +569,7 @@ TEST_CASE(
 		REQUIRE(child.insert_i64("x", 99LL).has_value());
 	}
 
-	REQUIRE(root.insert_i64("kept", 1LL).has_value());
+	REQUIRE(root.insert_i64("inner", 1LL).has_value());
 	std::move(root).commit();
 
 	auto doc = std::move(b).finish();
@@ -577,8 +577,9 @@ TEST_CASE(
 
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
-	CHECK(!obj->find_member("inner").has_value());
-	CHECK(obj->find_member("kept").has_value());
+	auto inner = obj->find_member("inner");
+	REQUIRE(inner.has_value());
+	CHECK(inner->as_i64().value_or(0) == 1LL);
 }
 
 TEST_CASE(
@@ -596,7 +597,7 @@ TEST_CASE(
 		REQUIRE(child.append_string("x").has_value());
 	}
 
-	REQUIRE(root.insert_string("kept", "yes").has_value());
+	REQUIRE(root.insert_string("items", "yes").has_value());
 	std::move(root).commit();
 
 	auto doc = std::move(b).finish();
@@ -604,8 +605,9 @@ TEST_CASE(
 
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
-	CHECK(!obj->find_member("items").has_value());
-	CHECK(obj->find_member("kept").has_value());
+	auto items = obj->find_member("items");
+	REQUIRE(items.has_value());
+	CHECK(items->as_string().value_or("") == "yes");
 }
 
 TEST_CASE(

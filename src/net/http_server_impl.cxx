@@ -452,17 +452,32 @@ void HttpServer::initialize(
 
 		// Load per-hostname SSL_CTX for SNI virtual hosts.
 		for (auto const &vh: cfg.virtual_hosts) {
-			impl_->tls_ctx->add_vhost(
-				vh.hostname,
-				conflux::net_tls::TlsServerOptions{
-					.cert_file = vh.cert_file,
-					.key_file = vh.key_file,
-					.cipher_list = cfg.tls_cipher_list,
-					.ciphersuites = cfg.tls_ciphersuites,
-					.ktls = cfg.ktls,
-				});
+			conflux::net_tls::TlsServerOptions const vhost_opts{
+				.cert_file = vh.cert_file,
+				.key_file = vh.key_file,
+				.cipher_list = cfg.tls_cipher_list,
+				.ciphersuites = cfg.tls_ciphersuites,
+				.ktls = cfg.ktls,
+			};
+			SSL_CTX *const vhost_ctx = impl_->tls_ctx->add_vhost(vh.hostname, vhost_opts);
+	#if CONFLUX_HAS_HTTP2
+			conflux::http::detail::http2_configure_alpn(vhost_ctx);
+	#endif
+	#if CONFLUX_HAS_HTTP3
+			if (impl_->http3_tls_ctx) {
+				SSL_CTX *const h3_vhost_ctx = impl_->http3_tls_ctx->add_vhost(
+					vh.hostname,
+					vhost_opts);
+				conflux::http::detail::http3_configure_alpn(h3_vhost_ctx);
+			}
+	#endif
 		}
 		impl_->tls_ctx->install_sni();
+	#if CONFLUX_HAS_HTTP3
+		if (impl_->http3_tls_ctx) {
+			impl_->http3_tls_ctx->install_sni();
+		}
+	#endif
 	}
 #endif // CONFLUX_HAS_TLS
 

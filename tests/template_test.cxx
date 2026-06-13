@@ -423,6 +423,40 @@ TEST_CASE(
 	dir.rm("main.html");
 }
 TEST_CASE(
+	"template: deeply nested include cycle reports link diagnostic",
+	"[template]") {
+	TmplDir dir;
+	static constexpr std::size_t kTemplates = 32;
+	static constexpr std::size_t kDepth = 32;
+	std::vector<std::string> names;
+	names.reserve(kTemplates);
+	for (std::size_t i = 0; i < kTemplates; ++i) {
+		names.push_back(std::format("t{}.html", i));
+	}
+	for (std::size_t i = 0; i < kTemplates; ++i) {
+		std::string content;
+		for (std::size_t depth = 0; depth < kDepth; ++depth) {
+			content += "{% if ok %}";
+		}
+		content += std::format("{{% include '{}' %}}", names[(i + 1U) % kTemplates]);
+		for (std::size_t depth = 0; depth < kDepth; ++depth) {
+			content += "{% endif %}";
+		}
+		dir.write(names[i], content);
+	}
+
+	auto env = dir.make();
+	auto report = env.blocking_load_all_checked();
+	REQUIRE_FALSE(report);
+	REQUIRE_FALSE(report.error().diagnostics.empty());
+	CHECK(report.error().diagnostics.front().phase == TemplateDiagnosticPhase::link);
+	CHECK(report.error().diagnostics.front().code == "dependency_cycle");
+
+	for (auto const &name: names) {
+		dir.rm(name);
+	}
+}
+TEST_CASE(
 	"template: failed reload keeps old cache",
 	"[template]") {
 	TmplDir dir;

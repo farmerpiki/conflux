@@ -35,6 +35,7 @@ target_link_libraries(conflux_net_tls
     PUBLIC  conflux_types
     PUBLIC  conflux_utils
     PUBLIC  conflux_work
+    PUBLIC  conflux_uring
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
     PUBLIC  conflux_net_cancel

@@ -7,19 +7,19 @@ import std;
 
 namespace conflux::file_io {
 
-root::Task<std::size_t> FileReader::read_into(
+root::JoinTask<std::size_t> FileReader::read_into(
 	FileHandle const &fh,
 	std::uint64_t offset,
 	std::span<std::byte> dst) {
 	auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
 	if (!sqe) {
-		return std::move(task);
+		return root::require_join(std::move(task));
 	}
 	visit_fd(fh, [&](RingFd auto fd) { sqe.prep_read(fd, dst.data(), dst.size(), offset); });
 	auto [slot, gen] =
 		reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) { return static_cast<std::size_t>(r.res); });
 	io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-	return std::move(task);
+	return root::require_join(std::move(task));
 }
 
 root::Task<std::size_t> FileReader::readv_into(
@@ -149,19 +149,19 @@ root::Task<FileReader::WriteFixedResult> FileReader::write_fixed(
 	return std::move(task);
 }
 
-root::Task<std::size_t> FileReader::write_into(
+root::JoinTask<std::size_t> FileReader::write_into(
 	FileHandle const &fh,
 	std::uint64_t offset,
 	std::span<std::byte const> src_view) {
 	auto [task, src, sqe] = prepare_sqe_direct<std::size_t>();
 	if (!sqe) {
-		return std::move(task);
+		return root::require_join(std::move(task));
 	}
 	visit_fd(fh, [&](RingFd auto fd) { sqe.prep_write(fd, src_view.data(), src_view.size(), offset); });
 	auto [slot, gen] =
 		reserve_bridge_direct<std::size_t>(std::move(src), [](IoResult r) { return static_cast<std::size_t>(r.res); });
 	io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
-	return std::move(task);
+	return root::require_join(std::move(task));
 }
 
 root::Task<std::size_t> FileReader::writev_into(

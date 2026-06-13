@@ -70,6 +70,47 @@ public:
 	}
 };
 
+[[nodiscard]] bool decimal_port(
+	std::string_view value) noexcept {
+	return !value.empty() && std::ranges::all_of(value, [](char c) { return c >= '0' && c <= '9'; });
+}
+
+[[nodiscard]] std::optional<std::string> canonical_endpoint_ip(
+	std::string_view remote_addr) {
+	if (remote_addr.starts_with('[')) {
+		auto const close = remote_addr.find(']');
+		if (close == std::string_view::npos || close + 1 >= remote_addr.size() || remote_addr[close + 1] != ':') {
+			return std::nullopt;
+		}
+		if (!decimal_port(remote_addr.substr(close + 2))) {
+			return std::nullopt;
+		}
+		return conflux::utils::parse_ip(remote_addr.substr(1, close - 1)).transform(conflux::utils::ip_to_string);
+	}
+	auto const colon = remote_addr.rfind(':');
+	if (colon == std::string_view::npos || remote_addr.find(':') != colon) {
+		return std::nullopt;
+	}
+	if (!decimal_port(remote_addr.substr(colon + 1))) {
+		return std::nullopt;
+	}
+	return conflux::utils::parse_ip(remote_addr.substr(0, colon)).transform(conflux::utils::ip_to_string);
+}
+
+[[nodiscard]] std::string rate_limit_remote_key(
+	std::string_view remote_addr) {
+	if (remote_addr.empty()) {
+		return std::string{"unknown"};
+	}
+	if (auto parsed = conflux::utils::parse_ip(remote_addr)) {
+		return conflux::utils::ip_to_string(*parsed);
+	}
+	if (auto parsed = canonical_endpoint_ip(remote_addr)) {
+		return std::move(*parsed);
+	}
+	return std::string{remote_addr};
+}
+
 } // namespace detail
 // Middleware factory: token-bucket rate limiter keyed on remote_addr.
 // Thread-safe — shared across all rings via captured SP.
@@ -88,10 +129,7 @@ Router::Middleware rate_limit_middleware(
 			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		auto const now = Clock::now();
-		auto const key = req.remote_addr.empty() ? std::string{"unknown"} :
-												   conflux::utils::parse_ip(req.remote_addr)
-													   .transform(conflux::utils::ip_to_string)
-													   .value_or(std::string{req.remote_addr});
+		auto const key = detail::rate_limit_remote_key(req.remote_addr);
 
 		bool allowed = false;
 		auto retry_after = static_cast<unsigned>(opts.window.count());

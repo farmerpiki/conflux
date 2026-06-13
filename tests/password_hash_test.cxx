@@ -20,7 +20,7 @@ TEST_CASE(
 TEST_CASE(
 	"conflux::http::password_hash: verify accepts matching password and rejects wrong password",
 	"[auth][conflux::http::password_hash]") {
-	auto opts = conflux::http::pbkdf2_sha256_password_hash_options(2);
+	auto opts = conflux::http::pbkdf2_sha256_password_hash_options(10'000);
 	opts.salt_bytes = 8;
 	opts.hash_bytes = 32;
 
@@ -41,10 +41,10 @@ TEST_CASE(
 TEST_CASE(
 	"conflux::http::password_hash: verify reports upgrade path when parameters change",
 	"[auth][conflux::http::password_hash]") {
-	auto old_opts = conflux::http::pbkdf2_sha256_password_hash_options(1);
+	auto old_opts = conflux::http::pbkdf2_sha256_password_hash_options(10'000);
 	old_opts.salt_bytes = 8;
 	old_opts.hash_bytes = 32;
-	auto current_opts = conflux::http::pbkdf2_sha256_password_hash_options(2);
+	auto current_opts = conflux::http::pbkdf2_sha256_password_hash_options(10'001);
 	current_opts.salt_bytes = 8;
 	current_opts.hash_bytes = 32;
 
@@ -64,21 +64,21 @@ TEST_CASE(
 TEST_CASE(
 	"conflux::http::password_hash: verifier secret marks new hashes and rejects unmarked hashes",
 	"[auth][conflux::http::password_hash]") {
-	auto opts = conflux::http::pbkdf2_sha256_password_hash_options(1);
+	auto opts = conflux::http::pbkdf2_sha256_password_hash_options(10'000);
 	opts.salt_bytes = 8;
 	opts.hash_bytes = 32;
 	conflux::http::PasswordHashSecrets secrets{.verifier_secret = "server-side pepper"};
 
 	auto encoded = conflux::http::password_hash_with_salt("secret", "abcdefgh", opts, secrets);
 	REQUIRE(encoded.has_value());
-	CHECK(encoded->starts_with("$pbkdf2-sha256$v=1$i=1,l=32,k=1$"));
+	CHECK(encoded->starts_with("$pbkdf2-sha256$v=1$i=10000,l=32,k=1$"));
 
 	auto ok = conflux::http::password_verify("secret", *encoded, opts, secrets);
 	REQUIRE(ok.has_value());
 	CHECK(ok->ok);
 	CHECK_FALSE(ok->needs_rehash);
 
-	auto missing_secret = conflux::http::pbkdf2_sha256_password_hash_options(1);
+	auto missing_secret = conflux::http::pbkdf2_sha256_password_hash_options(10'000);
 	missing_secret.salt_bytes = 8;
 	missing_secret.hash_bytes = 32;
 	auto rejected = conflux::http::password_verify("secret", *encoded, missing_secret);
@@ -116,6 +116,27 @@ TEST_CASE(
 
 	auto unsupported = conflux::http::password_verify("pw", "$md5$v=1$i=1,l=16$c2FsdA$aaaa", opts);
 	CHECK_FALSE(unsupported.has_value());
+}
+
+TEST_CASE(
+	"conflux::http::password_hash: verifier rejects attacker-weakened stored parameters",
+	"[auth][conflux::http::password_hash]") {
+	auto opts = conflux::http::pbkdf2_sha256_password_hash_options(10'000);
+	auto weak_record = "$pbkdf2-sha256$v=1$i=1,l=1$c2FsdA$Eg";
+	auto weak = conflux::http::password_verify("password", weak_record, opts);
+	CHECK_FALSE(weak.has_value());
+
+	auto short_hash = "$pbkdf2-sha256$v=1$i=10000,l=1$MTIzNDU2Nzg$AA";
+	auto short_hash_result = conflux::http::password_verify("password", short_hash, opts);
+	CHECK_FALSE(short_hash_result.has_value());
+
+	auto short_salt = "$pbkdf2-sha256$v=1$i=10000,l=16$c2FsdA$AAAAAAAAAAAAAAAAAAAAAA";
+	auto short_salt_result = conflux::http::password_verify("password", short_salt, opts);
+	CHECK_FALSE(short_salt_result.has_value());
+
+	auto low_iterations = "$pbkdf2-sha256$v=1$i=9999,l=16$MTIzNDU2Nzg$AAAAAAAAAAAAAAAAAAAAAA";
+	auto low_iterations_result = conflux::http::password_needs_rehash(low_iterations, opts);
+	CHECK_FALSE(low_iterations_result.has_value());
 }
 
 TEST_CASE(

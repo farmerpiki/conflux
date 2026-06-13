@@ -105,8 +105,9 @@ expected<Document, JsonError> parse_copy(string&&      input, JsonParseOptions c
 - `parse_copy(string_view)` — copies input into the `Document`'s owned buffer.
 - `parse_copy(string&&)` — moves the input string into the `Document`; no copy.
 - `parse(string&&)`, `parse_view(string&&)`, and `parse_borrowed(string&&)` are
-  `= delete` to prevent accidental dangling. Use `parse_copy(std::move(s))` for
-  rvalue strings.
+  `= delete` to prevent accidental dangling, including PMR overloads that take
+  a caller-supplied memory resource. Use `parse_copy(std::move(s))` for rvalue
+  strings.
 
 ```cpp
 auto doc = parse_view(R"({"x": 1, "y": 2})");
@@ -425,6 +426,7 @@ enum class JsonPatchOp { add, remove, replace, move, copy, test };
 struct JsonPatchOptions {
     size_t max_operations = 1024;
     size_t max_pointer_depth = 128;
+    size_t max_result_nodes = 1'000'000;
     bool reject_duplicate_object_members = true;
     bool allow_missing_remove = false;
 };
@@ -442,8 +444,10 @@ validate_patch(NodeRef patch, JsonPatchOptions opts = {});
 `apply_patch` implements RFC 6902 over the immutable DOM and returns a new
 owning `Document`. `add`, `remove`, `replace`, `move`, `copy`, and `test` are
 supported. Root replacement is allowed through `add`/`replace`; root removal is
-rejected with `patch_remove_document_root`. Failed operations do not mutate the
-input document. Patch diagnostics use `JsonStage::json_patch` and stable
+rejected with `patch_remove_document_root`. `max_result_nodes` bounds the
+expanded candidate tree after each operation so small patches cannot amplify
+`copy` operations into unbounded memory growth. Failed operations do not
+mutate the input document. Patch diagnostics use `JsonStage::json_patch` and stable
 `JsonIssueCode::patch_*` values, with operation index and pointer text attached
 when available.
 
@@ -858,7 +862,7 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
 
 ## Arena-backed parsing (`JsonArena`)
 
-`JsonArena` reuses a single monotonic allocation region across multiple parse calls. Useful for request-scoped JSON: parse, process, then `reset()` the arena rather than allocating and freeing `Document` per request.
+`JsonArena` reuses a monotonic allocation region for parsed JSON storage. Object hash indexes use a separate reclaimable PMR pool by default so repeated `parse_into` reuse does not retain stale indexes; pass `hash_index_resource` only when you want to own that allocation policy. Useful for request-scoped JSON: parse, process, then `reset()` the arena rather than allocating and freeing `Document` per request.
 
 ```cpp
 struct JsonArenaOptions {
@@ -881,6 +885,7 @@ public:
 ```
 
 `ArenaDocument` is a handle into the arena's storage. **All `ArenaDocument` handles are invalidated by `reset()`** — do not hold them across a reset.
+`parse_borrowed_into` borrows caller-owned bytes and rejects temporary `std::string` inputs; use `parse_moved_into(std::move(input))` when the arena should own an rvalue string.
 
 ```cpp
 JsonArena arena{JsonArenaOptions{.initial_slab = 1024 * 1024}};

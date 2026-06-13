@@ -21,6 +21,11 @@ using conflux::http::HttpClient;
 using conflux::http::HttpClientOptions;
 using namespace conflux::tests;
 
+#if CONFLUX_HAS_TLS
+static_assert(!std::is_move_constructible_v<conflux::net_tls::TlsServerContext>);
+static_assert(!std::is_move_assignable_v<conflux::net_tls::TlsServerContext>);
+#endif
+
 namespace {
 namespace chttp = conflux::http;
 

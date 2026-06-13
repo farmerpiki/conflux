@@ -16,6 +16,10 @@ root::Task<int> await_task_value(
 	root::Task<int> task) {
 	co_return co_await std::move(task);
 }
+root::Task<void> await_task_void(
+	root::Task<void> task) {
+	co_await std::move(task);
+}
 root::Task<int> throw_cancelled_int(
 	root::CancelReason reason) {
 	throw root::CancelledError{reason};
@@ -304,6 +308,30 @@ TEST_CASE(
 	auto out = root::blocking_join(throw_cancelled_void(root::CancelReason::shutdown));
 	REQUIRE(out.is_cancelled());
 	CHECK(out.cancelled().reason == root::CancelReason::shutdown);
+}
+TEST_CASE(
+	"work.root: abandoned child Task<int> commits abandoned outcome",
+	"[work.root]") {
+	std::optional<root::Task<int>> parent;
+	{
+		auto [child, src] = root::make_task_source<int>();
+		parent.emplace(await_task_value(std::move(child)));
+	}
+	auto out = root::blocking_join(std::move(*parent));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::abandoned);
+}
+TEST_CASE(
+	"work.root: abandoned child Task<void> commits abandoned outcome",
+	"[work.root]") {
+	std::optional<root::Task<void>> parent;
+	{
+		auto [child, src] = root::make_task_source<void>();
+		parent.emplace(await_task_void(std::move(child)));
+	}
+	auto out = root::blocking_join(std::move(*parent));
+	REQUIRE(out.is_cancelled());
+	CHECK(out.cancelled().reason == root::CancelReason::abandoned);
 }
 TEST_CASE(
 	"work.root: make_cancellable_task sync body returns success",

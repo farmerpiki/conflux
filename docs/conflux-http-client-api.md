@@ -113,7 +113,7 @@ struct HttpTimeouts {
 };
 ```
 
-`<= 0` means indefinite. Resolution is whole seconds (ceiling). `resolve` is advisory for the blocking client when it falls back to `getaddrinfo`, which honors only the global resolver timeout, not this field.
+`<= 0` means indefinite. Resolution is whole seconds (ceiling). `between_bytes` bounds async response-body receive as one body deadline after headers are parsed, not as a fresh budget for every fragment. `resolve` is advisory for the blocking client when it falls back to `getaddrinfo`, which honors only the global resolver timeout, not this field.
 
 ### `HttpError` & `HttpErrorKind`
 
@@ -349,7 +349,7 @@ Sequence:
 4. **Send** — request line + merged headers (`opts.default_headers` first, then request, request wins). Skips any caller-supplied hop-by-hop headers and any `Host` (regenerated from URL unless caller explicitly set one — that's what `proxy.cxx` uses for `preserve_host`). Always emits `Connection: close`, plus `Content-Length` if `body` is non-empty. No `Transfer-Encoding: chunked` is ever sent — chunked request bodies are out of scope for Phase 1.
 5. **Receive headers** — read until `\r\n\r\n`, capped at `opts.max_header_bytes + 4096`. Records `ttfb`.
 6. **Parse status + headers** — drops hop-by-hop, separates `Set-Cookie`, captures `Content-Length` / `Transfer-Encoding`.
-7. **Receive body** — chunked → de-chunk; `Content-Length` → read exact; otherwise → read to EOF. Capped at `opts.max_body_bytes` regardless of mode.
+7. **Receive body** — chunked → de-chunk; `Content-Length` → read exact; otherwise → read to EOF. Capped at `opts.max_body_bytes` regardless of mode; async receive also enforces `timeouts.between_bytes` as one body deadline after headers.
 8. **Close** the connection — Phase 1 never reuses sockets.
 
 Method-specific:

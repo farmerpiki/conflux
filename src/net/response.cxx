@@ -108,15 +108,22 @@ enum class SameSite : std::uint8_t {
 
 struct StreamedFileHandle {
 	std::shared_ptr<void> storage{};
+	std::type_index type{typeid(void)};
 
 	template<class Handle>
 	[[nodiscard]] static StreamedFileHandle from(
 		std::shared_ptr<Handle> handle) noexcept {
-		return StreamedFileHandle{.storage = std::move(handle)};
+		return StreamedFileHandle{
+			.storage = std::move(handle),
+			.type = std::type_index{typeid(std::remove_cv_t<Handle>)},
+		};
 	}
 
 	template<class Handle>
 	[[nodiscard]] Handle *get_if() const noexcept {
+		if (type != std::type_index{typeid(std::remove_cv_t<Handle>)}) {
+			return nullptr;
+		}
 		return static_cast<Handle *>(storage.get());
 	}
 
@@ -134,56 +141,66 @@ struct CookieBuilder {
 		: name(cookie_name)
 		, value(cookie_value) {}
 
-	[[nodiscard]] auto &&attribute(
+	template<class Self>
+	[[nodiscard]] static decltype(auto) builder_result(
+		Self &&self) {
+		if constexpr (std::is_lvalue_reference_v<Self>) {
+			return (self);
+		} else {
+			return CookieBuilder{std::move(self)};
+		}
+	}
+
+	[[nodiscard]] decltype(auto) attribute(
 		this auto &&self,
 		std::string_view attr) {
 		if (attr.empty()) {
-			return std::forward<decltype(self)>(self);
+			return builder_result(std::forward<decltype(self)>(self));
 		}
 		if (!self.attributes.empty()) {
 			self.attributes += "; ";
 		}
 		self.attributes += attr;
-		return std::forward<decltype(self)>(self);
+		return builder_result(std::forward<decltype(self)>(self));
 	}
 
-	[[nodiscard]] auto &&path(
+	[[nodiscard]] decltype(auto) path(
 		this auto &&self,
 		std::string_view path_value) {
 		return std::forward<decltype(self)>(self).attribute(std::format("Path={}", path_value));
 	}
 
-	[[nodiscard]] auto &&domain(
+	[[nodiscard]] decltype(auto) domain(
 		this auto &&self,
 		std::string_view domain_value) {
 		return std::forward<decltype(self)>(self).attribute(std::format("Domain={}", domain_value));
 	}
 
-	[[nodiscard]] auto &&http_only(
+	[[nodiscard]] decltype(auto) http_only(
 		this auto &&self) {
 		return std::forward<decltype(self)>(self).attribute("HttpOnly");
 	}
 
-	[[nodiscard]] auto &&secure(
+	[[nodiscard]] decltype(auto) secure(
 		this auto &&self) {
 		return std::forward<decltype(self)>(self).attribute("Secure");
 	}
 
-	[[nodiscard]] auto &&same_site(
+	[[nodiscard]] decltype(auto) same_site(
 		this auto &&self,
 		SameSite value) {
 		return std::forward<decltype(self)>(self).attribute(std::format("SameSite={}", same_site_token(value)));
 	}
 
 	template<class Rep, class Period>
-	[[nodiscard]] auto &&max_age(
+	[[nodiscard]] decltype(auto) max_age(
 		this auto &&self,
 		std::chrono::duration<Rep, Period> age) {
 		auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(age).count();
 		return std::forward<decltype(self)>(self).attribute(std::format("Max-Age={}", seconds));
 	}
 
-	[[nodiscard]] auto &&expires(
+	[[nodiscard]] decltype(auto) expires(
 		this auto &&self,
 		std::string_view http_date) {
 		return std::forward<decltype(self)>(self).attribute(std::format("Expires={}", http_date));
@@ -409,7 +426,7 @@ struct Response {
 			return content_length_hint;
 		}
 		if (is_mapped_file() && mapped_file_ptr()) {
-			return static_cast<std::size_t>(mapped_file_ptr()->size);
+			return mapped_file_ptr()->window().size();
 		}
 		if (is_streamed_file() && streamed_file_ptr()) {
 			return static_cast<std::size_t>(streamed_file_ptr()->send_size);

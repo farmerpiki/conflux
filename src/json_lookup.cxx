@@ -254,7 +254,7 @@ namespace detail {
 		}
 	}
 
-	if (!root.is_null() && !kind_matches()) {
+	if (!kind_matches()) {
 		return std::unexpected(
 			JsonError{
 				.stage = JsonStage::decode,

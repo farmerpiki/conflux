@@ -185,3 +185,18 @@ TEST_CASE(
 	CHECK(state.after_notification == SendZcPendingAction::none);
 	CHECK(metrics.notifications == 1);
 }
+
+TEST_CASE(
+	"send_zc lifecycle: close notification survives recv generation bump",
+	"[send_zc][http_server]") {
+	SendZcCqeState state{};
+	state.waiting_notification = true;
+	state.close_after_notification = true;
+
+	CHECK(send_zc_cqe_matches_connection(43, 42, state, true));
+	CHECK(!send_zc_cqe_matches_connection(44, 42, state, true));
+	CHECK(!send_zc_cqe_matches_connection(43, 42, state, false));
+
+	state.close_after_notification = false;
+	CHECK(!send_zc_cqe_matches_connection(43, 42, state, true));
+}

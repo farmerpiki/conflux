@@ -183,6 +183,8 @@ struct AuthThrottleOptions {
 	std::chrono::seconds lockout{std::chrono::minutes{5}};
 	// Maximum distinct subjects tracked simultaneously. Clamped to at least one.
 	std::size_t max_subjects{65536};
+	// Maximum bytes retained per subject. Longer subjects are stored as a digest.
+	std::size_t max_subject_bytes{256};
 };
 
 struct AuthThrottleOutcome {
@@ -286,6 +288,21 @@ struct AuthThrottleState {
 	return *std::static_pointer_cast<AuthThrottleState>(state);
 }
 
+[[nodiscard]] std::string auth_throttle_digest_subject(
+	std::string_view subject) {
+	auto digest = conflux::crypto::sha256(conflux::crypto::to_unsigned_span(subject));
+	return std::format("sha256:{}", conflux::crypto::base64url_encode(digest));
+}
+
+[[nodiscard]] std::string canonical_auth_throttle_subject(
+	std::string_view subject,
+	std::size_t max_subject_bytes) {
+	if (subject.size() <= max_subject_bytes) {
+		return std::string{subject};
+	}
+	return auth_throttle_digest_subject(subject);
+}
+
 void refresh_auth_bucket_window(
 	AuthThrottleBucket &bucket,
 	AuthThrottleOptions const &opts,
@@ -387,9 +404,10 @@ AuthThrottleOutcome AuthFailureLimiter::before_attempt(
 	if (subject.empty() || !auth_detail::auth_throttle_enabled(opts_)) {
 		return {.allowed = true};
 	}
+	auto const key = auth_detail::canonical_auth_throttle_subject(subject, opts_.max_subject_bytes);
 	auto &state = auth_detail::auth_throttle_state(state_);
 	std::scoped_lock const lock{state.mtx};
-	auto *bucket = state.find(subject);
+	auto *bucket = state.find(key);
 	if (bucket == nullptr) {
 		++state.metrics.allowed_attempts;
 		return {.allowed = true};
@@ -410,9 +428,10 @@ AuthThrottleOutcome AuthFailureLimiter::record_failure(
 	if (subject.empty() || !auth_detail::auth_throttle_enabled(opts_)) {
 		return {.allowed = true};
 	}
+	auto const key = auth_detail::canonical_auth_throttle_subject(subject, opts_.max_subject_bytes);
 	auto &state = auth_detail::auth_throttle_state(state_);
 	std::scoped_lock const lock{state.mtx};
-	auto &bucket = state.touch(subject, now);
+	auto &bucket = state.touch(key, now);
 	auth_detail::refresh_auth_bucket_window(bucket, opts_, now);
 	if (bucket.failures < std::numeric_limits<unsigned>::max()) {
 		++bucket.failures;
@@ -429,9 +448,10 @@ void AuthFailureLimiter::record_success(
 	if (subject.empty()) {
 		return;
 	}
+	auto const key = auth_detail::canonical_auth_throttle_subject(subject, opts_.max_subject_bytes);
 	auto &state = auth_detail::auth_throttle_state(state_);
 	std::scoped_lock const lock{state.mtx};
-	state.erase(subject);
+	state.erase(key);
 	++state.metrics.successes_recorded;
 }
 
@@ -440,9 +460,10 @@ void AuthFailureLimiter::clear(
 	if (subject.empty()) {
 		return;
 	}
+	auto const key = auth_detail::canonical_auth_throttle_subject(subject, opts_.max_subject_bytes);
 	auto &state = auth_detail::auth_throttle_state(state_);
 	std::scoped_lock const lock{state.mtx};
-	state.erase(subject);
+	state.erase(key);
 }
 
 AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
@@ -477,7 +498,7 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 	if (value.empty()) {
 		return std::nullopt;
 	}
-	return auth_throttle_key(scope, value);
+	return auth_throttle_key(scope, auth_detail::auth_throttle_digest_subject(value));
 }
 
 [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
@@ -488,7 +509,7 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 	if (value.empty()) {
 		return std::nullopt;
 	}
-	return auth_throttle_key(scope, value);
+	return auth_throttle_key(scope, auth_detail::auth_throttle_digest_subject(value));
 }
 
 [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
@@ -501,8 +522,7 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 	if (credentials->empty()) {
 		return std::nullopt;
 	}
-	auto digest = conflux::crypto::sha256(conflux::crypto::to_unsigned_span(*credentials));
-	return auth_throttle_key(scope, conflux::crypto::base64url_encode(digest));
+	return auth_throttle_key(scope, auth_detail::auth_throttle_digest_subject(*credentials));
 }
 
 inline conflux::http::Response auth_throttle_too_many_requests(
@@ -546,21 +566,19 @@ conflux::http::Router::Middleware basic_auth_middleware(
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {
 		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
+		auto credentials = parse_basic_credentials(req.headers["authorization"]);
+		if (!credentials) {
+			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
+		}
+		if (v(credentials->username, credentials->password)) {
+			auth_detail::clear_basic_auth_failures(*state, opts, limiter_key);
+			return next(req);
+		}
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
 			return auth_detail::too_many_auth_attempts(*retry_after);
 		}
-
-		auto credentials = parse_basic_credentials(req.headers["authorization"]);
-		if (!credentials) {
-			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
-		}
-		if (!v(credentials->username, credentials->password)) {
-			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
-			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
-		}
-		auth_detail::clear_basic_auth_failures(*state, opts, limiter_key);
-		return next(req);
+		auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
+		return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 	};
 }
 

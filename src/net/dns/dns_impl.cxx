@@ -764,6 +764,13 @@ struct EndpointBatch {
 [[nodiscard]] root::Task<EndpointBatch> make_empty_batch_task() {
 	co_return EndpointBatch{};
 }
+[[nodiscard]] std::uint16_t random_dns_query_id() {
+	std::uint16_t id{};
+	std::array<unsigned char, sizeof(id)> bytes{};
+	conflux::utils::crypto_random_bytes(bytes);
+	std::memcpy(&id, bytes.data(), sizeof(id));
+	return id;
+}
 // Fire A and AAAA queries in parallel (RFC 8305 §3). Connection-attempt
 // staggering belongs in the caller's connect loop, not here.
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow(
@@ -776,9 +783,8 @@ struct EndpointBatch {
 	AddressFamily prefer,
 	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
-	static thread_local std::mt19937 tl_rng{std::random_device{}()};
-	std::uint16_t const qid_a = static_cast<std::uint16_t>(tl_rng() & 0xFFFFU);
-	std::uint16_t const qid_aaaa = static_cast<std::uint16_t>((static_cast<std::uint32_t>(qid_a) + 1U) & 0xFFFFU);
+	std::uint16_t const qid_a = random_dns_query_id();
+	std::uint16_t const qid_aaaa = random_dns_query_id();
 	auto v4_task =
 		do_v4 ? build_family_flow(ring, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
 				make_empty_batch_task();
@@ -1508,17 +1514,16 @@ conflux::work::root::Task<ResolveResult> Resolver::resolve(
 }
 namespace {
 
-struct TlsRingBase {
+struct BlockingDnsRingBase {
 	::io_uring ring{};
 	CompletionTable ct;
 	bool initialized{false};
-	~TlsRingBase() noexcept {
+	~BlockingDnsRingBase() noexcept {
 		if (initialized) {
 			::io_uring_queue_exit(&ring);
 		}
 	}
 };
-thread_local TlsRingBase tls_rb_;
 
 [[nodiscard]] std::expected<ResolveResult, DnsError> resolve_blocking_nss_result(
 	std::string_view host,
@@ -1565,14 +1570,12 @@ thread_local TlsRingBase tls_rb_;
 	return result;
 }
 
-[[nodiscard]] std::optional<DnsError> ensure_blocking_dns_ring() {
-	if (tls_rb_.initialized) {
-		return std::nullopt;
-	}
-	if (::io_uring_queue_init(32, &tls_rb_.ring, 0) < 0) {
+[[nodiscard]] std::optional<DnsError> init_blocking_dns_ring(
+	BlockingDnsRingBase &ring_base) {
+	if (::io_uring_queue_init(32, &ring_base.ring, 0) < 0) {
 		return DnsError{DnsErrorKind::no_ring, "resolve_blocking: io_uring_queue_init failed"};
 	}
-	tls_rb_.initialized = true;
+	ring_base.initialized = true;
 	return std::nullopt;
 }
 
@@ -1672,12 +1675,13 @@ void cache_blocking_dns_negative_result(
 			DnsError{DnsErrorKind::no_servers, "resolve_blocking: no nameservers configured"}
         };
 	}
-	if (auto err = ensure_blocking_dns_ring(); err) {
+	BlockingDnsRingBase ring_base;
+	if (auto err = init_blocking_dns_ring(ring_base); err) {
 		return std::unexpected{*err};
 	}
 	SocketTaskRing tmp_str{
-		SocketRawRing{&tls_rb_.ring},
-		tls_rb_.ct,
+		SocketRawRing{&ring_base.ring},
+		ring_base.ct,
 		[](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
 			return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 		}};

@@ -180,6 +180,35 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"ws: passive disconnect fires on_close before handler returns",
+	"[ws][http.lifecycle]") {
+	std::atomic_bool handler_done{false};
+	std::atomic_bool handler_saw_close{false};
+
+	conflux::http::Router router;
+	router.ws("/ws", [&](conflux::http::OwnedRequest const &, conflux::http::WsConn &ws) {
+		bool close_seen = false;
+		ws.on_close([&] { close_seen = true; });
+		while (ws.recv()) {}
+		handler_saw_close.store(close_seen, std::memory_order_release);
+		handler_done.store(true, std::memory_order_release);
+	});
+	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
+
+	int const fd = ws_test::ws_handshake(srv.port());
+	::shutdown(fd, SHUT_RDWR);
+	::close(fd);
+
+	for (int i = 0; i < 100 && !handler_done.load(std::memory_order_acquire); ++i) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	srv.stop();
+
+	REQUIRE(handler_done.load(std::memory_order_acquire));
+	CHECK(handler_saw_close.load(std::memory_order_acquire));
+}
+
+TEST_CASE(
 	"ws: frame with RSV bit set triggers close 1002") {
 	conflux::http::Router router;
 	router.ws("/ws", [](conflux::http::OwnedRequest const &, conflux::http::WsConn &ws) {

@@ -93,6 +93,17 @@ void Ring::discard_recv_bufs(
 	rc.flags = {};
 }
 
+void Ring::reclaim_live_incremental_partial(
+	Conn &conn) noexcept {
+	if (!conn.have_incremental_buf_id) {
+		return;
+	}
+	if (buf_ring_->mode() == BufferRingMode::incremental) {
+		buf_ring_->reclaim_incremental_partial(conn.incremental_buf_id);
+	}
+	conn.have_incremental_buf_id = false;
+}
+
 void Ring::retire_incremental_partial(
 	int fd,
 	std::uint32_t gen,
@@ -155,33 +166,35 @@ void Ring::handle_recv_cqe(
 			flg.raw(),
 			gen,
 			buffer_ring_mode_name(buf_ring_->mode()),
-			accepted_sockets_direct));
+			conn_uses_direct(fd)));
 	auto const ufd = static_cast<std::size_t>(fd);
 	if (ufd >= fd_table.size()) {
-		discard_recv_bufs(res, flg);
+		if (cqe_has_buffer(flg)) {
+			recvs.push_back({fd, res, gen, flg});
+		}
 		return;
 	}
 	bool const gen_match = fd_table[ufd].gen == gen;
 	bool const ws_pending = ws_cancel_handoffs.find(fd) != ws_cancel_handoffs.end();
 	if (!gen_match && !ws_pending) {
-		if (res <= 0 && !cqe_has_buffer(flg)) {
+		if (cqe_has_buffer(flg)) {
+			recvs.push_back({fd, res, gen, flg});
+		} else if (res <= 0) {
 			reclaim_retired_incremental_recv(fd, gen);
-		} else if (res > 0 && cqe_has_buffer(flg)) {
-			discard_recv_bufs(res, flg);
-			clear_retired_incremental_if_final(fd, gen, flg);
-			return;
 		}
-		discard_recv_bufs(res, flg);
 		return;
+	}
+	if (gen_match && res <= 0 && !cqe_has_buffer(flg)) {
+		reclaim_live_incremental_partial(fd_table[ufd]);
 	}
 	if (gen_match && fd_table[ufd].close_after_send) [[unlikely]] {
 		if (!cqe_has_more(flg)) {
 			fd_table[ufd].recv_armed = false;
 		}
-		if (res <= 0 && !cqe_has_buffer(flg)) {
+		if (cqe_has_buffer(flg)) {
+			recvs.push_back({fd, res, gen, flg});
+		} else if (res <= 0) {
 			reclaim_retired_incremental_recv(fd, gen);
-		} else if (cqe_has_buffer(flg)) {
-			discard_recv_bufs(res, flg);
 		}
 		return;
 	}
@@ -495,7 +508,7 @@ void Ring::phase2_build_responses() {
 		}
 #endif
 		// Skip SSE/WS connections — their I/O is driven by separate loops.
-		if (!conn.has_response && !conn.is_deferred && !conn.is_sse && !conn.is_ws) {
+		if (!conn.has_response && conn.request_bytes == 0 && !conn.is_deferred && !conn.is_sse && !conn.is_ws) {
 			dispatch_request(
 				conn,
 				conn.partial.view(),

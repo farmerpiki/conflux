@@ -941,7 +941,8 @@ app.use(conflux::http::observability({
 The metrics route is registered by default and can be disabled with
 `register_metrics_route = false`. `app.validate()` reports the normal duplicate
 route issue if `metrics_path` collides with another `GET` route. Request metrics
-use route patterns such as `/users/{id}` and `<unmatched>` for 404s; query
+use route patterns such as `/users/{id}` and `<unmatched>` for 404s; unknown
+or extension methods are reported as `OTHER`; query
 strings are never metric labels. Structured logs redact `Authorization`,
 `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `X-Api-Token`,
 `X-Auth-Token`, and `X-CSRF-Token` by default.

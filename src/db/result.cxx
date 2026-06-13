@@ -39,13 +39,20 @@ public:
 		: res_{r}
 		, row_{i} {}
 	[[nodiscard]] int ncols() const noexcept { return ::PQnfields(res_); }
+	[[nodiscard]] int checked_column(
+		Column c) const {
+		if (c.idx < 0 || c.idx >= ncols()) {
+			throw PgError{std::format("invalid column handle: {}", c.idx)};
+		}
+		return c.idx;
+	}
 	[[nodiscard]] bool is_null(
 		int c) const noexcept {
 		return ::PQgetisnull(res_, row_, c) != 0;
 	}
 	[[nodiscard]] bool is_null(
-		Column c) const noexcept {
-		return is_null(c.idx);
+		Column c) const {
+		return is_null(checked_column(c));
 	}
 	[[nodiscard]] std::string_view get(
 		int c) const noexcept {
@@ -54,8 +61,8 @@ public:
 		return {p != nullptr ? p : "", n};
 	}
 	[[nodiscard]] std::string_view get(
-		Column c) const noexcept {
-		return get(c.idx);
+		Column c) const {
+		return get(checked_column(c));
 	}
 	[[nodiscard]] int length(
 		int c) const noexcept {
@@ -75,7 +82,7 @@ public:
 	template<class T>
 	[[nodiscard]] T as(
 		Column c) const {
-		return as<T>(c.idx);
+		return as<T>(checked_column(c));
 	}
 	template<class T>
 	[[nodiscard]] std::optional<T> as_opt(
@@ -88,7 +95,7 @@ public:
 	template<class T>
 	[[nodiscard]] std::optional<T> as_opt(
 		Column c) const {
-		return as_opt<T>(c.idx);
+		return as_opt<T>(checked_column(c));
 	}
 	template<class... Ts>
 	[[nodiscard]] std::tuple<Ts...> as_tuple(

@@ -132,6 +132,40 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"socket_io.accept_direct: auto-allocated direct accept is single-shot",
+	"[socket_io][direct_accept][sqe]") {
+	auto built = Ring::init(4, conflux::uring::SetupFlags{});
+	REQUIRE(built.has_value());
+	auto ring = std::move(*built);
+	auto raw = SocketRawRing{ring.ref()};
+	sockaddr_in6 addr{};
+	socklen_t addr_len = sizeof(addr);
+
+	auto *ring_raw = ring.raw();
+	unsigned const tail_before = ring_raw->sq.sqe_tail;
+	REQUIRE(submit_accept_direct_borrowed(
+		raw,
+		DirectFd::from_direct(5),
+		reinterpret_cast<sockaddr *>(&addr),
+		&addr_len,
+		0x33u,
+		SOCK_CLOEXEC,
+		IORING_FILE_INDEX_ALLOC));
+
+	auto const &accept = sqe_at(ring_raw, tail_before, 0);
+	CHECK(ring_raw->sq.sqe_tail - tail_before == 1);
+	CHECK(accept.opcode == IORING_OP_ACCEPT);
+	CHECK(accept.fd == 5);
+	CHECK(accept.addr == reinterpret_cast<std::uintptr_t>(&addr));
+	CHECK(accept.off == reinterpret_cast<std::uintptr_t>(&addr_len));
+	CHECK(accept.accept_flags == SOCK_CLOEXEC);
+	CHECK(accept.user_data == 0x33u);
+	CHECK(accept.ioprio == 0);
+	CHECK(accept.file_index == IORING_FILE_INDEX_ALLOC);
+	CHECK(SqeFlags{accept.flags}.any(sqe_flags::fixed_file));
+}
+
+TEST_CASE(
 	"uring.handle: OsFd prep clears stale fixed-file flag",
 	"[uring][handle][sqe]") {
 	io_uring_sqe sqe{};
@@ -148,6 +182,14 @@ TEST_CASE(
 	sqe_view.prep_read(DirectFd::from_direct(4), buf, sizeof(buf), 0);
 	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
 	CHECK(sqe.fd == 4);
+
+	sqe_view.prep_recv_multishot(DirectFd::from_direct(5), nullptr, 0, MsgFlags{});
+	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
+	CHECK(sqe.fd == 5);
+
+	sqe_view.prep_send(DirectFd::from_direct(6), buf, sizeof(buf), MsgFlags{});
+	CHECK(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));
+	CHECK(sqe.fd == 6);
 
 	sqe_view.prep_close(DirectFd::from_direct(4));
 	CHECK_FALSE(SqeFlags{sqe.flags}.any(sqe_flags::fixed_file));

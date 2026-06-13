@@ -24,6 +24,8 @@ option(CONFLUX_HEADER_LINK_SMOKE
     "Build small linked header-mode smoke targets against generated implementation archives" OFF)
 option(CONFLUX_RUN_HEADER_COMPONENT_SMOKE
     "Run the full generated public header component smoke matrix in CTest" OFF)
+option(CONFLUX_HEADER_STRICT_API_SURFACE_COMPILE_FAILS
+    "Run header-mode compile-fail tests that require dependency namespaces to stay hidden" ON)
 
 if(NOT CONFLUX_INTERFACE_MODE STREQUAL "MODULE_INTERFACE"
 		AND NOT CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE")
@@ -238,6 +240,17 @@ if(_conflux_import_std_supported
         message(FATAL_ERROR
             "CONFLUX_USE_IMPORT_STD=ON requires CMake's C++ standard library module metadata, "
             "but CMAKE_CXX_STDLIB_MODULES_JSON does not exist: ${CMAKE_CXX_STDLIB_MODULES_JSON}")
+    endif()
+    set(_conflux_import_std_supported OFF)
+endif()
+if(_conflux_import_std_supported
+        AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+        AND CONFLUX_ENABLE_TSAN)
+    if(CONFLUX_USE_IMPORT_STD STREQUAL "ON")
+        message(FATAL_ERROR
+            "CONFLUX_USE_IMPORT_STD=ON is not supported with GNU ThreadSanitizer builds: "
+            "libstdc++ import std currently exposes TU-local sanitizer symbols through standard-library modules. "
+            "Use CONFLUX_USE_IMPORT_STD=AUTO or OFF for this sanitizer preset.")
     endif()
     set(_conflux_import_std_supported OFF)
 endif()
@@ -501,6 +514,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     endif()
 endif()
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
+option(CONFLUX_ENABLE_CPU_DISPATCH
+    "Guard compiled ISA-specific fast paths with runtime CPU feature checks for portable distribution builds" OFF)
 set(CONFLUX_SIMD_SELECTION "AUTO" CACHE STRING
     "Select SIMD binding policy for ISA-specific fast paths (AUTO|DIRECT|RUNTIME)")
 set_property(CACHE CONFLUX_SIMD_SELECTION PROPERTY STRINGS AUTO DIRECT RUNTIME)
@@ -516,7 +531,11 @@ endif()
 
 set(_conflux_simd_selection "${CONFLUX_SIMD_SELECTION}")
 if(_conflux_simd_selection STREQUAL "AUTO")
-    set(_conflux_simd_selection DIRECT)
+    if(CONFLUX_ENABLE_CPU_DISPATCH)
+        set(_conflux_simd_selection RUNTIME)
+    else()
+        set(_conflux_simd_selection DIRECT)
+    endif()
 endif()
 set(_conflux_simd_selection_direct OFF)
 set(_conflux_simd_selection_runtime OFF)
@@ -536,7 +555,7 @@ if(CONFLUX_INTERFACE_MODE STREQUAL "HEADER_INTERFACE"
 endif()
 
 set(_conflux_cpu_feature_probes_runtime OFF)
-if(_conflux_simd_selection_runtime)
+if(CONFLUX_ENABLE_CPU_DISPATCH OR _conflux_simd_selection_runtime)
     set(_conflux_cpu_feature_probes_runtime ON)
 endif()
 

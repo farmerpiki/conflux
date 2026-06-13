@@ -71,6 +71,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"cookie_signing: weak previous rotation secret fails closed") {
+	auto secrets = conflux::http::ResolvedSecretRotation{
+		.active = std::string{kCookieMiddlewareSecret},
+		.previous = {std::string{}},
+		.min_secret_bytes = 16};
+	auto forged_with_empty_previous = conflux::http::sign_cookie_unchecked("role=admin", "");
+
+	CHECK_FALSE(conflux::http::verify_cookie(forged_with_empty_previous, secrets).has_value());
+
+	auto signed_result = conflux::http::sign_cookie("user42", secrets);
+	REQUIRE_FALSE(signed_result.has_value());
+	CHECK(signed_result.error() == "auth secret 'cookie.previous[0]': resolved secret is empty");
+
+	REQUIRE_THROWS_AS(conflux::http::cookie_signing_middleware({.secrets = std::move(secrets)}), std::invalid_argument);
+}
+
+TEST_CASE(
 	"cookie_signing_middleware: valid signed cookie is unwrapped") {
 	static std::uint16_t port = 0;
 	static std::once_flag flag;

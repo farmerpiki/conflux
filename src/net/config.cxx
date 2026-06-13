@@ -350,6 +350,21 @@ export namespace conflux::http {
 	return {};
 }
 
+[[nodiscard]] std::expected<void, std::string> validate_secret_rotation(
+	ResolvedSecretRotation const &secrets,
+	std::string_view name) {
+	if (auto valid = validate_secret_bytes(secrets.active, name, secrets.min_secret_bytes); !valid) {
+		return valid;
+	}
+	for (std::size_t i = 0; i < secrets.previous.size(); ++i) {
+		auto const previous_name = std::format("{}.previous[{}]", name, i);
+		if (auto valid = validate_secret_bytes(secrets.previous[i], previous_name, secrets.min_secret_bytes); !valid) {
+			return valid;
+		}
+	}
+	return {};
+}
+
 [[nodiscard]] std::expected<ResolvedSecretRotation, std::string> resolve_secret_rotation(
 	SecretRotationConfig const &cfg,
 	std::string_view name,

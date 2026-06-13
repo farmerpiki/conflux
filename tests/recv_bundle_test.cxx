@@ -380,24 +380,44 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"recv_bundle.try: stale classic CQE reports bad_window",
+	"recv_bundle.classic: non-bundled out-of-order CQE decode",
+	"[recv_bundle]") {
+	Rig rig{4, 64};
+
+	auto late = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(2), false);
+	REQUIRE(late);
+	CHECK((*late->begin()).id == 2u);
+	CHECK(rig.ring.debug_head_pos() == 0u);
+
+	late->recycle_all();
+	CHECK(rig.ring.debug_head_pos() == 0u);
+
+	auto first = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
+	REQUIRE(first);
+	CHECK((*first->begin()).id == 0u);
+	CHECK(rig.ring.debug_head_pos() == 1u);
+	first->recycle_all();
+
+	auto second = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(1), false);
+	REQUIRE(second);
+	CHECK((*second->begin()).id == 1u);
+	CHECK(rig.ring.debug_head_pos() == 3u);
+	second->recycle_all();
+}
+
+TEST_CASE(
+	"recv_bundle.try: duplicate classic CQE reports bad_window",
 	"[recv_bundle]") {
 	Rig rig{4, 64};
 
 	auto first = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
 	REQUIRE(first);
+
+	auto duplicate = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
+	REQUIRE_FALSE(duplicate);
+	CHECK(duplicate.error() == RecvDecodeError::bad_window);
+
 	first->recycle_all();
-
-	auto second = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(1), false);
-	REQUIRE(second);
-	second->recycle_all();
-
-	// Simulates a delayed/stale CQE observed after the userspace buffer-ring
-	// window already advanced and recycled that id. Recovery paths must not hit
-	// the assertion-only decoder variant.
-	auto stale = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
-	REQUIRE_FALSE(stale);
-	CHECK(stale.error() == RecvDecodeError::bad_window);
 }
 
 // Test 6: assert fires when CQE buf_id does not match ring_order_[head_pos].
@@ -408,7 +428,6 @@ TEST_CASE(
 #ifdef NDEBUG
 	SKIP("assert inactive in release build");
 #else
-	// ring_id_at(head_pos=0)==0, but probe passes buf_id=5 → mismatch.
 	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "desync") == 42);
 #endif
 }

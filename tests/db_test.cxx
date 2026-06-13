@@ -434,6 +434,11 @@ TEST_CASE(
 	CHECK(row.get(c_num) == "99");
 	CHECK_FALSE(row.is_null(c_num));
 	CHECK(row.as_opt<std::string>(c_str) == std::optional<std::string>{"world"});
+	CHECK_THROWS_AS(row.is_null(c_bad), PgError);
+	CHECK_THROWS_AS(row.get(c_bad), PgError);
+	CHECK_THROWS_AS(row.as<std::string>(c_bad), PgError);
+	CHECK_THROWS_AS(row.as_opt<std::string>(c_bad), PgError);
+	CHECK_THROWS_AS(row.get(Column{99}), PgError);
 }
 TEST_CASE(
 	"db: StatementCache stable_name deterministic + length",

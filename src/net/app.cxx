@@ -19,6 +19,7 @@ import conflux.net.auth;
 import conflux.net.http.types;
 import conflux.net.path;
 import conflux.net.router;
+import conflux.net.router_dispatch;
 import conflux.net.http_server;
 import conflux.net.observability;
 import conflux.net.request_id;
@@ -189,9 +190,9 @@ class App : public detail::AppRouteVerbAccessors {
 		std::shared_ptr<std::chrono::milliseconds> timeout;
 		std::shared_ptr<ScopedMiddlewareList const> middlewares;
 		std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares;
-#if CONFLUX_HAS_JSON
 		std::shared_ptr<std::size_t> max_body_size;
 		std::size_t app_max_body_size{};
+#if CONFLUX_HAS_JSON
 		std::shared_ptr<AppJsonOptions> json_options;
 #endif
 	};
@@ -224,11 +225,11 @@ class App : public detail::AppRouteVerbAccessors {
 			.rate_limit = route.rate_limit,
 			.timeout = route.timeout,
 			.middlewares = current_group_middlewares(),
-			.context_middlewares = current_group_context_middlewares()
-#if CONFLUX_HAS_JSON
-				,
+			.context_middlewares = current_group_context_middlewares(),
 			.max_body_size = route.max_body_size,
-			.app_max_body_size = cfg_.max_body_size,
+			.app_max_body_size = cfg_.max_body_size
+#if CONFLUX_HAS_JSON
+			,
 			.json_options = json_options_
 #endif
 		};
@@ -285,6 +286,56 @@ class App : public detail::AppRouteVerbAccessors {
 		co_return co_await step->call(step, req, ctx);
 	}
 
+	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_sync_route_as_context(
+		std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares,
+		std::shared_ptr<ScopedMiddlewareList const> middlewares,
+		conflux::http::RequestView req,
+		RequestContext const &ctx,
+		conflux::http::Router::Handler inner) {
+		conflux::http::Router::ContextHandler context_inner =
+			[middlewares = std::move(middlewares), inner = std::move(inner)](
+				conflux::http::RequestView const &inner_req,
+				RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+			co_return run_scoped_middlewares(middlewares, inner_req, std::move(inner));
+		};
+		co_return co_await run_scoped_context_middlewares(
+			std::move(context_middlewares),
+			std::move(req),
+			ctx,
+			std::move(context_inner));
+	}
+
+	[[nodiscard]] static conflux::work::root::Task<Response> run_owned_scoped_context_route(
+		conflux::http::Router::ContextHandler inner,
+		conflux::http::OwnedRequest req,
+		RequestContext ctx) {
+		conflux::http::RequestView const view{req};
+		co_return co_await inner(view, ctx);
+	}
+
+	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_context_route(
+		std::shared_ptr<ScopedMiddlewareList const> middlewares,
+		std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares,
+		conflux::http::RequestView req,
+		RequestContext const &ctx,
+		conflux::http::Router::ContextHandler inner) {
+		auto context_inner = [context_middlewares = std::move(context_middlewares), inner = std::move(inner)](
+								 conflux::http::RequestView const &inner_req,
+								 RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
+			co_return co_await run_scoped_context_middlewares(context_middlewares, inner_req, inner_ctx, inner);
+		};
+		if (!middlewares || middlewares->empty()) {
+			co_return co_await context_inner(req, ctx);
+		}
+		conflux::http::Router::Handler sync_inner =
+			[ctx, context_inner = std::move(context_inner)](
+				conflux::http::RequestView const &inner_req) mutable -> Response {
+			return conflux::http::detail::router_defer_http_task(
+				run_owned_scoped_context_route(context_inner, inner_req.to_owned(), ctx));
+		};
+		co_return run_scoped_middlewares(middlewares, req, std::move(sync_inner));
+	}
+
 	[[nodiscard]] static std::optional<Response> route_prelude_failure(
 		CapturedRoutePolicy const &policy,
 		conflux::http::RequestView const &req) {
@@ -294,18 +345,28 @@ class App : public detail::AppRouteVerbAccessors {
 		if (auto limited = detail::route_rate_limit_failure(*policy.rate_limit, req)) {
 			return limited;
 		}
+		auto const limit = route_body_limit(policy);
+		if (limit != 0 && req.body.size() > limit) {
+#if CONFLUX_HAS_JSON
+			return detail::json_body_too_large_problem();
+#else
+			return Response::content_too_large();
+#endif
+		}
 		return std::nullopt;
 	}
 
-#if CONFLUX_HAS_JSON
 	[[nodiscard]] static std::size_t route_body_limit(
 		CapturedRoutePolicy const &policy) {
 		return effective_body_limit(
 			*policy.max_body_size,
 			policy.app_max_body_size,
+#if CONFLUX_HAS_JSON
 			policy.json_options->max_body_size);
-	}
+#else
+			0);
 #endif
+	}
 
 	[[nodiscard]] static Response apply_route_timeout(
 		Response response,
@@ -432,139 +493,234 @@ public:
 							 }) {
 			record_route_metadata<std::tuple<>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &>>();
-			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
-			auto rate_limit = route_metadata_.back().rate_limit;
-			auto timeout = route_metadata_.back().timeout;
-			auto scoped_middlewares = current_group_middlewares();
+			if (detail::validate_path_pattern(path)) {
+				return *this;
+			}
+			auto policy = capture_route_policy();
 #if CONFLUX_HAS_JSON
 			auto json_options = json_options_;
 #endif
-			router_.add(
-				method,
-				path,
-				[bearer_token_policy,
-				 rate_limit,
-				 timeout,
-				 scoped_middlewares,
+			auto make_inner = [policy,
 #if CONFLUX_HAS_JSON
-				 json_options,
+							   json_options,
 #endif
-				 fn = std::decay_t<F>(std::forward<F>(handler))](conflux::http::RequestView const &req) mutable {
-					conflux::http::Router::Handler inner = [bearer_token_policy,
-															rate_limit,
-															timeout,
+							   fn = std::decay_t<F>(std::forward<F>(handler))]() mutable {
+				return conflux::http::Router::Handler{[policy,
 #if CONFLUX_HAS_JSON
-															json_options,
+													   json_options,
 #endif
-															&fn](conflux::http::RequestView const &inner_req) mutable {
-						if (auto denied = detail::route_auth_failure(*bearer_token_policy, inner_req)) {
-							return *std::move(denied);
-						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
-							return *std::move(limited);
-						}
-						return apply_route_timeout(
+													   &fn](conflux::http::RequestView const &inner_req) mutable {
+					if (auto denied = detail::route_auth_failure(*policy.bearer_token_policy, inner_req)) {
+						return *std::move(denied);
+					}
+					if (auto limited = detail::route_rate_limit_failure(*policy.rate_limit, inner_req)) {
+						return *std::move(limited);
+					}
+					return apply_route_timeout(
 #if CONFLUX_HAS_JSON
-							into_app_response(fn(), *json_options),
+						into_app_response(fn(), *json_options),
 #else
-							into_app_response(fn()),
+						into_app_response(fn()),
 #endif
-							*timeout);
-					};
-					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
-				});
+						*policy.timeout);
+				}};
+			};
+			if (policy.context_middlewares && !policy.context_middlewares->empty()) {
+				router_.add_context_with_timeout(
+					method,
+					path,
+					policy.timeout,
+					[policy, make_inner = std::move(make_inner)](
+						conflux::http::RequestView const &req,
+						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+						return run_scoped_sync_route_as_context(
+							policy.context_middlewares,
+							policy.middlewares,
+							req,
+							ctx,
+							make_inner());
+					});
+			} else {
+				router_.add(
+					method,
+					path,
+					[policy, make_inner = std::move(make_inner)](conflux::http::RequestView const &req) mutable {
+						return run_scoped_middlewares(policy.middlewares, req, make_inner());
+					});
+			}
 		} else if constexpr (requires(Fn &fn, conflux::http::RequestView const &req) {
 								 { into_response(fn(req)) } -> std::same_as<Response>;
 							 }) {
 			record_route_metadata<std::tuple<conflux::http::RequestView>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::RequestView const &>>();
-			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
-			auto rate_limit = route_metadata_.back().rate_limit;
-			auto timeout = route_metadata_.back().timeout;
-			auto scoped_middlewares = current_group_middlewares();
+			auto policy = capture_route_policy();
 #if CONFLUX_HAS_JSON
 			auto json_options = json_options_;
 #endif
-			router_.add(
-				method,
-				path,
-				[bearer_token_policy,
-				 rate_limit,
-				 timeout,
-				 scoped_middlewares,
+			auto make_inner = [policy,
 #if CONFLUX_HAS_JSON
-				 json_options,
+							   json_options,
 #endif
-				 fn = Fn(std::forward<F>(handler))](conflux::http::RequestView const &req) mutable {
-					conflux::http::Router::Handler inner = [bearer_token_policy,
-															rate_limit,
-															timeout,
+							   fn = Fn(std::forward<F>(handler))]() mutable {
+				return conflux::http::Router::Handler{[policy,
 #if CONFLUX_HAS_JSON
-															json_options,
+													   json_options,
 #endif
-															&fn](conflux::http::RequestView const &inner_req) mutable {
-						if (auto denied = detail::route_auth_failure(*bearer_token_policy, inner_req)) {
-							return *std::move(denied);
-						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
-							return *std::move(limited);
-						}
-						return apply_route_timeout(
+													   &fn](conflux::http::RequestView const &inner_req) mutable {
+					if (auto denied = detail::route_auth_failure(*policy.bearer_token_policy, inner_req)) {
+						return *std::move(denied);
+					}
+					if (auto limited = detail::route_rate_limit_failure(*policy.rate_limit, inner_req)) {
+						return *std::move(limited);
+					}
+					return apply_route_timeout(
 #if CONFLUX_HAS_JSON
-							into_app_response(fn(inner_req), *json_options),
+						into_app_response(fn(inner_req), *json_options),
 #else
-							into_app_response(fn(inner_req)),
+						into_app_response(fn(inner_req)),
 #endif
-							*timeout);
-					};
-					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
-				});
+						*policy.timeout);
+				}};
+			};
+			if (policy.context_middlewares && !policy.context_middlewares->empty()) {
+				router_.add_context_with_timeout(
+					method,
+					path,
+					policy.timeout,
+					[policy, make_inner = std::move(make_inner)](
+						conflux::http::RequestView const &req,
+						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+						return run_scoped_sync_route_as_context(
+							policy.context_middlewares,
+							policy.middlewares,
+							req,
+							ctx,
+							make_inner());
+					});
+			} else {
+				router_.add(
+					method,
+					path,
+					[policy, make_inner = std::move(make_inner)](conflux::http::RequestView const &req) mutable {
+						return run_scoped_middlewares(policy.middlewares, req, make_inner());
+					});
+			}
 		} else if constexpr (requires(Fn &fn, conflux::http::OwnedRequest const &req) {
 								 { into_response(fn(req)) } -> std::same_as<Response>;
 							 }) {
 			record_route_metadata<std::tuple<conflux::http::OwnedRequest>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::OwnedRequest const &>>();
-			auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
-			auto rate_limit = route_metadata_.back().rate_limit;
-			auto timeout = route_metadata_.back().timeout;
-			auto scoped_middlewares = current_group_middlewares();
+			auto policy = capture_route_policy();
 #if CONFLUX_HAS_JSON
 			auto json_options = json_options_;
 #endif
-			router_.add(
+			auto make_inner = [policy,
+#if CONFLUX_HAS_JSON
+							   json_options,
+#endif
+							   fn = Fn(std::forward<F>(handler))]() mutable {
+				return conflux::http::Router::Handler{[policy,
+#if CONFLUX_HAS_JSON
+													   json_options,
+#endif
+													   &fn](conflux::http::RequestView const &inner_req) mutable {
+					if (auto denied = detail::route_auth_failure(*policy.bearer_token_policy, inner_req)) {
+						return *std::move(denied);
+					}
+					if (auto limited = detail::route_rate_limit_failure(*policy.rate_limit, inner_req)) {
+						return *std::move(limited);
+					}
+					auto owned = inner_req.to_owned();
+					return apply_route_timeout(
+#if CONFLUX_HAS_JSON
+						into_app_response(fn(owned), *json_options),
+#else
+						into_app_response(fn(owned)),
+#endif
+						*policy.timeout);
+				}};
+			};
+			if (policy.context_middlewares && !policy.context_middlewares->empty()) {
+				router_.add_context_with_timeout(
+					method,
+					path,
+					policy.timeout,
+					[policy, make_inner = std::move(make_inner)](
+						conflux::http::RequestView const &req,
+						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+						return run_scoped_sync_route_as_context(
+							policy.context_middlewares,
+							policy.middlewares,
+							req,
+							ctx,
+							make_inner());
+					});
+			} else {
+				router_.add(
+					method,
+					path,
+					[policy, make_inner = std::move(make_inner)](conflux::http::RequestView const &req) mutable {
+						return run_scoped_middlewares(policy.middlewares, req, make_inner());
+					});
+			}
+		} else if constexpr (requires(Fn &fn, conflux::http::RequestView const &req) {
+								 { fn(req) } -> std::same_as<conflux::work::root::Task<Response>>;
+							 }) {
+			record_route_metadata<std::tuple<conflux::http::RequestView>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::RequestView const &>>();
+			auto policy = capture_route_policy();
+			router_.add_context_with_timeout(
 				method,
 				path,
-				[bearer_token_policy,
-				 rate_limit,
-				 timeout,
-				 scoped_middlewares,
-#if CONFLUX_HAS_JSON
-				 json_options,
-#endif
-				 fn = Fn(std::forward<F>(handler))](conflux::http::RequestView const &req) mutable {
-					conflux::http::Router::Handler inner = [bearer_token_policy,
-															rate_limit,
-															timeout,
-#if CONFLUX_HAS_JSON
-															json_options,
-#endif
-															&fn](conflux::http::RequestView const &inner_req) mutable {
-						if (auto denied = detail::route_auth_failure(*bearer_token_policy, inner_req)) {
-							return *std::move(denied);
+				policy.timeout,
+				[policy, fn = Fn(std::forward<F>(handler))](
+					conflux::http::RequestView const &req,
+					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+					conflux::http::Router::ContextHandler inner =
+						[policy, &fn](
+							conflux::http::RequestView const &inner_req,
+							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							co_return *std::move(failed);
 						}
-						if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
-							return *std::move(limited);
+						co_return co_await fn(inner_req);
+					};
+					co_return co_await run_scoped_context_route(
+						policy.middlewares,
+						policy.context_middlewares,
+						req,
+						ctx,
+						std::move(inner));
+				});
+		} else if constexpr (requires(Fn &fn, conflux::http::OwnedRequest const &req) {
+								 { fn(req) } -> std::same_as<conflux::work::root::Task<Response>>;
+							 }) {
+			record_route_metadata<std::tuple<conflux::http::OwnedRequest>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, conflux::http::OwnedRequest const &>>();
+			auto policy = capture_route_policy();
+			router_.add_context_with_timeout(
+				method,
+				path,
+				policy.timeout,
+				[policy, fn = Fn(std::forward<F>(handler))](
+					conflux::http::RequestView const &req,
+					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+					conflux::http::Router::ContextHandler inner =
+						[policy, &fn](
+							conflux::http::RequestView const &inner_req,
+							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							co_return *std::move(failed);
 						}
 						auto owned = inner_req.to_owned();
-						return apply_route_timeout(
-#if CONFLUX_HAS_JSON
-							into_app_response(fn(owned), *json_options),
-#else
-							into_app_response(fn(owned)),
-#endif
-							*timeout);
+						co_return co_await fn(owned);
 					};
-					return run_scoped_middlewares(scoped_middlewares, req, std::move(inner));
+					co_return co_await run_scoped_context_route(
+						policy.middlewares,
+						policy.context_middlewares,
+						req,
+						ctx,
+						std::move(inner));
 				});
 		} else if constexpr (ContextHandlerFunction<Fn>) {
 			add_context_route(method, path, std::forward<F>(handler), loc);
@@ -1206,31 +1362,26 @@ public:
 		using Fn = std::decay_t<F>;
 		record_route_metadata<std::tuple<conflux::http::RequestView>>(method, path, "context", loc);
 		record_return_metadata<conflux::work::root::Task<Response>>();
-		auto bearer_token_policy = route_metadata_.back().bearer_token_policy;
-		auto rate_limit = route_metadata_.back().rate_limit;
-		auto timeout = route_metadata_.back().timeout;
-		auto scoped_context_middlewares = current_group_context_middlewares();
+		auto policy = capture_route_policy();
 		router_.add_context_with_timeout(
 			method,
 			path,
-			timeout,
-			[bearer_token_policy, rate_limit, scoped_context_middlewares, fn = Fn(std::forward<F>(handler))](
+			policy.timeout,
+			[policy, fn = Fn(std::forward<F>(handler))](
 				conflux::http::RequestView const &req,
 				RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 				conflux::http::Router::ContextHandler inner =
-					[bearer_token_policy, rate_limit, &fn](
+					[policy, &fn](
 						conflux::http::RequestView const &inner_req,
 						RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
-					if (auto denied = detail::route_auth_failure(*bearer_token_policy, inner_req)) {
-						co_return *std::move(denied);
-					}
-					if (auto limited = detail::route_rate_limit_failure(*rate_limit, inner_req)) {
-						co_return *std::move(limited);
+					if (auto failed = route_prelude_failure(policy, inner_req)) {
+						co_return *std::move(failed);
 					}
 					co_return co_await fn(inner_req, inner_ctx);
 				};
-				co_return co_await run_scoped_context_middlewares(
-					scoped_context_middlewares,
+				co_return co_await run_scoped_context_route(
+					policy.middlewares,
+					policy.context_middlewares,
 					req,
 					ctx,
 					std::move(inner));
@@ -1262,10 +1413,11 @@ public:
 		meta.path_params = std::move(pattern.params);
 		meta.path_param_types = std::move(pattern.param_types);
 		detail::append_required_states<Args>(meta.required_states, std::make_index_sequence<std::tuple_size_v<Args>>{});
-		const auto contains_extractor = [&meta](std::string_view name) {
+		auto const contains_extractor = [&meta](std::string_view name) {
 			for (std::size_t i = 0; i < meta.extractors.size(); ++i) {
-				if (std::string_view{meta.extractors[i]} == name)
+				if (std::string_view{meta.extractors[i]} == name) {
 					return true;
+				}
 			}
 			return false;
 		};
@@ -1752,7 +1904,7 @@ public:
 #if CONFLUX_HAS_JSON
 		,
 		AppJsonOptions const &json_options,
-		std::size_t max_body_size
+		[[maybe_unused]] std::size_t max_body_size
 #endif
 	) {
 		try {
@@ -1793,37 +1945,6 @@ public:
 		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
 	}
 
-	template<class Result>
-	[[nodiscard]] static conflux::work::root::Task<Response> finish_app_task_response(
-		Result result
-#if CONFLUX_HAS_JSON
-		,
-		AppJsonOptions json_options
-#endif
-	) {
-#if CONFLUX_HAS_JSON
-		co_return into_app_response(co_await std::move(result), json_options);
-#else
-		co_return into_app_response(co_await std::move(result));
-#endif
-	}
-
-	[[nodiscard]] static conflux::work::root::Task<Response> run_app_task_response_erased(
-		std::function<conflux::work::root::Task<Response>()> invoke) {
-		try {
-			auto result = invoke();
-			co_return co_await std::move(result);
-		} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
-	}
-
-	template<class Fn, class Tuple>
-	struct AppTaskApplyResult;
-
-	template<class Fn, class... Args>
-	struct AppTaskApplyResult<Fn, std::tuple<Args...>> {
-		using type = std::invoke_result_t<Fn &, Args &...>;
-	};
-
 	template<class Fn, class ExtractedArgs>
 	[[nodiscard]] static conflux::work::root::Task<Response> await_app_task_response(
 		Fn &handler,
@@ -1833,23 +1954,11 @@ public:
 		AppJsonOptions json_options
 #endif
 	) {
-		using Result = typename AppTaskApplyResult<Fn, ExtractedArgs>::type;
-		if constexpr (std::same_as<std::decay_t<Result>, conflux::work::root::Task<Response>>) {
-			auto owned_args = std::make_shared<ExtractedArgs>(std::move(extracted_args));
-			return run_app_task_response_erased(
-				[handler = &handler, owned_args = std::move(owned_args)]() -> conflux::work::root::Task<Response> {
-					return std::apply([handler](auto &...args) { return (*handler)(args...); }, *owned_args);
-				});
-		} else {
-			try {
-				auto result = std::apply([&handler](auto &...args) { return handler(args...); }, extracted_args);
 #if CONFLUX_HAS_JSON
-				return finish_app_task_response(std::move(result), json_options);
+		return run_app_task_response(&handler, std::move(extracted_args), json_options);
 #else
-				return finish_app_task_response(std::move(result));
+		return run_app_task_response(&handler, std::move(extracted_args));
 #endif
-			} catch (ExtractorFailure &failure) { return extraction_failure_response(std::move(failure).response()); }
-		}
 	}
 
 	[[nodiscard]] static conflux::work::root::Task<Response> extraction_failure_response(
@@ -1869,36 +1978,28 @@ public:
 		std::size_t max_body_size
 #endif
 	) {
-		return conflux::work::root::spawn(
-			[&states,
-			 &fn,
-			 req = std::move(req)
+		try {
 #if CONFLUX_HAS_JSON
-				 ,
-			 &json_options,
-			 max_body_size
+			if constexpr (sizeof...(Is) == 0) {
+				auto _ = max_body_size;
+			}
 #endif
-		]() mutable -> conflux::work::root::Task<Response> {
-				try {
-					auto extracted_args = std::make_tuple(
-						make_fixed_route_arg<Args, Is>(
-							states,
-							req
+			auto extracted_args = std::make_tuple(
+				make_fixed_route_arg<Args, Is>(
+					states,
+					req
 #if CONFLUX_HAS_JSON
-							,
-							json_options,
-							max_body_size
+					,
+					json_options,
+					max_body_size
 #endif
-							)...);
+					)...);
 #if CONFLUX_HAS_JSON
-					return await_app_task_response(fn, std::move(extracted_args), json_options);
+			return await_app_task_response(fn, std::move(extracted_args), json_options);
 #else
-					return await_app_task_response(fn, std::move(extracted_args));
+			return await_app_task_response(fn, std::move(extracted_args));
 #endif
-				} catch (ExtractorFailure &failure) {
-					return extraction_failure_response(std::move(failure).response());
-				}
-			});
+		} catch (ExtractorFailure &failure) { return extraction_failure_response(std::move(failure).response()); }
 	}
 
 	template<FixedString Path, class Args, std::size_t I>
@@ -1975,40 +2076,59 @@ public:
 #endif
 						);
 					};
-					co_return co_await run_scoped_context_middlewares(
+					co_return co_await run_scoped_context_route(
+						policy.middlewares,
 						policy.context_middlewares,
 						req,
 						ctx,
 						std::move(inner));
 				});
 		} else {
-			router_.add(
-				method,
-				Path.view(),
-				[states = states_, policy, fn = Fn(std::forward<F>(handler))](
-					conflux::http::RequestView const &req) mutable {
-					conflux::http::Router::Handler inner =
-						[states, policy, &fn](conflux::http::RequestView const &inner_req) mutable {
-							if (auto failed = route_prelude_failure(policy, inner_req)) {
-								return *std::move(failed);
-							}
-							auto const body_limit = route_body_limit(policy);
-							return apply_route_timeout(
-								invoke_fixed_route<Args>(
-									*states,
-									fn,
-									inner_req,
-									std::make_index_sequence<std::tuple_size_v<Args>>{}
+			auto make_inner = [states = states_, policy, fn = Fn(std::forward<F>(handler))]() mutable {
+				return conflux::http::Router::Handler{
+					[states, policy, &fn](conflux::http::RequestView const &inner_req) mutable {
+						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							return *std::move(failed);
+						}
+						auto const body_limit = route_body_limit(policy);
+						return apply_route_timeout(
+							invoke_fixed_route<Args>(
+								*states,
+								fn,
+								inner_req,
+								std::make_index_sequence<std::tuple_size_v<Args>>{}
 #if CONFLUX_HAS_JSON
-									,
-									*policy.json_options,
-									body_limit
+								,
+								*policy.json_options,
+								body_limit
 #endif
-									),
-								*policy.timeout);
-						};
-					return run_scoped_middlewares(policy.middlewares, req, std::move(inner));
-				});
+								),
+							*policy.timeout);
+					}};
+			};
+			if (policy.context_middlewares && !policy.context_middlewares->empty()) {
+				router_.add_context_with_timeout(
+					method,
+					Path.view(),
+					policy.timeout,
+					[policy, make_inner = std::move(make_inner)](
+						conflux::http::RequestView const &req,
+						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+						return run_scoped_sync_route_as_context(
+							policy.context_middlewares,
+							policy.middlewares,
+							req,
+							ctx,
+							make_inner());
+					});
+			} else {
+				router_.add(
+					method,
+					Path.view(),
+					[policy, make_inner = std::move(make_inner)](conflux::http::RequestView const &req) mutable {
+						return run_scoped_middlewares(policy.middlewares, req, make_inner());
+					});
+			}
 		}
 		return RouteRef{*this, route_metadata_.size() - 1};
 	}
@@ -2056,36 +2176,23 @@ public:
 		std::size_t max_body_size
 #endif
 	) {
-		return conflux::work::root::spawn(
-			[&states,
-			 &fn,
-			 req = std::move(req)
+		try {
+			auto extracted_args = std::make_tuple(
+				make_handler_arg<std::tuple_element_t<Is, Args>>(
+					states,
+					req
 #if CONFLUX_HAS_JSON
-				 ,
-			 &json_options,
-			 max_body_size
+					,
+					json_options,
+					max_body_size
 #endif
-		]() mutable -> conflux::work::root::Task<Response> {
-				try {
-					auto extracted_args = std::make_tuple(
-						make_handler_arg<std::tuple_element_t<Is, Args>>(
-							states,
-							req
+					)...);
 #if CONFLUX_HAS_JSON
-							,
-							json_options,
-							max_body_size
-#endif
-							)...);
-#if CONFLUX_HAS_JSON
-					return await_app_task_response(fn, std::move(extracted_args), json_options);
+			return await_app_task_response(fn, std::move(extracted_args), json_options);
 #else
-					return await_app_task_response(fn, std::move(extracted_args));
+			return await_app_task_response(fn, std::move(extracted_args));
 #endif
-				} catch (ExtractorFailure &failure) {
-					return extraction_failure_response(std::move(failure).response());
-				}
-			});
+		} catch (ExtractorFailure &failure) { return extraction_failure_response(std::move(failure).response()); }
 	}
 
 	template<class Fn, class Args, std::size_t... Is>
@@ -2143,40 +2250,59 @@ public:
 #endif
 						);
 					};
-					co_return co_await run_scoped_context_middlewares(
+					co_return co_await run_scoped_context_route(
+						policy.middlewares,
 						policy.context_middlewares,
 						req,
 						ctx,
 						std::move(inner));
 				});
 		} else {
-			router_.add(
-				method,
-				path,
-				[states = states_, policy, fn = Fn(std::forward<F>(handler))](
-					conflux::http::RequestView const &req) mutable {
-					conflux::http::Router::Handler inner =
-						[states, policy, &fn](conflux::http::RequestView const &inner_req) mutable {
-							if (auto failed = route_prelude_failure(policy, inner_req)) {
-								return *std::move(failed);
-							}
-							auto const body_limit = route_body_limit(policy);
-							return apply_route_timeout(
-								invoke_extracted<Args>(
-									*states,
-									fn,
-									inner_req,
-									std::make_index_sequence<std::tuple_size_v<Args>>{}
+			auto make_inner = [states = states_, policy, fn = Fn(std::forward<F>(handler))]() mutable {
+				return conflux::http::Router::Handler{
+					[states, policy, &fn](conflux::http::RequestView const &inner_req) mutable {
+						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							return *std::move(failed);
+						}
+						auto const body_limit = route_body_limit(policy);
+						return apply_route_timeout(
+							invoke_extracted<Args>(
+								*states,
+								fn,
+								inner_req,
+								std::make_index_sequence<std::tuple_size_v<Args>>{}
 #if CONFLUX_HAS_JSON
-									,
-									*policy.json_options,
-									body_limit
+								,
+								*policy.json_options,
+								body_limit
 #endif
-									),
-								*policy.timeout);
-						};
-					return run_scoped_middlewares(policy.middlewares, req, std::move(inner));
-				});
+								),
+							*policy.timeout);
+					}};
+			};
+			if (policy.context_middlewares && !policy.context_middlewares->empty()) {
+				router_.add_context_with_timeout(
+					method,
+					path,
+					policy.timeout,
+					[policy, make_inner = std::move(make_inner)](
+						conflux::http::RequestView const &req,
+						RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
+						return run_scoped_sync_route_as_context(
+							policy.context_middlewares,
+							policy.middlewares,
+							req,
+							ctx,
+							make_inner());
+					});
+			} else {
+				router_.add(
+					method,
+					path,
+					[policy, make_inner = std::move(make_inner)](conflux::http::RequestView const &req) mutable {
+						return run_scoped_middlewares(policy.middlewares, req, make_inner());
+					});
+			}
 		}
 		return *this;
 	}

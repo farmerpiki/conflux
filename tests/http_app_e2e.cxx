@@ -31,6 +31,12 @@ conflux::work::Task<chttp::Response> async_body_text_echo(
 	co_return chttp::text(body.get());
 }
 
+conflux::work::Task<chttp::CreatedBody<std::string>> async_body_text_created(
+	chttp::BodyText const &body) {
+	co_await short_async_test_delay();
+	co_return chttp::created(chttp::Json{std::string{body.get()}});
+}
+
 conflux::work::Task<chttp::Response> async_request_view_echo(
 	chttp::RequestView req) {
 	co_await short_async_test_delay();
@@ -146,6 +152,27 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"async extracted non-response task keeps extractor references alive") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/async-created-ref", async_body_text_created);
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/async-created-ref", "text/plain", "created-body");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 201 Created"));
+	REQUIRE(extract_body(resp) == "\"created-body\"");
+}
+
+TEST_CASE(
 	"async request view handler survives suspension") {
 	auto app = chttp::App::default_server();
 	app.config().rings = 1;
@@ -179,6 +206,7 @@ TEST_CASE(
 
 	std::atomic<int> observed_reason{-1};
 	auto cfg = chttp::Config::public_server();
+	cfg.port = 0;
 	cfg.rings = 1;
 	cfg.ring_entries = 64;
 	cfg.startup_banner = false;
@@ -255,4 +283,167 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(resp.find("x-async-middleware-view: alive") != std::string::npos);
 	REQUIRE(extract_body(resp) == "borrowed-body");
+}
+
+TEST_CASE(
+	"sync middleware protects ordinary routes when async middleware is installed") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.use([](chttp::RequestView const &req, auto const &next) {
+		if (req.header("authorization") != "Bearer ok") {
+			return chttp::Response::unauthorized("Bearer");
+		}
+		return next(req);
+	});
+	app.use(
+		[](chttp::RequestView const &req,
+		   chttp::RequestContext const &ctx,
+		   auto const &next) -> conflux::work::Task<chttp::Response> { co_return co_await next(req, ctx); });
+	app.get("/sync-secret", [] { return chttp::text("secret"); });
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto denied = conflux::tests::http_get_on((*server)->port(), "/sync-secret");
+	auto allowed = conflux::tests::http_request_on(
+		(*server)->port(),
+		"GET",
+		"/sync-secret",
+		"text/plain",
+		"",
+		"Authorization: Bearer ok\r\n"
+		"Connection: close\r\n");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(denied.starts_with("HTTP/1.1 401 Unauthorized"));
+	REQUIRE(allowed.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(allowed) == "secret");
+}
+
+TEST_CASE(
+	"sync middleware protects async fixed typed routes") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.use([](chttp::RequestView const &, auto const &) { return chttp::Response::unauthorized("Bearer"); });
+	app.get<"/async-fixed-secret">([]() -> conflux::work::Task<chttp::Response> { co_return chttp::text("secret"); });
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_get_on((*server)->port(), "/async-fixed-secret");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 401 Unauthorized"));
+}
+
+TEST_CASE(
+	"async group middleware protects sync group routes") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.group("/admin", [](auto &group) {
+		group.use(
+			[](chttp::RequestView const &, chttp::RequestContext const &, auto const &)
+				-> conflux::work::Task<chttp::Response> { co_return chttp::Response::unauthorized("Bearer"); });
+		group.get("/stats", [] { return chttp::text("secret"); });
+	});
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_get_on((*server)->port(), "/admin/stats");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 401 Unauthorized"));
+}
+
+TEST_CASE(
+	"async group middleware protects sync extracted group routes") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.group("/admin", [](auto &group) {
+		group.use(
+			[](chttp::RequestView const &, chttp::RequestContext const &, auto const &)
+				-> conflux::work::Task<chttp::Response> { co_return chttp::Response::unauthorized("Bearer"); });
+		group.post("/echo", [](chttp::BodyText const &body) { return chttp::text(body.get()); });
+	});
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/admin/echo", "text/plain", "secret");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 401 Unauthorized"));
+}
+
+TEST_CASE(
+	"sync group middleware protects async context group routes") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.group("/admin", [](auto &group) {
+		group.use([](chttp::RequestView const &, auto const &) { return chttp::Response::unauthorized("Bearer"); });
+		group.get(
+			"/context",
+			[](chttp::RequestView const &, chttp::RequestContext const &) -> conflux::work::Task<chttp::Response> {
+				co_return chttp::text("secret");
+			});
+	});
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_get_on((*server)->port(), "/admin/context");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 401 Unauthorized"));
+}
+
+TEST_CASE(
+	"sync group middleware protects async extracted group routes") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.group("/admin", [](auto &group) {
+		group.use([](chttp::RequestView const &, auto const &) { return chttp::Response::unauthorized("Bearer"); });
+		group.post("/echo", [](chttp::BodyText const &body) -> conflux::work::Task<chttp::Response> {
+			co_return chttp::text(body.get());
+		});
+	});
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/admin/echo", "text/plain", "secret");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 401 Unauthorized"));
 }

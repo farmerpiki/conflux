@@ -158,12 +158,17 @@ void Ring::h2_reject_stream(
 			}
 		}
 		if (type == NGHTTP2_RST_STREAM && stream_id != 0) {
+			conn.h2_stream_window_updates.erase(stream_id);
 			conn.h2_closed_streams.insert(stream_id);
 			if (conn.h2_closed_streams.size() > 256) {
 				conn.h2_closed_streams.erase(conn.h2_closed_streams.begin());
 			}
 		}
 		if (type == NGHTTP2_WINDOW_UPDATE && stream_id != 0 && payload.size() == 4) {
+			if (conn.h2_closed_streams.contains(stream_id) || !conn.h2_streams.contains(stream_id)) {
+				offset += 9 + length;
+				continue;
+			}
 			auto const increment = (std::uint32_t{static_cast<unsigned char>(payload[0]) & 0x7fU} << 24U)
 								 | (std::uint32_t{static_cast<unsigned char>(payload[1])} << 16U)
 								 | (std::uint32_t{static_cast<unsigned char>(payload[2])} << 8U)
@@ -664,6 +669,7 @@ int Ring::h2_on_stream_close_cb(
 	if (conn.h2_closed_streams.size() > 256) {
 		conn.h2_closed_streams.erase(conn.h2_closed_streams.begin());
 	}
+	conn.h2_stream_window_updates.erase(stream_id);
 	// If this was the active H2 SSE stream, clear conn-level SSE state.
 	if (conn.h2_sse_stream_id == stream_id) {
 		conn.h2_sse_stream_id = -1;

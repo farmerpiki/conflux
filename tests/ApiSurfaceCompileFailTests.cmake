@@ -184,6 +184,38 @@ if(TARGET conflux)
         EXPECT "json_string_content_fallback")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_arena_borrowed_rvalue
+        SOURCE json_compile_fail_arena_borrowed_rvalue.cxx
+        TEST api-surface/json-arena-borrowed-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_borrowed_into")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_pmr_borrowed_rvalue
+        SOURCE json_compile_fail_pmr_borrowed_rvalue.cxx
+        TEST api-surface/json-pmr-borrowed-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_borrowed")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_pmr_borrowed_unsafe_rvalue
+        SOURCE json_compile_fail_pmr_borrowed_unsafe_rvalue.cxx
+        TEST api-surface/json-pmr-borrowed-unsafe-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_borrowed_unsafe")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_json_compile_fail_pmr_parse_view_rvalue
+        SOURCE json_compile_fail_pmr_parse_view_rvalue.cxx
+        TEST api-surface/json-pmr-parse-view-rejects-rvalue
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "parse_view")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_utils_compile_fail_global_ip_addr
         SOURCE utils_compile_fail_global_ip_addr.cxx
         TEST api-surface/utils-hides-global-ip-addr
@@ -606,6 +638,22 @@ if(TARGET conflux)
         LINK conflux_work conflux_options
         LABELS build api-surface compile-fail
         EXPECT "TaskSource")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_result_consume_for_join
+        SOURCE work_compile_fail_result_consume_for_join.cxx
+        TEST api-surface/work-result-hides-consume-for-join
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "consume_for_join")
+
+    conflux_add_compile_fail_test(
+        TARGET conflux_work_compile_fail_join_handle_consume_for_join
+        SOURCE work_compile_fail_join_handle_consume_for_join.cxx
+        TEST api-surface/work-join-handle-hides-consume-for-join
+        LINK conflux_work conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "consume_for_join")
 
     conflux_add_compile_fail_test(
         TARGET conflux_types_compile_fail_global_io_error

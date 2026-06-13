@@ -78,35 +78,18 @@ struct CloseState {
 	return ts;
 }
 
-template<class T>
-void complete_cancel_fallback(
-	std::weak_ptr<wroot::TaskSource<T>> const &weak_src,
-	wroot::CancelReason reason) noexcept {
-	if (auto src = weak_src.lock()) {
-		auto _ = src->try_set_cancelled(reason);
-	}
-}
-
-template<class T>
 void submit_cancel_for_ud(
 	SocketTaskRing *ring_ptr,
-	std::uint64_t user_data,
-	std::weak_ptr<wroot::TaskSource<T>> weak_src,
-	wroot::CancelReason reason) noexcept {
-	auto weak_for_owner = weak_src;
-	if (!ring_ptr->submit_on_owner(
-			[user_data, weak_src = std::move(weak_for_owner), reason](SocketTaskRing &ring) noexcept {
-				auto [slot, gen] = ring.completions().reserve([](IoResult) noexcept {});
-				std::uint64_t const cancel_ud = ring.encode(slot, gen);
-				if (!submit_cancel_by_ud(ring.raw(), user_data, cancel_ud)) {
-					ring.completions().dispatch(slot, gen, -EBUSY, conflux::uring::CqeFlags{});
-					complete_cancel_fallback(weak_src, reason);
-					return;
-				}
-				auto _ = ring.raw().submit();
-			})) {
-		complete_cancel_fallback(weak_src, reason);
-	}
+	std::uint64_t user_data) noexcept {
+	auto _ = ring_ptr->submit_on_owner([user_data](SocketTaskRing &ring) noexcept {
+		auto [slot, gen] = ring.completions().reserve([](IoResult) noexcept {});
+		std::uint64_t const cancel_ud = ring.encode(slot, gen);
+		if (!submit_cancel_by_ud(ring.raw(), user_data, cancel_ud)) {
+			ring.completions().dispatch(slot, gen, -EBUSY, conflux::uring::CqeFlags{});
+			return;
+		}
+		auto _ = ring.raw().submit();
+	});
 }
 
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
@@ -152,12 +135,10 @@ template<class Submit>
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook(
-		[ring_ptr, ud, weak_src = std::move(weak_src), cancel_reason](wroot::CancelReason reason) noexcept {
-			cancel_reason->store(reason, std::memory_order_release);
-			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
-		});
+	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, cancel_reason](wroot::CancelReason reason) noexcept {
+		cancel_reason->store(reason, std::memory_order_release);
+		submit_cancel_for_ud(ring_ptr, ud);
+	});
 	return task;
 }
 
@@ -207,10 +188,9 @@ template<class Submit>
 		return task;
 	}
 	auto ring_ptr = st.ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<std::size_t>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, weak_src, state](wroot::CancelReason reason) noexcept {
+	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
-		submit_cancel_for_ud(ring_ptr, ud, weak_src, state->reason());
+		submit_cancel_for_ud(ring_ptr, ud);
 	});
 	return task;
 }
@@ -545,18 +525,6 @@ struct ConnectOp {
 		}
 		auto _ = r.raw().submit();
 	}
-	void submit_cancel_fd_on_owner(
-		SocketTaskRing &r,
-		RingFd auto fd,
-		std::shared_ptr<ConnectOp> self) noexcept {
-		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
-		if (!submit_cancel_fd(r.raw(), fd, r.encode(cs, cg))) {
-			r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-			complete_cancelled();
-			return;
-		}
-		auto _ = r.raw().submit();
-	}
 	void cancel_on_owner(
 		SocketTaskRing &r,
 		std::shared_ptr<ConnectOp> self) noexcept {
@@ -565,7 +533,7 @@ struct ConnectOp {
 		}
 		switch (stage) {
 		case Stage::socket_pending : submit_cancel_ud_on_owner(r, socket_ud, std::move(self)); break;
-		case Stage::connect_pending: submit_cancel_fd_on_owner(r, stream_state->handle.get(), std::move(self)); break;
+		case Stage::connect_pending: submit_cancel_ud_on_owner(r, connect_ud, std::move(self)); break;
 		case Stage::done           : break;
 		}
 	}
@@ -595,6 +563,11 @@ struct ConnectOp {
 		IoResult r) noexcept {
 		stage = Stage::done;
 		if (r.res >= 0) {
+			if (cancel_requested.load(std::memory_order_acquire)) {
+				stream_state.reset();
+				complete_cancelled();
+				return;
+			}
 			complete_value(TcpStream{std::move(stream_state)});
 			return;
 		}
@@ -1259,10 +1232,9 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		return task;
 	}
 	auto ring_ptr = ring_;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<UdpRecvResult>>{shared_src};
-	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, weak_src, state](wroot::CancelReason reason) noexcept {
+	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
-		submit_cancel_for_ud(ring_ptr, recv_ud, weak_src, state->reason());
+		submit_cancel_for_ud(ring_ptr, recv_ud);
 	});
 	return task;
 }
@@ -1293,13 +1265,10 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 		return task;
 	}
 	auto ring_ptr = &ring;
-	auto weak_src = std::weak_ptr<wroot::TaskSource<void>>{shared_src};
-	auto _ =
-		shared_src->install_cancel_hook([ring_ptr, ud, weak_src, cancel_reason](wroot::CancelReason reason) noexcept {
-			cancel_reason->store(reason, std::memory_order_release);
-			complete_cancel_fallback(weak_src, reason);
-			submit_cancel_for_ud(ring_ptr, ud, weak_src, reason);
-		});
+	auto _ = shared_src->install_cancel_hook([ring_ptr, ud, cancel_reason](wroot::CancelReason reason) noexcept {
+		cancel_reason->store(reason, std::memory_order_release);
+		submit_cancel_for_ud(ring_ptr, ud);
+	});
 	return task;
 }
 
@@ -1314,10 +1283,12 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	std::chrono::steady_clock::time_point deadline) {
 	auto const now = std::chrono::steady_clock::now();
 	if (deadline <= now) {
-		co_return;
+		auto [task, src] = wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation = false});
+		auto _ = src.try_set_value(wroot::Success<void>{});
+		return std::move(task);
 	}
 	auto const millis = std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
-	co_await async_sleep_for(ring, millis);
+	return async_sleep_for(ring, millis);
 }
 
 } // namespace conflux::socket_io

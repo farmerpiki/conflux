@@ -157,5 +157,13 @@ T block_on(
 		return std::move(*slot->value);
 	}
 }
+export template<typename T, typename Decode = DefaultUdDecoder>
+T block_on(
+	FileReader &reader,
+	conflux::work::root::JoinTask<T> task,
+	std::optional<std::chrono::milliseconds> budget = std::nullopt,
+	Decode decode = {}) {
+	return block_on(reader, std::move(task).detach_to_task(), budget, std::move(decode));
+}
 
 } // namespace conflux::file_io

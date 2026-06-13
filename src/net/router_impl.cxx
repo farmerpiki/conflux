@@ -150,7 +150,11 @@ void index_route_pattern(
 
 [[nodiscard]] PreparedRoutePattern prepare_route_pattern(
 	std::string_view path) {
-	auto pattern = conflux::http::detail::parse_pattern(path);
+	auto parsed = conflux::http::detail::parse_route_pattern(path);
+	if (parsed.error) {
+		throw std::invalid_argument{*parsed.error};
+	}
+	auto pattern = std::move(parsed.segments);
 	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	auto path_pattern = conflux::http::detail::segments_to_pattern(pattern);
 	return PreparedRoutePattern{
@@ -318,6 +322,81 @@ template<typename RouteT>
 }
 
 template<typename RouteT>
+struct CombinedIndexedRouteRange {
+	IndexedRouteRange<RouteT> primary{};
+	IndexedRouteRange<RouteT> fallback{};
+
+	struct Iterator {
+		using value_type = RouteT;
+		using difference_type = std::ptrdiff_t;
+		using iterator_concept = std::input_iterator_tag;
+		using iterator_category = std::input_iterator_tag;
+
+		CombinedIndexedRouteRange const *owner{};
+		std::size_t phase{};
+		typename IndexedRouteRange<RouteT>::Iterator current{};
+
+		void skip_empty() noexcept {
+			while (owner != nullptr && phase < 2 && current == std::default_sentinel) {
+				++phase;
+				if (phase == 1) {
+					current = owner->fallback.begin();
+				}
+			}
+		}
+
+		[[nodiscard]] RouteT const &operator *() const noexcept { return *current; }
+
+		Iterator &operator ++() noexcept {
+			++current;
+			skip_empty();
+			return *this;
+		}
+
+		void operator ++(
+			int) noexcept {
+			++(*this);
+		}
+
+		[[nodiscard]] bool operator ==(
+			std::default_sentinel_t) const noexcept {
+			return owner == nullptr || phase >= 2;
+		}
+
+		[[nodiscard]] bool operator !=(
+			std::default_sentinel_t) const noexcept {
+			return !(*this == std::default_sentinel);
+		}
+	};
+
+	[[nodiscard]] Iterator begin() const noexcept {
+		Iterator it{.owner = this, .phase = 0, .current = primary.begin()};
+		it.skip_empty();
+		return it;
+	}
+
+	[[nodiscard]] bool empty() const noexcept { return primary.empty() && fallback.empty(); }
+
+	[[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
+};
+
+template<typename RouteT>
+[[nodiscard]] CombinedIndexedRouteRange<RouteT> selected_request_routes(
+	std::vector<RouteT> const &routes,
+	std::vector<MethodRouteLookupIndex> const &indexes,
+	std::string_view method,
+	std::string_view path,
+	bool is_head) noexcept {
+	auto primary_method = is_head ? std::string_view{"HEAD"} : method;
+	return CombinedIndexedRouteRange<RouteT>{
+		.primary = indexed_route_range(routes, select_method_routes(indexes, primary_method, path)),
+		.fallback = indexed_route_range(
+			routes,
+			is_head ? select_method_routes(indexes, std::string_view{"GET"}, path) : RouteLookupSelection{}),
+	};
+}
+
+template<typename RouteT>
 void append_route_info(
 	std::vector<conflux::http::RouteInfo> &result,
 	std::string_view method,
@@ -348,8 +427,7 @@ template<typename ImplT>
 	conflux::http::RequestView const &req,
 	std::string_view path_sv,
 	bool is_head) {
-	auto const route_method = is_head ? std::string_view{"GET"} : req.method;
-	auto routes = indexed_route_range(impl.routes, select_method_routes(impl.route_indexes, route_method, path_sv));
+	auto routes = selected_request_routes(impl.routes, impl.route_indexes, req.method, path_sv, is_head);
 	auto sse_routes = indexed_route_range(
 		impl.sse_routes,
 		is_head ? RouteLookupSelection{} : select_routes_for_path(impl.sse_index, path_sv));
@@ -371,11 +449,9 @@ template<typename ImplT>
 	conflux::http::RequestContext const &ctx,
 	std::string_view path_sv,
 	bool is_head) {
-	auto const route_method = is_head ? std::string_view{"GET"} : req.method;
-	auto routes = indexed_route_range(
-		impl.context_routes,
-		select_method_routes(impl.context_route_indexes, route_method, path_sv));
-	return conflux::http::detail::dispatch_context_routes(req, ctx, path_sv, routes);
+	auto routes =
+		selected_request_routes(impl.context_routes, impl.context_route_indexes, req.method, path_sv, is_head);
+	return conflux::http::detail::dispatch_context_routes(req, ctx, path_sv, routes, is_head);
 }
 
 template<typename ImplT>
@@ -390,15 +466,11 @@ template<typename ImplT>
 			[&impl, path_sv, is_head](
 				conflux::http::RequestView const &r,
 				conflux::http::RequestContext const &c) -> conflux::work::root::Task<Response> {
-			auto const route_method = is_head ? std::string_view{"GET"} : r.method;
-			auto routes = indexed_route_range(
-				impl.context_routes,
-				select_method_routes(impl.context_route_indexes, route_method, path_sv));
-			if (auto deferred_task = conflux::http::detail::dispatch_context_route_tasks(r, c, path_sv, routes)) {
+			auto routes =
+				selected_request_routes(impl.context_routes, impl.context_route_indexes, r.method, path_sv, is_head);
+			if (auto deferred_task =
+					conflux::http::detail::dispatch_context_route_tasks(r, c, path_sv, routes, is_head)) {
 				auto resp = co_await std::move(deferred_task->task);
-				if (is_head) {
-					resp.head_only = true;
-				}
 				co_return resp;
 			}
 			co_return dispatch_router_sync(impl, r, path_sv, is_head);
@@ -451,6 +523,22 @@ Router::ContextHandler Router::Group::wrap_context(
 				conflux::http::RequestView const &r,
 				conflux::http::RequestContext const &c) -> conflux::work::root::Task<Response> {
 			co_return co_await mw(r, c, n);
+		};
+	}
+	for (int i = static_cast<int>(middlewares_.size()) - 1; i >= 0; --i) {
+		auto mw = middlewares_[static_cast<std::size_t>(i)];
+		h = [mw = std::move(mw), n = std::move(h)](
+				conflux::http::RequestView const &r,
+				conflux::http::RequestContext const &c) -> conflux::work::root::Task<Response> {
+			Handler next = [n, c](conflux::http::RequestView const &next_req) -> Response {
+				auto invoke_context = [](ContextHandler handler,
+										 conflux::http::RequestView req,
+										 conflux::http::RequestContext ctx) -> conflux::work::root::Task<Response> {
+					co_return co_await handler(req, ctx);
+				};
+				return Router::defer_http_task(invoke_context(n, conflux::http::RequestView{next_req}, c));
+			};
+			co_return mw(r, next);
 		};
 	}
 	return h;
@@ -736,6 +824,21 @@ Router &Router::serve_static(
 [[nodiscard]] std::optional<Response> Router::dispatch_context(
 	conflux::http::RequestView const &req,
 	conflux::http::RequestContext const &ctx) const {
+	if (!impl_->middlewares.empty()) {
+		Handler inner = [this, ctx](conflux::http::RequestView const &r) -> Response {
+			bool const is_head = (r.method == "HEAD");
+			std::string_view const path_sv = conflux::http::path_without_query(r.path);
+			if (!impl_->context_middlewares.empty()) {
+				return defer_http_task(
+					dispatch_router_context_task(*impl_, conflux::http::RequestView{r}, ctx, path_sv, is_head));
+			}
+			if (auto resp = dispatch_router_async(*impl_, r, ctx, path_sv, is_head)) {
+				return std::move(*resp);
+			}
+			return dispatch_router_sync(*impl_, r, path_sv, is_head);
+		};
+		return run_middlewares(req, inner);
+	}
 	bool const is_head = (req.method == "HEAD");
 	std::string_view const path_sv = conflux::http::path_without_query(req.path);
 	if (!impl_->context_middlewares.empty()) {

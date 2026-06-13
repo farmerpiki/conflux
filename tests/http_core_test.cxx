@@ -66,6 +66,13 @@ TEST_CASE(
 	REQUIRE_FALSE(missing_host.has_value());
 	CHECK(missing_host.error().kind == chttp::UrlErrorKind::missing_host);
 
+	std::string nul_host{"http://metadata.internal"};
+	nul_host.push_back('\0');
+	nul_host += ".attacker.example/";
+	auto invalid_host = chttp::Url::parse(nul_host);
+	REQUIRE_FALSE(invalid_host.has_value());
+	CHECK(invalid_host.error().kind == chttp::UrlErrorKind::invalid_host);
+
 	auto bad_port = chttp::Url::parse("http://example.com:0/");
 	REQUIRE_FALSE(bad_port.has_value());
 	CHECK(bad_port.error().kind == chttp::UrlErrorKind::invalid_port);
@@ -86,6 +93,22 @@ TEST_CASE(
 	url->set_query_param("plus+key", "one two");
 	CHECK(url->query == "old=1&a%20b=x%2Fy%3Fz&plus%2Bkey=one%20two");
 	CHECK(url->str() == "http://example.com/search?old=1&a%20b=x%2Fy%3Fz&plus%2Bkey=one%20two");
+}
+
+TEST_CASE(
+	"http core: Url::set_query_param accepts views into existing query",
+	"[http.core]") {
+	auto url = chttp::Url::parse("http://example.com/search");
+	REQUIRE(url.has_value());
+	auto const name = std::string(96, 'n');
+	auto const value = std::string(96, 'v');
+	url->query = name + "=" + value;
+	std::string_view name_view{url->query.data(), name.size()};
+	std::string_view value_view{url->query.data() + name.size() + 1UZ, value.size()};
+
+	url->set_query_param(name_view, value_view);
+
+	CHECK(url->query == name + "=" + value + "&" + name + "=" + value);
 }
 
 TEST_CASE(

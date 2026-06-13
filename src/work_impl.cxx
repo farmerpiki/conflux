@@ -41,6 +41,7 @@ struct WorkPoolState {
 	std::vector<std::unique_ptr<WorkPoolWorker>> workers{};
 	std::vector<std::unique_ptr<work_detail::MpmcRing<work_detail::Fn>>> inject_rings{};
 	std::atomic<std::uint64_t> inject_enqueue_cursor{0};
+	std::atomic<std::size_t> inject_queued{0};
 	std::atomic<std::uint32_t> wake_epoch{0};
 	alignas(64) std::atomic<int> parked{0};
 	std::atomic<std::size_t> pending{0};
@@ -177,13 +178,28 @@ struct WorkPoolState {
 			queue_counters.note_inject_push_full();
 			return false;
 		}
+		auto queued = inject_queued.load(std::memory_order_relaxed);
+		for (;;) {
+			if (queued >= options.max_inject_queue) {
+				queue_counters.note_inject_push_full();
+				return false;
+			}
+			if (inject_queued
+					.compare_exchange_weak(queued, queued + 1, std::memory_order_acq_rel, std::memory_order_relaxed)) {
+				break;
+			}
+		}
 		std::size_t const start =
 			shards == 1 ? std::size_t{0} : inject_enqueue_cursor.fetch_add(1, std::memory_order_relaxed) % shards;
-		if (inject_rings[start]->try_push(std::move(job))) {
-			pending.fetch_add(1, std::memory_order_release);
-			queue_counters.note_inject_push();
-			return true;
+		for (std::size_t offset = 0; offset < shards; ++offset) {
+			std::size_t const shard = (start + offset) % shards;
+			if (inject_rings[shard]->try_push(std::move(job))) {
+				pending.fetch_add(1, std::memory_order_release);
+				queue_counters.note_inject_push();
+				return true;
+			}
 		}
+		inject_queued.fetch_sub(1, std::memory_order_acq_rel);
 		queue_counters.note_inject_push_full();
 		return false;
 	}
@@ -225,6 +241,7 @@ struct WorkPoolState {
 			if (!job) {
 				continue;
 			}
+			inject_queued.fetch_sub(1, std::memory_order_acq_rel);
 			queue_counters.note_inject_pop_hit();
 			return job;
 		}
@@ -314,11 +331,11 @@ struct WorkPoolState {
 				queue_counters.note_park_attempt();
 				parked.fetch_add(1, std::memory_order_acq_rel);
 				std::atomic_thread_fence(std::memory_order_seq_cst);
+				std::uint32_t const epoch = wake_epoch.load(std::memory_order_acquire);
 				if (pending.load(std::memory_order_acquire) > 0 || stopping.test(std::memory_order_acquire)) {
 					queue_counters.note_park_recheck_skip();
 					parked.fetch_sub(1, std::memory_order_acq_rel);
 				} else {
-					std::uint32_t const epoch = wake_epoch.load(std::memory_order_acquire);
 					queue_counters.note_futex_wait();
 					work_detail::futex_wait_private(wake_epoch, epoch);
 					parked.fetch_sub(1, std::memory_order_acq_rel);

@@ -353,7 +353,20 @@ public:
 			std::string_view path,
 			F &&handler) {
 			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
-			router_.add(method, full_path, wrap(Router::make_handler(std::forward<F>(handler))));
+			auto sync_handler = wrap(Router::make_handler(std::forward<F>(handler)));
+			if (context_middlewares_.empty()) {
+				router_.add(method, full_path, std::move(sync_handler));
+			} else {
+				router_.add_context(
+					method,
+					full_path,
+					wrap_context(
+						[sync_handler = std::move(sync_handler)](
+							conflux::http::RequestView const &req,
+							conflux::http::RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+							co_return sync_handler(req);
+						}));
+			}
 			return *this;
 		}
 		template<typename F>
@@ -362,7 +375,20 @@ public:
 			std::string_view path,
 			F &&handler) {
 			auto full_path = conflux::http::detail::join_route_path(prefix_, path);
-			router_.add(method, full_path, wrap(Router::make_handler(std::forward<F>(handler))));
+			auto sync_handler = wrap(Router::make_handler(std::forward<F>(handler)));
+			if (context_middlewares_.empty()) {
+				router_.add(method, full_path, std::move(sync_handler));
+			} else {
+				router_.add_context(
+					method,
+					full_path,
+					wrap_context(
+						[sync_handler = std::move(sync_handler)](
+							conflux::http::RequestView const &req,
+							conflux::http::RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+							co_return sync_handler(req);
+						}));
+			}
 			return *this;
 		}
 		template<typename F>

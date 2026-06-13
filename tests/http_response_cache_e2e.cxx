@@ -80,6 +80,24 @@ void ensure_resp_cache_server() {
 			r.headers["Cache-Control"] = "no-storehouse, privateer, no-cacheable, s-maxage=0";
 			return r;
 		});
+		router.get("/semicolon-private", [](conflux::http::OwnedRequest const &) {
+			int n = ++g_resp_cache_count;
+			auto r = conflux::http::Response::text(std::format("semicolon-private {}", n));
+			r.headers["Cache-Control"] = "max-age=60; private";
+			return r;
+		});
+		router.get("/semicolon-no-store", [](conflux::http::OwnedRequest const &) {
+			int n = ++g_resp_cache_count;
+			auto r = conflux::http::Response::text(std::format("semicolon-no-store {}", n));
+			r.headers["Cache-Control"] = "max-age=60; no-store";
+			return r;
+		});
+		router.get("/semicolon-no-cache", [](conflux::http::OwnedRequest const &) {
+			int n = ++g_resp_cache_count;
+			auto r = conflux::http::Response::text(std::format("semicolon-no-cache {}", n));
+			r.headers["Cache-Control"] = "max-age=60; no-cache";
+			return r;
+		});
 		router.get("/set-cookie-resp", [](conflux::http::OwnedRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = conflux::http::Response::text(std::format("cookie {}", n));
@@ -220,6 +238,24 @@ TEST_CASE(
 	REQUIRE(r2.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(g_resp_cache_count.load() == before + 1);
 	REQUIRE(extract_body(r1) == extract_body(r2));
+}
+
+TEST_CASE(
+	"response_cache: semicolon-tailed Cache-Control directives are not cached") {
+	ensure_resp_cache_server();
+	auto check_uncached = [](std::string_view path) {
+		int const before = g_resp_cache_count.load();
+		auto r1 = http_get_on(g_resp_cache_port, path);
+		auto r2 = http_get_on(g_resp_cache_port, path);
+		REQUIRE(r1.starts_with("HTTP/1.1 200 OK"));
+		REQUIRE(r2.starts_with("HTTP/1.1 200 OK"));
+		REQUIRE(g_resp_cache_count.load() == before + 2);
+		REQUIRE(extract_body(r1) != extract_body(r2));
+	};
+
+	check_uncached("/semicolon-private");
+	check_uncached("/semicolon-no-store");
+	check_uncached("/semicolon-no-cache");
 }
 
 TEST_CASE(

@@ -429,6 +429,8 @@ void apply_http1_keep_alive(
 		https_redirect_hosts,
 		limits,
 		std::move(storage));
+	conn.expect_continue_sent = false;
+	conn.chunked_decode.reset();
 	conn.request_bytes = 0;
 	return true;
 }
@@ -488,7 +490,7 @@ void install_response_state(
 			conn.has_response = true;
 		} else {
 			conn.mapped_file = resp.take_mapped_file();
-			conn.mapped_total = conn.own_response.size() + conn.mapped_file->size;
+			conn.mapped_total = conn.own_response.size() + conn.mapped_file->window().size();
 			conn.mapped_delivered = 0;
 			conn.has_response = false;
 			{

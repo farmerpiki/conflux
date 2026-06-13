@@ -17,6 +17,8 @@ module conflux.net.http_server:accept;
 import std;
 import std.compat;
 
+import conflux.file_io;
+import conflux.net.http.types;
 import conflux.net.http_server_helpers;
 import conflux.socket_io;
 import conflux.utils;
@@ -25,8 +27,6 @@ import conflux.net.tls;
 #endif
 import :state;
 using namespace conflux::socket_io;
-using conflux::uring::DirectFd;
-using conflux::uring::OsFd;
 
 #if CONFLUX_HTTP_TRACE
 	#define HTTP_TRACE(MSG) conflux::utils::eprintln(std::format("http_trace {}", (MSG)))
@@ -58,20 +58,14 @@ void Ring::reject_accepted_socket_during_shutdown(
 		++pressure_counters_.accept_rejected;
 	}
 	if (accepted_sockets_direct) {
-		auto const ud = pack(Op::DirectSlotClose, 0, fd);
 		if (direct_slots_ && direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(fd))) {
 			if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
 				conflux::utils::eprintln(std::format("handle_accept shutdown: mark_closing failed slot={}", fd));
 			}
 		}
-		if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
-			defer_op([this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
-		}
+		submit_direct_slot_close_or_defer(fd);
 	} else {
-		auto const ud = pack(Op::Close, 0, fd);
-		if (!submit_close(raw_, OsFd::from_os(fd), ud)) {
-			defer_op([this, fd, ud] { submit_close(raw_, OsFd::from_os(fd), ud); });
-		}
+		submit_os_close_or_defer(fd);
 	}
 	if (!cqe_has_more(flg)
 		&& drain_control != nullptr
@@ -94,18 +88,17 @@ bool Ring::adopt_direct_accept_slot_or_disable(
 		std::format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", fd));
 	accepted_sockets_direct = false;
 	submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
-	auto const ud = pack(Op::DirectSlotClose, 0, fd);
-	if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
-		defer_op([this, fd, ud] { submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud); });
-	}
+	submit_direct_slot_close_or_defer(fd);
 	return false;
 }
 
 void Ring::reset_accepted_connection(
 	int fd,
-	Conn &conn) {
+	Conn &conn,
+	bool accepted_direct) {
 	++conn.gen;
 	conn.fd = fd;
+	conn.accepted_direct = accepted_direct;
 	conn.recv_armed = false;
 	conn.last_recv_cqe_flags = {};
 	conn.have_last_recv_cqe_flags = false;
@@ -114,10 +107,15 @@ void Ring::reset_accepted_connection(
 	conn.closing = false;
 	conn.close_after_send = false;
 	conn.has_response = false;
+	conn.own_response.clear();
 	conn.written = 0;
+	conn.request_bytes = 0;
+	conn.request_in_progress = false;
+	conn.request_started = {};
 	conn.is_sse = false;
 	conn.sse_headers_sent = false;
 	conn.is_deferred = false;
+	conn.deferred_head_only = false;
 	conn.sse_efd = -1;
 	conn.sse_channel.reset();
 	conn.deferred_efd = -1;
@@ -130,13 +128,24 @@ void Ring::reset_accepted_connection(
 	conn.mapped_file.reset();
 	conn.mapped_total = 0;
 	conn.mapped_delivered = 0;
+	conn.streamed_file.reset();
+	conn.streamed_headers_sent = false;
+	conn.streamed_delivered = 0;
+	conn.streamed_splice_in_flight = false;
+	conn.zc_state.waiting_notification = false;
+	conn.zc_state.after_notification = conflux::http::SendZcPendingAction::none;
+	conn.zc_state.close_after_notification = false;
+	conn.zc_tls_bypass_counted = false;
+	conn.send_buf = conflux::file_io::FixedBuffer{};
+	conn.send_buf_base_written = 0;
+	conn.send_buf_len = 0;
 	conn.last_activity = std::chrono::steady_clock::now();
 }
 
 void Ring::record_accepted_peer_address(
 	int fd,
 	Conn &conn) {
-	if (!accepted_sockets_direct) {
+	if (!conn.accepted_direct) {
 		sockaddr_in6 peer_addr{};
 		socklen_t peer_len = sizeof(peer_addr);
 		if (::getpeername(fd, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
@@ -184,8 +193,9 @@ void Ring::reset_connection_protocol_state(
 }
 
 void Ring::apply_accepted_socket_options(
-	int fd) {
-	if (!accepted_sockets_direct) {
+	int fd,
+	Conn const &conn) {
+	if (!conn.accepted_direct) {
 		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
 		::setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
 		if (busy_poll_us_ > 0) {
@@ -199,7 +209,7 @@ void Ring::apply_accepted_socket_options(
 
 void Ring::arm_accepted_connection_recv(
 	int fd) {
-	if (!accepted_sockets_direct) {
+	if (!conn_uses_direct(fd)) {
 		queue_multishot_recv(fd);
 		return;
 	}
@@ -229,10 +239,10 @@ void Ring::handle_accept(
 		return;
 	}
 	auto &conn = conn_for(res);
-	reset_accepted_connection(res, conn);
+	reset_accepted_connection(res, conn, accepted_sockets_direct);
 	record_accepted_peer_address(res, conn);
 	reset_connection_protocol_state(conn);
-	apply_accepted_socket_options(res);
+	apply_accepted_socket_options(res, conn);
 	arm_accepted_connection_recv(res);
 	if (!cqe_has_more(flg)) {
 		queue_multishot_accept();

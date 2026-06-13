@@ -140,35 +140,26 @@ inline static __m128i gf128_mul(
 	__m128i const b_m = _mm_xor_si128(b, _mm_srli_si128(b, 8));
 	return gf128_mul_m(a, b, a_m, b_m);
 }
-// Per-std::thread cache of the last-used key schedule and H powers.
-// Covers the common pattern: one key per std::thread, many operations.
 struct KeyCtx {
 	AesniKey256 ek;
 	__m128i h_br, h2_br, h3_br, h4_br;
 	__m128i h_m, h2_m, h3_m, h4_m; // Karatsuba mixed factors: low64 = H[63:0] XOR H[127:64]
-	unsigned char key[32];
-	bool valid{false};
 };
-static KeyCtx const &get_key_ctx(
+static KeyCtx make_key_ctx(
 	unsigned char const *key) {
-	thread_local KeyCtx tl_key_ctx;
-	if (tl_key_ctx.valid && std::memcmp(tl_key_ctx.key, key, 32) == 0) {
-		return tl_key_ctx;
-	}
-	tl_key_ctx.ek = aesni_expand_key(key);
-	__m128i const h = aesni_encrypt_block(tl_key_ctx.ek, _mm_setzero_si128());
-	tl_key_ctx.h_br = byte_bitrev(h);
-	tl_key_ctx.h2_br = gf128_mul(tl_key_ctx.h_br, tl_key_ctx.h_br);
-	tl_key_ctx.h3_br = gf128_mul(tl_key_ctx.h2_br, tl_key_ctx.h_br);
-	tl_key_ctx.h4_br = gf128_mul(tl_key_ctx.h2_br, tl_key_ctx.h2_br);
+	KeyCtx ctx{};
+	ctx.ek = aesni_expand_key(key);
+	__m128i const h = aesni_encrypt_block(ctx.ek, _mm_setzero_si128());
+	ctx.h_br = byte_bitrev(h);
+	ctx.h2_br = gf128_mul(ctx.h_br, ctx.h_br);
+	ctx.h3_br = gf128_mul(ctx.h2_br, ctx.h_br);
+	ctx.h4_br = gf128_mul(ctx.h2_br, ctx.h2_br);
 	auto const km = [](__m128i v) noexcept { return _mm_xor_si128(v, _mm_srli_si128(v, 8)); };
-	tl_key_ctx.h_m = km(tl_key_ctx.h_br);
-	tl_key_ctx.h2_m = km(tl_key_ctx.h2_br);
-	tl_key_ctx.h3_m = km(tl_key_ctx.h3_br);
-	tl_key_ctx.h4_m = km(tl_key_ctx.h4_br);
-	std::memcpy(tl_key_ctx.key, key, 32);
-	tl_key_ctx.valid = true;
-	return tl_key_ctx;
+	ctx.h_m = km(ctx.h_br);
+	ctx.h2_m = km(ctx.h2_br);
+	ctx.h3_m = km(ctx.h3_br);
+	ctx.h4_m = km(ctx.h4_br);
+	return ctx;
 }
 // Register-only GCM counter increment (no memory round-trip).
 // Bytes [12..15] hold a big-endian 32-bit counter; byteswap to std::logic_error, add 1, byteswap back.
@@ -348,7 +339,7 @@ int conflux_aes_gcm_encrypt_aesni(
 	unsigned char const *aad,
 	std::size_t aad_len,
 	unsigned char *out) {
-	auto const &kc = get_key_ctx(key);
+	auto const kc = make_key_ctx(key);
 
 	alignas(16) unsigned char j0_buf[16]{};
 	std::memcpy(j0_buf, iv, 12);
@@ -408,7 +399,7 @@ int conflux_aes_gcm_decrypt_aesni(
 	}
 	std::size_t const ct_len = ct_tag_len - 16;
 
-	auto const &kc = get_key_ctx(key);
+	auto const kc = make_key_ctx(key);
 
 	alignas(16) unsigned char j0_buf[16]{};
 	std::memcpy(j0_buf, iv, 12);

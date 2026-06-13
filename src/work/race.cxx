@@ -258,7 +258,7 @@ template<class Wait>
 	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(src));
 	(void)shared_src->install_cancel_hook([state](root::CancelReason cancel_reason) noexcept {
 		{
-			std::scoped_lock lk{state->mu};
+			std::scoped_lock const lk{state->mu};
 			state->cancelled = true;
 			state->cancel_reason = cancel_reason;
 		}
@@ -392,15 +392,16 @@ template<root::progress_capability Cap, root::work_value T, class Handle>
 
 	auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = true});
 	auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(src));
+	auto control = handle.control();
 	auto state = std::make_shared<State>(State{.cap = &cap, .handle = std::move(handle), .src = shared_src});
 	std::weak_ptr<State> weak_state{state};
-	(void)shared_src->install_cancel_hook([weak_state](root::CancelReason reason) noexcept {
+	(void)shared_src->install_cancel_hook([weak_state, control](root::CancelReason reason) mutable noexcept {
 		if (auto state = weak_state.lock()) {
-			(void)state->handle.control().request_cancel(reason);
+			(void)control.request_cancel(reason);
 		}
 	});
 	auto ready = [state]() noexcept { state->complete(); };
-	auto result = state->handle.control().try_set_on_ready(::conflux::detail::small_move_only_function<void()>{ready});
+	auto result = control.try_set_on_ready(::conflux::detail::small_move_only_function<void()>{ready});
 	switch (result.status) {
 	case root::ReadyRegistration::installed: break;
 	case root::ReadyRegistration::already_ready:
@@ -595,7 +596,6 @@ class race_state final : public std::enable_shared_from_this<race_state<T, Parti
 	std::vector<race_aggregate_error_entry> failures_{};
 	std::optional<root::Cancelled> first_cancel_{};
 	std::size_t first_cancel_index_ = 0;
-	bool cleanup_timer_started_ = false;
 	std::shared_ptr<cancel_proxy> output_cancel_proxy_{std::make_shared<cancel_proxy>()};
 
 public:
@@ -796,7 +796,6 @@ private:
 		std::size_t i) noexcept {
 		std::vector<root::TaskControl> losers_to_cancel;
 		bool commit_now = false;
-		bool start_cleanup_timer = false;
 		try {
 			std::scoped_lock lk{mu_};
 			if (ps_[i].terminal && !ps_[i].ready_value) {
@@ -819,13 +818,9 @@ private:
 			if (commit_now) {
 				output_committed_ = true;
 			}
-			start_cleanup_timer = should_start_cleanup_timer_locked();
 		} catch (...) { on_value_outcome(i, root::Outcome<T>{root::Failure{std::current_exception()}}); }
 		for (auto &loser: losers_to_cancel) {
 			(void)loser.request_cancel(opts_.default_loser_reason);
-		}
-		if (start_cleanup_timer) {
-			start_cleanup_timer_thread();
 		}
 		if (commit_now) {
 			commit_result();
@@ -852,7 +847,6 @@ private:
 		root::Outcome<T> out) noexcept {
 		std::vector<root::TaskControl> losers_to_cancel;
 		bool commit_now = false;
-		bool start_cleanup_timer = false;
 		{
 			std::scoped_lock lk{mu_};
 			if (ps_[i].terminal && !ps_[i].ready_value) {
@@ -870,13 +864,9 @@ private:
 			if (commit_now) {
 				output_committed_ = true;
 			}
-			start_cleanup_timer = should_start_cleanup_timer_locked();
 		}
 		for (auto &loser: losers_to_cancel) {
 			(void)loser.request_cancel(opts_.default_loser_reason);
-		}
-		if (start_cleanup_timer) {
-			start_cleanup_timer_thread();
 		}
 		if (commit_now) {
 			commit_result();
@@ -912,10 +902,7 @@ private:
 				if (failures_.size() == 1) {
 					auto const winner_index = failures_[0].index;
 					auto error = failures_[0].error;
-					select_winner_locked(
-						winner_index,
-						root::Outcome<T>{root::Failure{std::move(error)}},
-						losers_to_cancel);
+					select_winner_locked(winner_index, root::Outcome<T>{root::Failure{error}}, losers_to_cancel);
 				} else {
 					auto const winner_index = failures_[0].index;
 					select_winner_locked(
@@ -965,7 +952,7 @@ private:
 	void collect_loser_outcome_locked(
 		std::size_t i,
 		root::Outcome<T> out) {
-		if (!opts_.collect_loser_outcomes || i == winner_index_) {
+		if (!opts_.collect_loser_outcomes || output_committed_ || i == winner_index_) {
 			return;
 		}
 		loser_outcomes_.push_back(
@@ -986,66 +973,14 @@ private:
 		return true;
 	}
 
-	[[nodiscard]] bool should_start_cleanup_timer_locked() noexcept {
-		if (cleanup_timer_started_ || output_committed_ || !winner_selected_ || live_remaining_ == 0) {
-			return false;
-		}
-		if (opts_.losers != loser_policy::request_cancel_and_wait
-			|| opts_.cleanup != loser_cleanup_policy::fail_after_cleanup_deadline
-			|| opts_.loser_cleanup_budget <= std::chrono::steady_clock::duration{}) {
-			return false;
-		}
-		cleanup_timer_started_ = true;
-		return true;
-	}
-
-	void start_cleanup_timer_thread() noexcept {
-		auto self = this->shared_from_this();
-		auto budget = opts_.loser_cleanup_budget;
-		try {
-			std::thread{[self = std::move(self), budget] {
-				std::this_thread::sleep_for(budget);
-				self->expire_cleanup_budget();
-			}}.detach();
-		} catch (...) { expire_cleanup_budget(); }
-	}
-
-	void expire_cleanup_budget() noexcept {
-		{
-			std::scoped_lock lk{mu_};
-			if (output_committed_) {
-				return;
-			}
-			output_committed_ = true;
-			++observation_.cleanup_timeout_count;
-			for (std::size_t i = 0; i < ps_size_; ++i) {
-				if (ps_[i].live && !ps_[i].terminal) {
-					abandon_participant_locked(i);
-					ps_[i].live = false;
-					ps_[i].terminal = true;
-				}
-			}
-			live_remaining_ = 0;
-		}
-		try {
-			(void)out_.try_set_exception(
-				std::make_exception_ptr(race_cleanup_error{"race: loser cleanup deadline expired", observation_}));
-		} catch (...) { (void)out_.try_set_exception(std::current_exception()); }
-	}
-
 	void maybe_commit_after_registration() noexcept {
 		bool commit_now = false;
-		bool start_cleanup_timer = false;
 		{
 			std::scoped_lock lk{mu_};
 			commit_now = should_commit_locked();
 			if (commit_now) {
 				output_committed_ = true;
 			}
-			start_cleanup_timer = should_start_cleanup_timer_locked();
-		}
-		if (start_cleanup_timer) {
-			start_cleanup_timer_thread();
 		}
 		if (commit_now) {
 			commit_result();
@@ -1079,12 +1014,8 @@ template<root::work_value T, class... Participants>
 	(state->add(std::forward<Participants>(participants)), ...);
 	auto out = std::move(task);
 	state->install_output_cancel_hook();
-	if ((opts.cleanup == loser_cleanup_policy::wait_unbounded
-		 && opts.loser_cleanup_budget != std::chrono::steady_clock::duration{})
-		|| (opts.cleanup != loser_cleanup_policy::wait_unbounded
-			&& (opts.cleanup != loser_cleanup_policy::fail_after_cleanup_deadline
-				|| opts.losers != loser_policy::request_cancel_and_wait
-				|| opts.loser_cleanup_budget <= std::chrono::steady_clock::duration{}))) {
+	if (opts.cleanup != loser_cleanup_policy::wait_unbounded
+		|| opts.loser_cleanup_budget != std::chrono::steady_clock::duration{}) {
 		state->reject_unsupported_cleanup_options();
 		return out;
 	}
@@ -1113,6 +1044,7 @@ template<root::work_value T>
 	root::Task<void> timeout,
 	race_options opts = {}) {
 	opts.winner = winner_policy::first_completion;
+	opts.losers = loser_policy::request_cancel;
 	return race<T>(
 		opts,
 		candidate("work", std::move(work)),
@@ -1125,6 +1057,7 @@ template<root::work_value T>
 	std::chrono::steady_clock::duration duration,
 	race_options opts = {}) {
 	opts.winner = winner_policy::first_completion;
+	opts.losers = loser_policy::request_cancel;
 	return race<T>(
 		opts,
 		candidate("work", std::move(work)),

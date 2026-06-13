@@ -18,18 +18,20 @@ namespace http = conflux::http;
 namespace json = conflux::json;
 
 struct TempFile {
-	std::filesystem::path path;
+	std::filesystem::path root;
+	std::filesystem::path name{"response.txt"};
 
 	TempFile() {
-		path = std::filesystem::temp_directory_path()
-			 / std::format("conflux_cost_model_{}_{}.txt", static_cast<long long>(::getpid()), std::time(nullptr));
-		std::ofstream out{path};
+		root = std::filesystem::temp_directory_path()
+			 / std::format("conflux_cost_model_{}_{}", static_cast<long long>(::getpid()), std::time(nullptr));
+		std::filesystem::create_directories(root);
+		std::ofstream out{root / name};
 		out << "temporary file response\n";
 	}
 
 	~TempFile() {
 		std::error_code ec;
-		std::filesystem::remove(path, ec);
+		std::filesystem::remove_all(root, ec);
 	}
 };
 
@@ -97,7 +99,9 @@ int main() {
 			"text/plain; charset=utf-8");
 	});
 
-	app.get("/api/file", [file] { return http::blocking_file_response(file->path, "text/plain; charset=utf-8"); });
+	app.get("/api/file", [file] {
+		return http::blocking_file_response(file->root, file->name, "text/plain; charset=utf-8");
+	});
 
 	app.get("/api/offload", [&pool] {
 		return http::offload(pool, [] {

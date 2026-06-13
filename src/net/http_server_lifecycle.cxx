@@ -53,6 +53,12 @@ Conn &Ring::conn_for(
 	return fd_table[ufd];
 }
 
+bool Ring::conn_uses_direct(
+	int fd) const noexcept {
+	auto const ufd = static_cast<std::size_t>(fd);
+	return ufd < fd_table.size() && fd_table[ufd].accepted_direct;
+}
+
 void Ring::conn_erase(
 	int fd,
 	std::uint32_t gen) {
@@ -70,15 +76,23 @@ void Ring::conn_erase(
 	retire_incremental_partial(fd, gen, conn);
 	++conn.gen; // prevent a second Close CQE from erasing the next tenant
 	conn.fd = -1;
+	conn.accepted_direct = false;
 	conn.recv_armed = false;
 	conn.last_recv_cqe_flags = {};
 	conn.have_last_recv_cqe_flags = false;
 	conn.closing = false;
 	conn.close_after_send = false;
+	conn.has_response = false;
+	conn.own_response.clear();
+	conn.written = 0;
+	conn.request_bytes = 0;
+	conn.request_in_progress = false;
+	conn.request_started = {};
 	conn.is_sse = false;
 	conn.sse_headers_sent = false;
 	conn.is_ws = false;
 	conn.is_deferred = false;
+	conn.deferred_head_only = false;
 	conn.sse_efd = -1;
 	conn.sse_channel.reset();
 	clear_deferred_wait(conn.deferred_efd);
@@ -158,11 +172,7 @@ void Ring::invalidate_recv_if_armed(
 	retire_incremental_partial(fd, old_gen, conn);
 	++conn.gen;
 	conn.recv_armed = false;
-	if (accepted_sockets_direct) {
-		cancel_multishot_recv_or_defer(DirectFd::from_direct(static_cast<std::uint32_t>(fd)));
-	} else {
-		cancel_multishot_recv_or_defer(OsFd::from_os(conn.fd));
-	}
+	cancel_multishot_recv_or_defer(fd, old_gen);
 }
 
 void Ring::cancel_accept_or_defer(
@@ -177,6 +187,22 @@ void Ring::cancel_accept_or_defer(
 
 void Ring::cancel_accept_or_defer() {
 	cancel_accept_or_defer(listen_fd);
+}
+
+void Ring::submit_direct_slot_close_or_defer(
+	int fd) {
+	auto const ud = pack(Op::DirectSlotClose, 0, fd);
+	if (!submit_close(raw_, DirectFd::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
+		defer_op([this, fd] { submit_direct_slot_close_or_defer(fd); });
+	}
+}
+
+void Ring::submit_os_close_or_defer(
+	int fd) {
+	auto const ud = pack(Op::Close, 0, fd);
+	if (!submit_close(raw_, OsFd::from_os(fd), ud)) {
+		defer_op([this, fd] { submit_os_close_or_defer(fd); });
+	}
 }
 
 void Ring::close_listen_socket() noexcept {
@@ -200,25 +226,26 @@ void Ring::submit_conn_close_or_defer(
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 		return;
 	}
-	bool const submitted = accepted_sockets_direct ? submit_close_fast(
-														 raw_,
-														 DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
-														 pack(Op::Nop, 0, 0),
-														 pack(Op::Close, gen, fd),
-														 SocketCloseOptions{
-															 .shutdown_write = true,
-															 .skip_shutdown_success_cqe = true,
-															 .allow_async_shutdown_for_os_fd = false,
-														 }) :
-													 submit_close(raw_, OsFd::from_os(fd), pack(Op::Close, gen, fd));
+	bool const direct = fd_table[ufd].accepted_direct;
+	bool const submitted = direct ? submit_close_fast(
+										raw_,
+										DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
+										pack(Op::Nop, 0, 0),
+										pack(Op::Close, gen, fd),
+										SocketCloseOptions{
+											.shutdown_write = true,
+											.skip_shutdown_success_cqe = true,
+											.allow_async_shutdown_for_os_fd = false,
+										}) :
+									submit_close(raw_, OsFd::from_os(fd), pack(Op::Close, gen, fd));
 	if (!submitted) {
-		HTTP_TRACE(std::format("conn_close_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+		HTTP_TRACE(std::format("conn_close_defer fd={} gen={} direct={}", fd, gen, direct));
 		defer_op([this, fd, gen] { submit_conn_close_or_defer(fd, gen); });
 		return;
 	}
-	HTTP_TRACE(std::format("conn_close_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+	HTTP_TRACE(std::format("conn_close_queued fd={} gen={} direct={}", fd, gen, direct));
 	fd_table[ufd].closing = true;
-	if (direct_slots_ && accepted_sockets_direct) {
+	if (direct_slots_ && direct) {
 		if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
 			conflux::utils::eprintln(std::format("submit_conn_close_or_defer: mark_closing failed slot={}", fd));
 		}
@@ -232,19 +259,19 @@ void Ring::submit_fd_shutdown_or_defer(
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 		return;
 	}
-	bool const submitted = accepted_sockets_direct ?
-							   submit_shutdown(
-								   raw_,
-								   DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
-								   SHUT_WR,
-								   pack(Op::FdShutdown, gen, fd)) :
-							   submit_shutdown(raw_, OsFd::from_os(fd), SHUT_WR, pack(Op::FdShutdown, gen, fd));
+	bool const direct = fd_table[ufd].accepted_direct;
+	bool const submitted = direct ? submit_shutdown(
+										raw_,
+										DirectFd::from_direct(static_cast<std::uint32_t>(fd)),
+										SHUT_WR,
+										pack(Op::FdShutdown, gen, fd)) :
+									submit_shutdown(raw_, OsFd::from_os(fd), SHUT_WR, pack(Op::FdShutdown, gen, fd));
 	if (!submitted) {
-		HTTP_TRACE(std::format("fd_shutdown_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+		HTTP_TRACE(std::format("fd_shutdown_defer fd={} gen={} direct={}", fd, gen, direct));
 		defer_op([this, fd, gen] { submit_fd_shutdown_or_defer(fd, gen); });
 		return;
 	}
-	HTTP_TRACE(std::format("fd_shutdown_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+	HTTP_TRACE(std::format("fd_shutdown_queued fd={} gen={} direct={}", fd, gen, direct));
 }
 
 void Ring::handle_fd_shutdown(
@@ -257,10 +284,15 @@ void Ring::handle_fd_shutdown(
 			fd,
 			res,
 			gen,
-			accepted_sockets_direct,
+			conn_uses_direct(fd),
 			buffer_ring_mode_name(buf_ring_->mode())));
 	auto const ufd = static_cast<std::size_t>(fd);
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+		return;
+	}
+	if (fd_table[ufd].send_queued) {
+		fd_table[ufd].close_after_send = true;
+		fd_table[ufd].closing = false;
 		return;
 	}
 	submit_conn_close_or_defer(fd, gen);
@@ -270,12 +302,13 @@ void Ring::queue_close(
 	int fd) {
 	auto const ufd = static_cast<std::size_t>(fd);
 	auto const gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : std::uint32_t{0};
+	bool const direct = ufd < fd_table.size() && fd_table[ufd].accepted_direct;
 	HTTP_TRACE(
 		std::format(
 			"queue_close fd={} gen={} direct={} closing={} recv_armed={} zc_waiting={} mode={}",
 			fd,
 			gen,
-			accepted_sockets_direct,
+			direct,
 			ufd < fd_table.size() ? fd_table[ufd].closing : false,
 			ufd < fd_table.size() ? fd_table[ufd].recv_armed : false,
 			ufd < fd_table.size() ? fd_table[ufd].zc_state.waiting_notification : false,
@@ -290,9 +323,14 @@ void Ring::queue_close(
 			invalidate_recv_if_armed(fd);
 			return;
 		}
+		if (fd_table[ufd].send_queued) {
+			fd_table[ufd].close_after_send = true;
+			submit_fd_shutdown_or_defer(fd, gen);
+			return;
+		}
 	}
 
-	if (accepted_sockets_direct) {
+	if (direct) {
 		invalidate_recv_if_armed(fd);
 		auto const direct_gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : std::uint32_t{0};
 		if (ufd < fd_table.size()) {

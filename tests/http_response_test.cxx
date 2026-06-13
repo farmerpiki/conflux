@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -18,6 +19,12 @@ namespace chttp = conflux::http;
 using namespace conflux::http;
 using chttp::DeferredResponse;
 using chttp::Response;
+
+static_assert(std::same_as<decltype(std::declval<chttp::CookieBuilder &>().http_only()), chttp::CookieBuilder &>);
+static_assert(std::same_as<decltype(std::declval<chttp::CookieBuilder>().http_only()), chttp::CookieBuilder>);
+static_assert(std::same_as<
+			  decltype(std::declval<chttp::CookieBuilder>().path("/").http_only().same_site(chttp::SameSite::Lax)),
+			  chttp::CookieBuilder>);
 
 namespace {
 
@@ -114,6 +121,16 @@ TEST_CASE(
 	resp.headers["vary"] = "*";
 	resp.append_vary("Origin");
 	CHECK(resp.headers["vary"] == "*");
+}
+
+TEST_CASE(
+	"http response: streamed file handle rejects wrong erased type",
+	"[http.response]") {
+	auto handle = chttp::StreamedFileHandle::from(std::make_shared<int>(17));
+	REQUIRE(handle);
+	REQUIRE(handle.get_if<int>() != nullptr);
+	CHECK(*handle.get_if<int>() == 17);
+	CHECK(handle.get_if<double>() == nullptr);
 }
 
 TEST_CASE(
@@ -311,13 +328,16 @@ TEST_CASE(
 	}
 	::close(sockets[1]);
 
-	auto mapped = std::make_shared<conflux::file_map::MappedBody>();
-	mapped->offset = 3;
-	mapped->size = 42;
+	auto *mapped_region = ::mmap(nullptr, 8, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	REQUIRE(mapped_region != MAP_FAILED);
+	auto mapped = std::make_shared<conflux::file_map::MappedBody>(conflux::file_map::MappedBody{
+		.lease = conflux::file_map::make_mapped_file_lease(mapped_region, 8, 8),
+		.offset = 3,
+		.size = 42});
 	resp.set_mapped_file(mapped);
 	CHECK(resp.is_mapped_file());
 	CHECK(resp.mapped_file_ptr() == mapped);
-	CHECK(resp.content_length() == 42);
+	CHECK(resp.content_length() == 5);
 	CHECK(resp.take_mapped_file() == mapped);
 	CHECK_FALSE(resp.mapped_file_ptr());
 

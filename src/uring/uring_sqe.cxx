@@ -474,21 +474,22 @@ public:
 		void *buf,
 		std::size_t len,
 		std::uint64_t off) noexcept {
-		return prep_read(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off);
+		return prep_read(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off)
+			.fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_read_multishot(
 		RingFd auto const &fd,
 		std::uint32_t len,
 		std::uint64_t off,
 		BufGroupId grp) noexcept {
-		return prep_read_multishot(ring_fd(fd), len, off, grp);
+		return prep_read_multishot(ring_fd(fd), len, off, grp).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_readv(
 		RingFd auto const &fd,
 		iovec const *iov,
 		unsigned nr,
 		std::uint64_t off) noexcept {
-		return prep_readv(ring_fd(fd), iov, nr, off);
+		return prep_readv(ring_fd(fd), iov, nr, off).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_readv2(
 		RingFd auto const &fd,
@@ -496,7 +497,7 @@ public:
 		unsigned nr,
 		std::uint64_t off,
 		int flags) noexcept {
-		return prep_readv2(ring_fd(fd), iov, nr, off, flags);
+		return prep_readv2(ring_fd(fd), iov, nr, off, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_read_fixed(
 		RingFd auto const &fd,
@@ -504,7 +505,8 @@ public:
 		std::size_t len,
 		std::uint64_t off,
 		FixedBufIdx idx) noexcept {
-		return prep_read_fixed(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off, idx);
+		return prep_read_fixed(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off, idx)
+			.fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_readv_fixed(
 		RingFd auto const &fd,
@@ -513,21 +515,22 @@ public:
 		std::uint64_t off,
 		int rw_flags,
 		FixedBufIdx idx) noexcept {
-		return prep_readv_fixed(ring_fd(fd), iov, nr, off, rw_flags, idx);
+		return prep_readv_fixed(ring_fd(fd), iov, nr, off, rw_flags, idx).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_write(
 		RingFd auto const &fd,
 		void const *buf,
 		std::size_t len,
 		std::uint64_t off) noexcept {
-		return prep_write(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off);
+		return prep_write(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off)
+			.fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_writev(
 		RingFd auto const &fd,
 		iovec const *iov,
 		unsigned nr,
 		std::uint64_t off) noexcept {
-		return prep_writev(ring_fd(fd), iov, nr, off);
+		return prep_writev(ring_fd(fd), iov, nr, off).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_writev2(
 		RingFd auto const &fd,
@@ -535,7 +538,7 @@ public:
 		unsigned nr,
 		std::uint64_t off,
 		int flags) noexcept {
-		return prep_writev2(ring_fd(fd), iov, nr, off, flags);
+		return prep_writev2(ring_fd(fd), iov, nr, off, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_write_fixed(
 		RingFd auto const &fd,
@@ -543,7 +546,8 @@ public:
 		std::size_t len,
 		std::uint64_t off,
 		FixedBufIdx idx) noexcept {
-		return prep_write_fixed(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off, idx);
+		return prep_write_fixed(ring_fd(fd), buf, static_cast<std::uint32_t>(len), off, idx)
+			.fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_writev_fixed(
 		RingFd auto const &fd,
@@ -552,20 +556,20 @@ public:
 		std::uint64_t off,
 		int rw_flags,
 		FixedBufIdx idx) noexcept {
-		return prep_writev_fixed(ring_fd(fd), iov, nr, off, rw_flags, idx);
+		return prep_writev_fixed(ring_fd(fd), iov, nr, off, rw_flags, idx).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_send(
 		RingFd auto const &fd,
 		void const *buf,
 		std::size_t len,
 		MsgFlags flags) noexcept {
-		return prep_send(ring_fd(fd), buf, len, flags);
+		return prep_send(ring_fd(fd), buf, len, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_send_bundle(
 		RingFd auto const &fd,
 		std::size_t len,
 		MsgFlags flags) noexcept {
-		return prep_send_bundle(ring_fd(fd), len, flags);
+		return prep_send_bundle(ring_fd(fd), len, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_sendto(
 		RingFd auto const &fd,
@@ -574,13 +578,13 @@ public:
 		MsgFlags flags,
 		sockaddr const *addr,
 		socklen_t addrlen) noexcept {
-		return prep_sendto(ring_fd(fd), buf, len, flags, addr, addrlen);
+		return prep_sendto(ring_fd(fd), buf, len, flags, addr, addrlen).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_sendmsg(
 		RingFd auto const &fd,
 		msghdr const *msg,
 		MsgFlags flags) noexcept {
-		return prep_sendmsg(ring_fd(fd), msg, flags);
+		return prep_sendmsg(ring_fd(fd), msg, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_send_zc(
 		RingFd auto const &fd,
@@ -588,7 +592,7 @@ public:
 		std::size_t len,
 		MsgFlags flags,
 		unsigned zc_flags) noexcept {
-		return prep_send_zc(ring_fd(fd), buf, len, flags, zc_flags);
+		return prep_send_zc(ring_fd(fd), buf, len, flags, zc_flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_send_zc_fixed(
 		RingFd auto const &fd,
@@ -597,53 +601,53 @@ public:
 		MsgFlags flags,
 		unsigned zc_flags,
 		FixedBufIdx idx) noexcept {
-		return prep_send_zc_fixed(ring_fd(fd), buf, len, flags, zc_flags, idx);
+		return prep_send_zc_fixed(ring_fd(fd), buf, len, flags, zc_flags, idx).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_sendmsg_zc(
 		RingFd auto const &fd,
 		msghdr const *msg,
 		MsgFlags flags) noexcept {
-		return prep_sendmsg_zc(ring_fd(fd), msg, flags);
+		return prep_sendmsg_zc(ring_fd(fd), msg, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_sendmsg_zc_fixed(
 		RingFd auto const &fd,
 		msghdr const *msg,
 		MsgFlags flags,
 		FixedBufIdx idx) noexcept {
-		return prep_sendmsg_zc_fixed(ring_fd(fd), msg, flags, idx);
+		return prep_sendmsg_zc_fixed(ring_fd(fd), msg, flags, idx).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_recv(
 		RingFd auto const &fd,
 		void *buf,
 		std::size_t len,
 		MsgFlags flags) noexcept {
-		return prep_recv(ring_fd(fd), buf, len, flags);
+		return prep_recv(ring_fd(fd), buf, len, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_recv_multishot(
 		RingFd auto const &fd,
 		void *buf,
 		std::size_t len,
 		MsgFlags flags) noexcept {
-		return prep_recv_multishot(ring_fd(fd), buf, len, flags);
+		return prep_recv_multishot(ring_fd(fd), buf, len, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_recvmsg(
 		RingFd auto const &fd,
 		msghdr *msg,
 		MsgFlags flags) noexcept {
-		return prep_recvmsg(ring_fd(fd), msg, flags);
+		return prep_recvmsg(ring_fd(fd), msg, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_recvmsg_multishot(
 		RingFd auto const &fd,
 		msghdr *msg,
 		MsgFlags flags) noexcept {
-		return prep_recvmsg_multishot(ring_fd(fd), msg, flags);
+		return prep_recvmsg_multishot(ring_fd(fd), msg, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_accept(
 		RingFd auto const &fd,
 		sockaddr *addr,
 		socklen_t *addrlen,
 		int flags) noexcept {
-		return prep_accept(ring_fd(fd), addr, addrlen, flags);
+		return prep_accept(ring_fd(fd), addr, addrlen, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_accept_direct(
 		RingFd auto const &fd,
@@ -651,43 +655,43 @@ public:
 		socklen_t *addrlen,
 		int flags,
 		DirectSlot slot) noexcept {
-		return prep_accept_direct(ring_fd(fd), addr, addrlen, flags, slot);
+		return prep_accept_direct(ring_fd(fd), addr, addrlen, flags, slot).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_multishot_accept(
 		RingFd auto const &fd,
 		sockaddr *addr,
 		socklen_t *addrlen,
 		int flags) noexcept {
-		return prep_multishot_accept(ring_fd(fd), addr, addrlen, flags);
+		return prep_multishot_accept(ring_fd(fd), addr, addrlen, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_multishot_accept_direct(
 		RingFd auto const &fd,
 		sockaddr *addr,
 		socklen_t *addrlen,
 		int flags) noexcept {
-		return prep_multishot_accept_direct(ring_fd(fd), addr, addrlen, flags);
+		return prep_multishot_accept_direct(ring_fd(fd), addr, addrlen, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_connect(
 		RingFd auto const &fd,
 		sockaddr const *addr,
 		socklen_t addrlen) noexcept {
-		return prep_connect(ring_fd(fd), addr, addrlen);
+		return prep_connect(ring_fd(fd), addr, addrlen).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_bind(
 		RingFd auto const &fd,
 		sockaddr *addr,
 		socklen_t addrlen) noexcept {
-		return prep_bind(ring_fd(fd), addr, addrlen);
+		return prep_bind(ring_fd(fd), addr, addrlen).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_listen(
 		RingFd auto const &fd,
 		int backlog) noexcept {
-		return prep_listen(ring_fd(fd), backlog);
+		return prep_listen(ring_fd(fd), backlog).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_shutdown(
 		RingFd auto const &fd,
 		int how) noexcept {
-		return prep_shutdown(ring_fd(fd), how);
+		return prep_shutdown(ring_fd(fd), how).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_statx(
 		RingFd auto const &fd,
@@ -695,45 +699,45 @@ public:
 		int flags,
 		unsigned mask,
 		struct statx *stx) noexcept {
-		return prep_statx(ring_fd(fd), path, flags, mask, stx);
+		return prep_statx(ring_fd(fd), path, flags, mask, stx).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_fsync(
 		RingFd auto const &fd,
 		FsyncFlags flags) noexcept {
-		return prep_fsync(ring_fd(fd), flags);
+		return prep_fsync(ring_fd(fd), flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_fallocate(
 		RingFd auto const &fd,
 		std::uint32_t mode,
 		std::uint64_t offset,
 		std::uint64_t len) noexcept {
-		return prep_fallocate(ring_fd(fd), mode, offset, len);
+		return prep_fallocate(ring_fd(fd), mode, offset, len).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_fadvise(
 		RingFd auto const &fd,
 		std::uint64_t offset,
 		std::uint32_t len,
 		std::uint32_t advice) noexcept {
-		return prep_fadvise(ring_fd(fd), offset, len, advice);
+		return prep_fadvise(ring_fd(fd), offset, len, advice).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_fadvise64(
 		RingFd auto const &fd,
 		std::uint64_t offset,
 		std::uint64_t len,
 		std::uint32_t advice) noexcept {
-		return prep_fadvise64(ring_fd(fd), offset, len, advice);
+		return prep_fadvise64(ring_fd(fd), offset, len, advice).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_sync_file_range(
 		RingFd auto const &fd,
 		std::uint32_t len,
 		std::uint64_t offset,
 		int flags) noexcept {
-		return prep_sync_file_range(ring_fd(fd), len, offset, flags);
+		return prep_sync_file_range(ring_fd(fd), len, offset, flags).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_ftruncate(
 		RingFd auto const &fd,
 		std::int64_t len) noexcept {
-		return prep_ftruncate(ring_fd(fd), len);
+		return prep_ftruncate(ring_fd(fd), len).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_fsetxattr(
 		RingFd auto const &fd,
@@ -741,24 +745,24 @@ public:
 		char const *val,
 		int flags,
 		std::uint32_t len) noexcept {
-		return prep_fsetxattr(ring_fd(fd), name, val, flags, len);
+		return prep_fsetxattr(ring_fd(fd), name, val, flags, len).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_fgetxattr(
 		RingFd auto const &fd,
 		char const *name,
 		char *val,
 		std::uint32_t len) noexcept {
-		return prep_fgetxattr(ring_fd(fd), name, val, len);
+		return prep_fgetxattr(ring_fd(fd), name, val, len).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_poll_add(
 		RingFd auto const &fd,
 		PollFlags events) noexcept {
-		return prep_poll_add(ring_fd(fd), events);
+		return prep_poll_add(ring_fd(fd), events).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_poll_multishot(
 		RingFd auto const &fd,
 		PollFlags events) noexcept {
-		return prep_poll_multishot(ring_fd(fd), events);
+		return prep_poll_multishot(ring_fd(fd), events).fixed_file(fd.is_direct() && fd.valid());
 	}
 	inline Sqe &prep_fixed_fd_install(
 		DirectFd fd,

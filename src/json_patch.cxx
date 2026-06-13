@@ -32,6 +32,30 @@ struct PatchOperation {
 	std::optional<PatchValue> value;
 };
 
+[[nodiscard]] bool count_patch_nodes_within(
+	PatchValue const &value,
+	std::size_t limit,
+	std::size_t &count) {
+	if (count >= limit) {
+		return false;
+	}
+	++count;
+	if (auto const *arr = std::get_if<PatchValue::Array>(std::addressof(value.value))) {
+		for (auto const &child: *arr) {
+			if (!count_patch_nodes_within(child, limit, count)) {
+				return false;
+			}
+		}
+	} else if (auto const *obj = std::get_if<PatchValue::Object>(std::addressof(value.value))) {
+		for (auto const &[_, child]: *obj) {
+			if (!count_patch_nodes_within(child, limit, count)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 [[nodiscard]] JsonError patch_error(
 	JsonIssueCode code,
 	std::string message,
@@ -53,6 +77,26 @@ struct PatchOperation {
 		err.from_pointer = std::string{from};
 	}
 	return err;
+}
+
+[[nodiscard]] std::expected<void, JsonError> check_result_node_limit(
+	PatchValue const &candidate,
+	JsonPatchOptions const &opts,
+	std::optional<std::size_t> op_index = std::nullopt,
+	std::string_view op = {},
+	std::string_view path = {},
+	std::string_view from = {}) {
+	std::size_t count{};
+	if (!count_patch_nodes_within(candidate, opts.max_result_nodes, count)) {
+		return std::unexpected(patch_error(
+			JsonIssueCode::output_too_large,
+			"JSON Patch result node limit exceeded",
+			op_index,
+			op,
+			path,
+			from));
+	}
+	return {};
 }
 
 [[nodiscard]] std::expected<std::vector<PatchToken>, JsonError> parse_patch_pointer(
@@ -652,6 +696,9 @@ std::expected<Document, JsonError> apply_patch(
 	if (!candidate) {
 		return std::unexpected(std::move(candidate).error());
 	}
+	if (auto ok = detail::check_result_node_limit(*candidate, opts); !ok) {
+		return std::unexpected(std::move(ok).error());
+	}
 	for (std::size_t i = 0; i < operations->size(); ++i) {
 		auto const &op = (*operations)[i];
 		switch (op.op) {
@@ -762,6 +809,10 @@ std::expected<Document, JsonError> apply_patch(
 			}
 			break;
 		}
+		if (auto ok = detail::check_result_node_limit(*candidate, opts, i, op.op_text, op.path_text, op.from_text);
+			!ok) {
+			return std::unexpected(std::move(ok).error());
+		}
 	}
 	auto out = value_builder();
 	if (auto ok = detail::write_patch_value(out, *candidate); !ok) {
@@ -788,6 +839,7 @@ std::expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
 std::expected<void, JsonError> merge_patch_into(ValueBuilder &out, NodeRef target, NodeRef patch);
 std::expected<void, JsonError>
 merge_patch_into(ObjectBuilder &out, std::string_view name, NodeRef target, NodeRef patch);
+std::expected<void, JsonError> merge_new_patch_member_into(ObjectBuilder &out, std::string_view name, NodeRef patch);
 
 [[nodiscard]] JsonError merge_patch_wrong_kind(
 	JsonKind actual) {
@@ -979,10 +1031,32 @@ std::expected<void, JsonError> merge_object_members_into(
 		if (patch_value.is_null() || (target && target->find_member(name))) {
 			continue;
 		}
-		if (auto ok = copy_node_into(out, name, patch_value); !ok) {
+		if (auto ok = merge_new_patch_member_into(out, name, patch_value); !ok) {
 			return ok;
 		}
 	}
+	return {};
+}
+
+std::expected<void, JsonError> merge_new_patch_member_into(
+	ObjectBuilder &out,
+	std::string_view name,
+	NodeRef patch) {
+	if (patch.kind() != JsonKind::object) {
+		return copy_node_into(out, name, patch);
+	}
+	auto patch_obj = patch.as_object();
+	if (!patch_obj) {
+		return std::unexpected(std::move(patch_obj).error());
+	}
+	auto child = out.insert_object(name);
+	if (!child) {
+		return std::unexpected(std::move(child).error());
+	}
+	if (auto ok = merge_object_members_into(*child, std::nullopt, *patch_obj); !ok) {
+		return ok;
+	}
+	std::move(*child).commit();
 	return {};
 }
 

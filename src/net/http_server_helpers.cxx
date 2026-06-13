@@ -191,7 +191,7 @@ export std::string format_response(
 	out += "\r\nDate: ";
 	append_sv(out, http_date_now());
 	out += "\r\n";
-	if (!r.content_type.empty()) {
+	if (!r.content_type.empty() && is_valid_header_value(r.content_type)) {
 		out += "Content-Type: ";
 		out += r.content_type;
 		out += "\r\n";
@@ -505,12 +505,14 @@ export void parse_multipart(
 			auto le = part_headers_sv.find("\r\n", h);
 			auto line = le == std::string_view::npos ? part_headers_sv.substr(h) : part_headers_sv.substr(h, le - h);
 			if (auto colon = line.find(':'); colon != std::string_view::npos) {
-				auto key = conflux::utils::trim(line.substr(0, colon));
+				auto key = line.substr(0, colon);
 				auto val = conflux::utils::trim(line.substr(colon + 1));
-				if (conflux::http::ascii_iequals(key, "content-disposition")) {
-					disposition = val;
-				} else if (conflux::http::ascii_iequals(key, "content-type")) {
-					part_ct = val;
+				if (conflux::http::is_valid_header_name(key)) {
+					if (conflux::http::ascii_iequals(key, "content-disposition")) {
+						disposition = val;
+					} else if (conflux::http::ascii_iequals(key, "content-type")) {
+						part_ct = val;
+					}
 				}
 			}
 			if (le == std::string_view::npos) {

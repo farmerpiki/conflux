@@ -277,6 +277,7 @@ struct ParentSlot {
 	bool saved_root_set{}; // set_root only: root_set value before child was opened
 	std::vector<std::size_t> *parent_local_children{}; // append_child only: parent's staging V
 	std::vector<MemberEntry> *parent_local_members{}; // insert_member only: parent's staging V
+	std::unordered_multimap<std::uint64_t, std::uint32_t> *parent_dup_check{}; // insert_member only
 };
 // Holds the active object/A being built:
 struct ChildFrame {
@@ -302,7 +303,8 @@ struct ChildFrame {
 	std::unordered_multimap<std::uint64_t, std::uint32_t> dup_check;
 
 	// Resolve a staged member's name from its backing storage.
-	[[nodiscard]] std::string_view member_name_at(MemberEntry const &m) const {
+	[[nodiscard]] std::string_view member_name_at(
+		MemberEntry const &m) const {
 		if ((m.name_flags & kMemberExternalView) != 0) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
 			return std::string_view{local_external_ptrs_[m.name_off], m.name_len};
@@ -311,7 +313,8 @@ struct ChildFrame {
 		return std::string_view{state->built_input.data() + m.name_off, m.name_len};
 	}
 	// True if an object member with this name was already staged.
-	[[nodiscard]] bool has_member(std::string_view name) const {
+	[[nodiscard]] bool has_member(
+		std::string_view name) const {
 		auto const h = std::hash<std::string_view>{}(name);
 		auto const range = dup_check.equal_range(h);
 		for (auto it = range.first; it != range.second; ++it) {
@@ -322,10 +325,10 @@ struct ChildFrame {
 		}
 		return false;
 	}
-	// Record a name already confirmed unique by has_member(). The value is the
-	// index this member will occupy in local_members (assigned on push_back).
-	void track_member(std::string_view name) {
-		dup_check.emplace(std::hash<std::string_view>{}(name), static_cast<std::uint32_t>(local_members.size()));
+	void track_member(
+		std::string_view name,
+		std::size_t member_index) {
+		dup_check.emplace(std::hash<std::string_view>{}(name), static_cast<std::uint32_t>(member_index));
 	}
 };
 export class ObjectBuilder {
@@ -704,6 +707,7 @@ export enum class JsonPatchOp {
 export struct JsonPatchOptions {
 	std::size_t max_operations{1024};
 	std::size_t max_pointer_depth{128};
+	std::size_t max_result_nodes{1'000'000};
 	bool reject_duplicate_object_members{true};
 	bool allow_missing_remove{false};
 };
