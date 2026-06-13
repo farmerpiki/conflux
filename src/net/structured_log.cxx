@@ -120,17 +120,27 @@ Router::Middleware structured_log_middleware(
 			tm_val.tm_min,
 			tm_val.tm_sec);
 
-		auto line = std::format(
-			R"({{"ts":{},"method":{},"path":{},"status":{},"bytes":{},"elapsed_ms":{},"remote":{}{}}})",
-			conflux::http::detail::json_string(ts),
-			conflux::http::detail::json_string(req.method),
-			conflux::http::detail::json_string(req.path),
-			resp.status,
-			resp.content_length(),
-			ms,
-			conflux::http::detail::json_string(req.remote_addr),
-			app_name.empty() ? std::string{} :
-							   std::format(R"(,"app":{})", conflux::http::detail::json_string(app_name)));
+		std::string line;
+		line.reserve(128 + ts.size() + req.method.size() + req.path.size() + req.remote_addr.size() + app_name.size());
+		line += R"({"ts":)";
+		conflux::http::detail::append_json_string(line, ts);
+		line += R"(,"method":)";
+		conflux::http::detail::append_json_string(line, req.method);
+		line += R"(,"path":)";
+		conflux::http::detail::append_json_string(line, req.path);
+		line += R"(,"status":)";
+		conflux::http::detail::append_decimal(line, resp.status);
+		line += R"(,"bytes":)";
+		conflux::http::detail::append_decimal(line, resp.content_length());
+		line += R"(,"elapsed_ms":)";
+		conflux::http::detail::append_decimal(line, ms);
+		line += R"(,"remote":)";
+		conflux::http::detail::append_json_string(line, req.remote_addr);
+		if (!app_name.empty()) {
+			line += R"(,"app":)";
+			conflux::http::detail::append_json_string(line, app_name);
+		}
+		line += '}';
 		sink->write(line);
 		return resp;
 	};

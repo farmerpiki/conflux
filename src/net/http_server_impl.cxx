@@ -166,6 +166,11 @@ struct HttpServer::Impl {
 #endif
 };
 
+[[nodiscard]] bool tls_credentials_configured(
+	conflux::http::Config const &cfg) noexcept {
+	return (!cfg.cert_file.empty() && !cfg.key_file.empty()) || (!cfg.cert_pem.empty() && !cfg.key_pem.empty());
+}
+
 void configure_ring_from_server(
 	Ring &r,
 	conflux::http::Config const &cfg,
@@ -428,12 +433,14 @@ void HttpServer::initialize(
 	impl_->uring_flags = conflux::http::detail::build_uring_flags(cfg);
 
 #if CONFLUX_HAS_TLS
-	// TLS setup: create SSL_CTX if cert and key are provided.
-	if (!cfg.cert_file.empty() && !cfg.key_file.empty()) {
+	// TLS setup: create SSL_CTX if credentials are provided.
+	if (tls_credentials_configured(cfg)) {
 		conflux::net_tls::init_openssl_once();
 		conflux::net_tls::TlsServerOptions const primary_opts{
 			.cert_file = cfg.cert_file,
 			.key_file = cfg.key_file,
+			.cert_pem = cfg.cert_pem,
+			.key_pem = cfg.key_pem,
 			.cipher_list = cfg.tls_cipher_list,
 			.ciphersuites = cfg.tls_ciphersuites,
 			.ktls = cfg.ktls,
@@ -455,6 +462,8 @@ void HttpServer::initialize(
 			conflux::net_tls::TlsServerOptions const vhost_opts{
 				.cert_file = vh.cert_file,
 				.key_file = vh.key_file,
+				.cert_pem = vh.cert_pem,
+				.key_pem = vh.key_pem,
 				.cipher_list = cfg.tls_cipher_list,
 				.ciphersuites = cfg.tls_ciphersuites,
 				.ktls = cfg.ktls,
@@ -465,9 +474,7 @@ void HttpServer::initialize(
 	#endif
 	#if CONFLUX_HAS_HTTP3
 			if (impl_->http3_tls_ctx) {
-				SSL_CTX *const h3_vhost_ctx = impl_->http3_tls_ctx->add_vhost(
-					vh.hostname,
-					vhost_opts);
+				SSL_CTX *const h3_vhost_ctx = impl_->http3_tls_ctx->add_vhost(vh.hostname, vhost_opts);
 				conflux::http::detail::http3_configure_alpn(h3_vhost_ctx);
 			}
 	#endif

@@ -28,10 +28,14 @@ class small_move_only_function<R(Args...), InlineBytes> {
 
 	[[nodiscard]] manager_fn manager() const noexcept { return manager_; }
 	[[nodiscard]] bool heap_allocated() const noexcept { return heap_allocated_; }
-	[[nodiscard]] void *inline_object() noexcept { return static_cast<void *>(storage_.inline_storage); }
-	[[nodiscard]] void *inline_object() const noexcept { return const_cast<std::byte *>(storage_.inline_storage); }
-	[[nodiscard]] void *object() noexcept { return heap_allocated() ? storage_.heap_object : inline_object(); }
-	[[nodiscard]] void *object() const noexcept { return heap_allocated() ? storage_.heap_object : inline_object(); }
+	[[nodiscard]] void *inline_object(
+		this auto &&self) noexcept {
+		return const_cast<std::byte *>(self.storage_.inline_storage);
+	}
+	[[nodiscard]] void *object(
+		this auto &&self) noexcept {
+		return self.heap_allocated() ? self.storage_.heap_object : self.inline_object();
+	}
 	void set_manager(
 		manager_fn fn,
 		bool heap_allocated) noexcept {

@@ -341,6 +341,8 @@ TEST_CASE(
 	auto [code, body] = conflux::tests::run_cmd_retry(
 		std::format("openssl s_client -connect 127.0.0.1:{} -alpn h3 </dev/null 2>&1", fx.port()));
 	INFO("openssl exit=" << code << " output=" << body);
+	REQUIRE(code == 0);
+	REQUIRE(body.find("CONNECTED") != std::string::npos);
 	REQUIRE(body.find("ALPN protocol: h3") == std::string::npos);
 }
 #endif

@@ -35,31 +35,8 @@ std::uint16_t g_tls_port = 0;
 void ensure_tls_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
-		char cert_tmp[] = "/tmp/conflux_tls_cert_XXXXXX.pem";
-		char key_tmp[] = "/tmp/conflux_tls_key_XXXXXX.pem";
-		{
-			int fd = ::mkstemps(cert_tmp, 4);
-			if (fd < 0) {
-				throw std::runtime_error{"mkstemps cert"};
-			}
-			::close(fd);
-			fd = ::mkstemps(key_tmp, 4);
-			if (fd < 0) {
-				throw std::runtime_error{"mkstemps key"};
-			}
-			::close(fd);
-		}
-		std::string const cmd = std::format(
-			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
-			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
-			key_tmp,
-			cert_tmp);
-		if (::system(cmd.c_str()) != 0) {
-			throw std::runtime_error{"openssl req failed"};
-		}
 		Config cfg = mw_config();
-		cfg.cert_file = cert_tmp;
-		cfg.key_file = key_tmp;
+		configure_test_tls(cfg);
 
 		conflux::http::Router router;
 		router.get("/ping", [](conflux::http::OwnedRequest const &) {
@@ -79,8 +56,6 @@ void ensure_tls_server() {
 		});
 
 		g_tls_port = start_mw_server(cfg, std::move(router));
-		::unlink(cert_tmp);
-		::unlink(key_tmp);
 	});
 }
 
@@ -315,24 +290,8 @@ TEST_CASE(
 
 TEST_CASE(
 	"TLS: WebSocket upgrade over TLS (wss://) works end-to-end") {
-	char cert_tmp[] = "/tmp/conflux_wss_cert_XXXXXX.pem";
-	char key_tmp[] = "/tmp/conflux_wss_key_XXXXXX.pem";
-	{
-		int fd = ::mkstemps(cert_tmp, 4);
-		::close(fd);
-		fd = ::mkstemps(key_tmp, 4);
-		::close(fd);
-	}
-	std::string const cmd = std::format(
-		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
-		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
-		key_tmp,
-		cert_tmp);
-	REQUIRE(::system(cmd.c_str()) == 0);
-
 	Config cfg = mw_config();
-	cfg.cert_file = cert_tmp;
-	cfg.key_file = key_tmp;
+	configure_test_tls(cfg);
 
 	conflux::http::Router router;
 	router.ws("/ws", [](conflux::http::OwnedRequest const &, conflux::http::WsConn &ws) {
@@ -347,8 +306,6 @@ TEST_CASE(
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const wss_port = srv.port();
-	::unlink(cert_tmp);
-	::unlink(key_tmp);
 
 	conflux::net_tls::UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
 	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);

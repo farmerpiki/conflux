@@ -75,8 +75,9 @@ struct OpenApiAppInfo {
 
 namespace {
 
+using conflux::http::detail::append_decimal;
+using conflux::http::detail::append_json_string;
 using conflux::http::detail::AppOpenApiRoute;
-using conflux::http::detail::json_string;
 using conflux::http::detail::openapi_auth_scheme_name;
 using conflux::http::detail::openapi_method_key;
 using conflux::http::detail::openapi_schema_for_path_type;
@@ -127,19 +128,19 @@ void append_openapi_info(
 	std::string_view version,
 	conflux::http::detail::OpenApiAppInfo const &app_info) {
 	out += R"({"openapi":"3.0.0","info":{"title":)";
-	out += json_string(title);
+	append_json_string(out, title);
 	out += R"(,"version":)";
-	out += json_string(version);
+	append_json_string(out, version);
 	if (!app_info.description.empty()) {
 		out += R"(,"description":)";
-		out += json_string(app_info.description);
+		append_json_string(out, app_info.description);
 	}
 	if (!app_info.contact_name.empty() || !app_info.contact_url.empty()) {
 		out += R"(,"contact":{)";
 		auto first = true;
 		if (!app_info.contact_name.empty()) {
 			out += R"("name":)";
-			out += json_string(app_info.contact_name);
+			append_json_string(out, app_info.contact_name);
 			first = false;
 		}
 		if (!app_info.contact_url.empty()) {
@@ -147,14 +148,14 @@ void append_openapi_info(
 				out += ',';
 			}
 			out += R"("url":)";
-			out += json_string(app_info.contact_url);
+			append_json_string(out, app_info.contact_url);
 		}
 		out += '}';
 	}
 	out += R"(})";
 	if (!app_info.server_url.empty()) {
 		out += R"(,"servers":[{"url":)";
-		out += json_string(app_info.server_url);
+		append_json_string(out, app_info.server_url);
 		out += R"(}])";
 	}
 }
@@ -185,17 +186,17 @@ void append_openapi_operation_metadata(
 	AppOpenApiRoute const &route) {
 	if (!route.name.empty()) {
 		out += R"("operationId":)";
-		out += json_string(route.name);
+		append_json_string(out, route.name);
 		out += ',';
 	}
 	if (!route.openapi_summary.empty()) {
 		out += R"("summary":)";
-		out += json_string(route.openapi_summary);
+		append_json_string(out, route.openapi_summary);
 		out += ',';
 	}
 	if (!route.openapi_description.empty()) {
 		out += R"("description":)";
-		out += json_string(route.openapi_description);
+		append_json_string(out, route.openapi_description);
 		out += ',';
 	}
 	if (!route.openapi_tags.empty()) {
@@ -204,39 +205,39 @@ void append_openapi_operation_metadata(
 			if (i != 0) {
 				out += ',';
 			}
-			out += json_string(route.openapi_tags[i]);
+			append_json_string(out, route.openapi_tags[i]);
 		}
 		out += R"(],)";
 	}
 	if (!route.auth_scheme.empty() || !route.bearer_token_policy.empty()) {
 		auto const scheme = route.auth_scheme.empty() ? std::string_view{"bearer"} : route.auth_scheme;
 		out += R"("security":[{)";
-		out += json_string(openapi_auth_scheme_name(scheme));
+		append_json_string(out, openapi_auth_scheme_name(scheme));
 		out += R"(:[]}])";
 		if (!route.bearer_token_policy.empty()) {
 			out += R"(,"x-bearer-token-policy":)";
-			out += json_string(route.bearer_token_policy);
+			append_json_string(out, route.bearer_token_policy);
 		}
 		out += ',';
 	}
 	if (route.timeout.count() != 0) {
 		out += R"("x-timeout-ms":)";
-		out += std::to_string(route.timeout.count());
+		append_decimal(out, route.timeout.count());
 		out += ',';
 	}
 	if (!route.rate_limit.empty()) {
 		out += R"("x-rate-limit":)";
-		out += json_string(route.rate_limit);
+		append_json_string(out, route.rate_limit);
 		out += ',';
 	}
 	if (route.max_body_size != 0) {
 		out += R"("x-max-body-size":)";
-		out += std::to_string(route.max_body_size);
+		append_decimal(out, route.max_body_size);
 		out += ',';
 	}
 	if (route.middleware_count != 0) {
 		out += R"("x-middleware-count":)";
-		out += std::to_string(route.middleware_count);
+		append_decimal(out, route.middleware_count);
 		out += ',';
 	}
 }
@@ -250,7 +251,7 @@ void append_openapi_parameters(
 			out += ',';
 		}
 		out += R"({"name":)";
-		out += json_string(route.path_params[i]);
+		append_json_string(out, route.path_params[i]);
 		out += R"(,"in":"path","required":true,"schema":)";
 		if (auto const *types = route.path_param_types; types != nullptr) {
 			auto const type =
@@ -279,7 +280,7 @@ void append_openapi_request_body(
 		if (i != 0) {
 			out += ',';
 		}
-		out += json_string(route.consumes[i]);
+		append_json_string(out, route.consumes[i]);
 		out += R"(:{"schema":)";
 		out += route.request_body_schema.empty() ? R"({"type":"object"})" : route.request_body_schema;
 		out += "}";
@@ -291,16 +292,18 @@ void append_openapi_responses(
 	std::string &out,
 	AppOpenApiRoute const &route) {
 	out += R"(,"responses":{)";
-	out += json_string(std::to_string(route.success_status));
+	out += '"';
+	append_decimal(out, route.success_status);
+	out += '"';
 	out += R"(:{"description":)";
-	out += json_string(route.success_status == kHttpCreated ? "Created" : "OK");
+	append_json_string(out, route.success_status == kHttpCreated ? "Created" : "OK");
 	if (!route.produces.empty()) {
 		out += R"(,"content":{)";
 		for (std::size_t i = 0; i < route.produces.size(); ++i) {
 			if (i != 0) {
 				out += ',';
 			}
-			out += json_string(route.produces[i]);
+			append_json_string(out, route.produces[i]);
 			out += R"(:{"schema":)";
 			out += route.response_schema.empty() ? R"({"type":"object"})" : route.response_schema;
 			out += "}";
@@ -327,7 +330,8 @@ void append_openapi_responses(
 void append_openapi_operation(
 	std::string &out,
 	AppOpenApiRoute const &route) {
-	out += json_string(openapi_method_key(route.method));
+	auto method_key = openapi_method_key(route.method);
+	append_json_string(out, method_key);
 	out += ":{";
 	append_openapi_operation_metadata(out, route);
 	append_openapi_parameters(out, route);
@@ -346,7 +350,7 @@ void append_openapi_paths(
 		if (path_index != 0) {
 			out += ',';
 		}
-		out += json_string(path);
+		append_json_string(out, path);
 		out += ":{";
 		for (std::size_t route_index = 0; route_index < path_routes.size(); ++route_index) {
 			if (route_index != 0) {

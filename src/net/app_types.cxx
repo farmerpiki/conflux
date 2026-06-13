@@ -74,60 +74,33 @@ struct Problem {
 		if (!dirty) {
 			return *this;
 		}
-		auto body = std::string{"{"};
-		auto first = true;
-		auto append_member = [&body, &first](std::string_view name, std::string_view value) {
-			if (!first) {
-				body += ',';
-			}
-			first = false;
-			body += detail::json_string(name);
-			body += ':';
-			body += detail::json_string(value);
-		};
-		auto append_members = [&body](std::vector<std::pair<std::string, std::string>> const &members) {
-			auto first_member = true;
-			for (auto const &[name, value]: members) {
-				if (!first_member) {
-					body += ',';
-				}
-				first_member = false;
-				body += detail::json_string(name);
-				body += ':';
-				body += detail::json_string(value);
-			}
-		};
-		append_member("type", type.empty() ? std::string_view{"about:blank"} : std::string_view{type});
-		append_member("title", title);
-		if (!first) {
-			body += ',';
-		}
-		first = false;
-		body += R"("status":)";
-		body += std::to_string(response.status);
+		detail::ProblemBodyBuilder body;
+		body.member("type", type.empty() ? std::string_view{"about:blank"} : std::string_view{type});
+		body.member("title", title);
+		auto status_value = std::to_string(response.status);
+		body.raw_member("status", status_value);
 		if (!detail.empty()) {
-			append_member("detail", detail);
+			body.member("detail", detail);
 		}
 		if (!instance.empty()) {
-			append_member("instance", instance);
+			body.member("instance", instance);
 		}
 		if (!code.empty()) {
-			append_member("code", code);
+			body.member("code", code);
 		}
 		for (auto const &[name, value]: extensions) {
-			append_member(name, value);
+			body.member(name, value);
 		}
 		if (!fields.empty()) {
-			if (!first) {
-				body += ',';
+			detail::ProblemBodyBuilder fields_body;
+			for (auto const &[name, value]: fields) {
+				fields_body.member(name, value);
 			}
-			body += R"("fields":{)";
-			append_members(fields);
-			body += '}';
+			auto fields_json = fields_body.finish();
+			body.raw_member("fields", fields_json);
 		}
-		body += '}';
-		response.content_type = "application/problem+json";
-		response.set_text_body(std::move(body));
+		response.content_type = std::string{Response::kContentTypeProblemJson};
+		response.set_text_body(body.finish());
 		dirty = false;
 		return *this;
 	}

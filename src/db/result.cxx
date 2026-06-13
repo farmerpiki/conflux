@@ -27,6 +27,11 @@ inline int fnumber_sv_(
 }
 
 } // namespace detail
+
+export template<class T>
+concept ColumnOrdinal = std::same_as<std::remove_cvref_t<T>, Column>
+					 || (std::integral<std::remove_cvref_t<T>> && !std::same_as<std::remove_cvref_t<T>, bool>);
+
 export class Row {
 	PGresult *res_{nullptr};
 	int row_{0};
@@ -46,27 +51,28 @@ public:
 		}
 		return c.idx;
 	}
-	[[nodiscard]] bool is_null(
-		int c) const noexcept {
-		return ::PQgetisnull(res_, row_, c) != 0;
+	[[nodiscard]] int column_index(
+		ColumnOrdinal auto c) const {
+		if constexpr (std::same_as<std::remove_cvref_t<decltype(c)>, Column>) {
+			return checked_column(c);
+		} else {
+			return static_cast<int>(c);
+		}
 	}
 	[[nodiscard]] bool is_null(
-		Column c) const {
-		return is_null(checked_column(c));
+		ColumnOrdinal auto c) const {
+		return ::PQgetisnull(res_, row_, column_index(c)) != 0;
 	}
 	[[nodiscard]] std::string_view get(
-		int c) const noexcept {
-		char const *p = ::PQgetvalue(res_, row_, c);
-		auto const n = static_cast<std::size_t>(::PQgetlength(res_, row_, c));
+		ColumnOrdinal auto c) const {
+		auto const idx = column_index(c);
+		char const *p = ::PQgetvalue(res_, row_, idx);
+		auto const n = static_cast<std::size_t>(::PQgetlength(res_, row_, idx));
 		return {p != nullptr ? p : "", n};
 	}
-	[[nodiscard]] std::string_view get(
-		Column c) const {
-		return get(checked_column(c));
-	}
 	[[nodiscard]] int length(
-		int c) const noexcept {
-		return ::PQgetlength(res_, row_, c);
+		ColumnOrdinal auto c) const {
+		return ::PQgetlength(res_, row_, column_index(c));
 	}
 	[[nodiscard]] std::string_view get(
 		std::string_view col) const {
@@ -86,16 +92,12 @@ public:
 	}
 	template<class T>
 	[[nodiscard]] std::optional<T> as_opt(
-		int c) const {
-		if (is_null(c)) {
+		ColumnOrdinal auto c) const {
+		auto const idx = column_index(c);
+		if (is_null(idx)) {
 			return std::nullopt;
 		}
-		return as<T>(c);
-	}
-	template<class T>
-	[[nodiscard]] std::optional<T> as_opt(
-		Column c) const {
-		return as_opt<T>(checked_column(c));
+		return as<T>(idx);
 	}
 	template<class... Ts>
 	[[nodiscard]] std::tuple<Ts...> as_tuple(

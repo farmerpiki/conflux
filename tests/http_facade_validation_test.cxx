@@ -349,6 +349,8 @@ TEST_CASE(
 	cfg.http3.enabled = true;
 	cfg.http_redirect_to_https = true;
 	cfg.virtual_hosts.push_back(VirtualHost{.hostname = "api.example.test", .cert_file = "/tmp/api-cert.pem"});
+	cfg.virtual_hosts.push_back(
+		VirtualHost{.hostname = "sni.example.test", .cert_file = "/tmp/sni-cert.pem", .key_file = "/tmp/sni-key.pem"});
 	cfg.virtual_hosts.push_back(VirtualHost{.key_file = "/tmp/empty-host-key.pem"});
 	auto app = http::app(std::move(cfg));
 
@@ -358,10 +360,10 @@ TEST_CASE(
 		return std::ranges::any_of(report.issues, [&](auto const &issue) { return issue.message == message; });
 	};
 	CHECK(has_issue("TLS config invalid: cert_file and key_file must be set together"));
-	CHECK(has_issue("TLS config invalid: HTTP/3 requires cert_file and key_file"));
-	CHECK(has_issue("TLS config invalid: HTTPS redirect requires cert_file and key_file"));
+	CHECK(has_issue("TLS config invalid: HTTP/3 requires TLS credentials"));
+	CHECK(has_issue("TLS config invalid: HTTPS redirect requires TLS credentials"));
 	CHECK(has_issue("TLS config invalid: virtual host 'api.example.test' cert_file and key_file must be set together"));
-	CHECK(has_issue("TLS config invalid: virtual host 'api.example.test' requires primary cert_file and key_file"));
+	CHECK(has_issue("TLS config invalid: virtual host 'sni.example.test' requires primary TLS credentials"));
 	CHECK(has_issue("TLS config invalid: virtual host hostname is empty"));
 	for (auto const &issue: report.issues) {
 		CHECK(issue.method == "APP");

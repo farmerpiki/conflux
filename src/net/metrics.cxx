@@ -139,7 +139,9 @@ void append_prometheus_sample(
 	std::initializer_list<PrometheusLabel> labels,
 	std::uint64_t value) {
 	append_prometheus_sample_prefix(out, metric, labels);
-	out += std::format(" {}\n", value);
+	out += ' ';
+	detail::append_decimal(out, value);
+	out += '\n';
 }
 
 void append_prometheus_sample(

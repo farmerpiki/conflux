@@ -17,21 +17,6 @@ using conflux::tests::ScopedTestServer;
 
 TEST_CASE(
 	"TLS sniff: silent connection closed after tls_sniff_timeout_ms") {
-	char cert_tmp[] = "/tmp/conflux_sniff_cert_XXXXXX.pem";
-	char key_tmp[] = "/tmp/conflux_sniff_key_XXXXXX.pem";
-	{
-		int fd = ::mkstemps(cert_tmp, 4);
-		::close(fd);
-		fd = ::mkstemps(key_tmp, 4);
-		::close(fd);
-	}
-	std::string const cmd = std::format(
-		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
-		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
-		key_tmp,
-		cert_tmp);
-	REQUIRE(::system(cmd.c_str()) == 0);
-
 	Config cfg{};
 	cfg.port = 0;
 	cfg.rings = 1;
@@ -42,15 +27,12 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 	cfg.request_timeout_ms = 0;
 	cfg.tls_sniff_timeout_ms = 1500;
-	cfg.cert_file = cert_tmp;
-	cfg.key_file = key_tmp;
+	conflux::tests::configure_test_tls(cfg);
 
 	conflux::http::Router router;
 	router.get("/ok", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
-	::unlink(cert_tmp);
-	::unlink(key_tmp);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -69,21 +51,6 @@ TEST_CASE(
 
 TEST_CASE(
 	"TLS sniff: client half-close before any data triggers clean server close") {
-	char cert_tmp[] = "/tmp/conflux_eof_cert_XXXXXX.pem";
-	char key_tmp[] = "/tmp/conflux_eof_key_XXXXXX.pem";
-	{
-		int fd = ::mkstemps(cert_tmp, 4);
-		::close(fd);
-		fd = ::mkstemps(key_tmp, 4);
-		::close(fd);
-	}
-	std::string const cmd = std::format(
-		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
-		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
-		key_tmp,
-		cert_tmp);
-	REQUIRE(::system(cmd.c_str()) == 0);
-
 	Config cfg{};
 	cfg.port = 0;
 	cfg.rings = 1;
@@ -94,15 +61,12 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 	cfg.request_timeout_ms = 30000;
 	cfg.tls_sniff_timeout_ms = 30000;
-	cfg.cert_file = cert_tmp;
-	cfg.key_file = key_tmp;
+	conflux::tests::configure_test_tls(cfg);
 
 	conflux::http::Router router;
 	router.get("/ok", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
 	std::uint16_t const port = srv.port();
-	::unlink(cert_tmp);
-	::unlink(key_tmp);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};

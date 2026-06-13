@@ -112,6 +112,8 @@ struct VirtualHost {
 	std::string hostname{}; // SNI hostname to match
 	std::string cert_file{}; // PEM certificate chain for this host
 	std::string key_file{}; // PEM private key for this host
+	std::string cert_pem{}; // PEM certificate chain bytes for generated/small credentials
+	std::string key_pem{}; // PEM private key bytes for generated/small credentials
 	StaticFileCacheConfig static_file_cache{}; // Opt per-host router default
 };
 struct Config {
@@ -176,11 +178,13 @@ struct Config {
 	bool strict_config = false;
 	bool dump_effective_config = false;
 
-	// TLS (enabled when both cert_file and key_file are non-empty)
-	std::string cert_file{}; // path to PEM certificate chain
-	std::string key_file{}; // path to PEM private key
+	// TLS (enabled when either file or in-memory credential pair is complete)
+	std::string cert_file{}; // path to PEM certificate chain; for deployment-sized credentials
+	std::string key_file{}; // path to PEM private key; for deployment-sized credentials
+	std::string cert_pem{}; // PEM certificate chain bytes; for generated/small credentials
+	std::string key_pem{}; // PEM private key bytes; for generated/small credentials
 	// When true, plain HTTP connections receive a 301 redirect to the same URL on https://.
-	// Only meaningful when TLS is configured (cert_file + key_file set).
+	// Only meaningful when TLS is configured.
 	bool http_redirect_to_https = false;
 	// Allowlist of Host header values accepted for the HTTPS redirect.
 	// Must include every hostname or IP:port that clients may use (e.g. "example.com",
@@ -189,7 +193,7 @@ struct Config {
 	// Required when http_redirect_to_https is true; an empty list rejects all redirects.
 	std::vector<std::string> https_redirect_hosts{};
 	// SNI virtual hosting: each entry provides an alternate cert/key for a hostname.
-	// Matched by case-insensitive SNI hostname; the primary cert_file/key_file is the default.
+	// Matched by case-insensitive SNI hostname; the primary TLS credentials are the default.
 	std::vector<VirtualHost> virtual_hosts{};
 	// TLS 1.2 cipher list (OpenSSL SSL_CTX_set_cipher_list std::format); empty = built-in default.
 	std::string tls_cipher_list{};
@@ -505,10 +509,12 @@ bool apply_server_key(
 	if (apply_config_member_table(cfg, key, val, kSizeKeys, parse_uint<std::size_t>)) {
 		return true;
 	}
-	static constexpr std::array<std::pair<std::string_view, std::string Config::*>, 2> kStringKeys{
+	static constexpr std::array<std::pair<std::string_view, std::string Config::*>, 4> kStringKeys{
 		{
          {"cert_file", &Config::cert_file},
          {"key_file", &Config::key_file},
+         {"cert_pem", &Config::cert_pem},
+         {"key_pem", &Config::key_pem},
 		 }
     };
 	if (apply_config_member_table(cfg, key, val, kStringKeys, [](std::string_view v, std::string_view) {
@@ -850,6 +856,31 @@ ParseResult parse_ini_contents(
 	return contains_sensitive_config_token(issue.section) || contains_sensitive_config_token(issue.key);
 }
 
+[[nodiscard]] bool has_tls_file_credentials(
+	Config const &cfg) noexcept {
+	return !cfg.cert_file.empty() && !cfg.key_file.empty();
+}
+
+[[nodiscard]] bool has_tls_pem_credentials(
+	Config const &cfg) noexcept {
+	return !cfg.cert_pem.empty() && !cfg.key_pem.empty();
+}
+
+[[nodiscard]] bool has_any_tls_file_field(
+	Config const &cfg) noexcept {
+	return !cfg.cert_file.empty() || !cfg.key_file.empty();
+}
+
+[[nodiscard]] bool has_any_tls_pem_field(
+	Config const &cfg) noexcept {
+	return !cfg.cert_pem.empty() || !cfg.key_pem.empty();
+}
+
+[[nodiscard]] bool has_tls_credentials(
+	Config const &cfg) noexcept {
+	return has_tls_file_credentials(cfg) || has_tls_pem_credentials(cfg);
+}
+
 }} // namespace conflux::http
 
 export namespace conflux::http {
@@ -915,15 +946,52 @@ export namespace conflux::http {
 #if !CONFLUX_HAS_HTTP3
 		add(ConfigIssueCode::incompatible_options, "http3", "enabled", "HTTP/3 support was disabled at build time");
 #endif
-		if (cfg.cert_file.empty() || cfg.key_file.empty()) {
-			add(ConfigIssueCode::incompatible_options, "http3", "enabled", "HTTP/3 requires TLS certificate and key");
+		if (!has_tls_credentials(cfg)) {
+			add(ConfigIssueCode::incompatible_options, "http3", "enabled", "HTTP/3 requires TLS credentials");
 		}
 	}
-	if (cfg.http_redirect_to_https && (cfg.cert_file.empty() || cfg.key_file.empty())) {
+	if (has_any_tls_file_field(cfg) && !has_tls_file_credentials(cfg)) {
+		add(ConfigIssueCode::invalid_value, "tls", "cert_file", "cert_file and key_file must be set together");
+	}
+	if (has_any_tls_pem_field(cfg) && !has_tls_pem_credentials(cfg)) {
+		add(ConfigIssueCode::invalid_value, "tls", "cert_pem", "cert_pem and key_pem must be set together");
+	}
+	if (has_any_tls_file_field(cfg) && has_any_tls_pem_field(cfg)) {
+		add(ConfigIssueCode::incompatible_options,
+			"tls",
+			"credentials",
+			"choose either cert_file/key_file or cert_pem/key_pem, not both");
+	}
+	for (std::size_t i = 0; i < cfg.virtual_hosts.size(); ++i) {
+		auto const &host = cfg.virtual_hosts[i];
+		bool const host_file_any = !host.cert_file.empty() || !host.key_file.empty();
+		bool const host_pem_any = !host.cert_pem.empty() || !host.key_pem.empty();
+		bool const host_file_complete = !host.cert_file.empty() && !host.key_file.empty();
+		bool const host_pem_complete = !host.cert_pem.empty() && !host.key_pem.empty();
+		if (host_file_any && !host_file_complete) {
+			add(ConfigIssueCode::invalid_value,
+				"tls",
+				std::format("virtual_hosts[{}].cert_file", i),
+				"cert_file and key_file must be set together");
+		}
+		if (host_pem_any && !host_pem_complete) {
+			add(ConfigIssueCode::invalid_value,
+				"tls",
+				std::format("virtual_hosts[{}].cert_pem", i),
+				"cert_pem and key_pem must be set together");
+		}
+		if (host_file_any && host_pem_any) {
+			add(ConfigIssueCode::incompatible_options,
+				"tls",
+				std::format("virtual_hosts[{}].credentials", i),
+				"choose either cert_file/key_file or cert_pem/key_pem, not both");
+		}
+	}
+	if (cfg.http_redirect_to_https && !has_tls_credentials(cfg)) {
 		add(ConfigIssueCode::incompatible_options,
 			"server",
 			"http_redirect_to_https",
-			"HTTPS redirect requires TLS certificate and key");
+			"HTTPS redirect requires TLS credentials");
 	}
 	if (cfg.http_redirect_to_https && cfg.https_redirect_hosts.empty()) {
 		add(ConfigIssueCode::incompatible_options,
@@ -932,7 +1000,7 @@ export namespace conflux::http {
 			"HTTPS redirect requires an explicit allowed-host list");
 	}
 #if !CONFLUX_HAS_TLS
-	if (!cfg.cert_file.empty() || !cfg.key_file.empty() || cfg.http_redirect_to_https || cfg.ktls) {
+	if (has_any_tls_file_field(cfg) || has_any_tls_pem_field(cfg) || cfg.http_redirect_to_https || cfg.ktls) {
 		add(ConfigIssueCode::incompatible_options, "tls", "enabled", "TLS support was disabled at build time");
 	}
 #endif

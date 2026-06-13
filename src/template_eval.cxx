@@ -9,6 +9,8 @@ import conflux.file_io_sync;
 
 namespace conflux::templates {
 
+using conflux::utils::ascii_lower_inplace;
+using conflux::utils::ascii_upper_inplace;
 using conflux::utils::eprintln;
 using conflux::utils::trim;
 
@@ -75,6 +77,7 @@ TmplValue Environment::Impl::apply_template_replace_method(
 TmplValue Environment::Impl::apply_template_title_method(
 	TmplValue const &val) const {
 	auto s = value_to_string(val);
+	ascii_lower_inplace(s);
 	bool up = true;
 	for (auto &c: s) {
 		if (std::isspace(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
@@ -82,10 +85,8 @@ TmplValue Environment::Impl::apply_template_title_method(
 			continue;
 		}
 		if (up) {
-			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+			ascii_upper_inplace(std::span<char>{&c, 1});
 			up = false;
-		} else {
-			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 		}
 	}
 	return TmplValue{std::move(s)};
@@ -93,17 +94,13 @@ TmplValue Environment::Impl::apply_template_title_method(
 TmplValue Environment::Impl::apply_template_upper_method(
 	TmplValue const &val) const {
 	auto s = value_to_string(val);
-	for (auto &c: s) {
-		c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-	}
+	ascii_upper_inplace(s);
 	return TmplValue{std::move(s)};
 }
 TmplValue Environment::Impl::apply_template_lower_method(
 	TmplValue const &val) const {
 	auto s = value_to_string(val);
-	for (auto &c: s) {
-		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-	}
+	ascii_lower_inplace(s);
 	return TmplValue{std::move(s)};
 }
 template<class EvalArg>

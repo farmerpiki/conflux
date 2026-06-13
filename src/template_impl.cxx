@@ -10,6 +10,7 @@ import conflux.file_io_sync;
 namespace conflux::templates {
 
 using conflux::utils::append_json_string_fallback;
+using conflux::utils::ascii_upper_inplace;
 using conflux::utils::eprintln;
 using conflux::utils::trim;
 
@@ -232,7 +233,7 @@ std::string str_replace_all(
 std::string str_capitalize(
 	std::string s) {
 	if (!s.empty()) {
-		s[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(s[0])));
+		ascii_upper_inplace(std::span<char>{s.data(), 1});
 	}
 	return s;
 }

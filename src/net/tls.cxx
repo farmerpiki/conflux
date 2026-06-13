@@ -1,7 +1,9 @@
 module;
 #include <fcntl.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
 #include <poll.h>
 
 export module conflux.net.tls;
@@ -63,6 +65,8 @@ export void init_openssl_once() {
 export struct TlsServerOptions {
 	std::string_view cert_file;
 	std::string_view key_file;
+	std::string_view cert_pem;
+	std::string_view key_pem;
 	std::string_view cipher_list{}; // empty = built-in TLS 1.2 default
 	std::string_view ciphersuites{}; // empty = built-in TLS 1.3 default
 	bool ktls{false};
@@ -85,6 +89,121 @@ constexpr std::string_view kDefaultTls13Ciphersuites =
 // Session id context: 1-std::byte tag unique to this build; SSL_CTX requires a
 // non-empty id to enable server-side session cache.
 constexpr std::array<unsigned char, 8> kSessionIdContext{'c', 'o', 'n', 'f', 'l', 'u', 'x', '1'};
+
+struct X509Deleter {
+	void operator ()(
+		X509 *p) const noexcept {
+		X509_free(p);
+	}
+};
+
+struct EvpPkeyDeleter {
+	void operator ()(
+		EVP_PKEY *p) const noexcept {
+		EVP_PKEY_free(p);
+	}
+};
+
+using UniqueX509 = std::unique_ptr<X509, X509Deleter>;
+using UniqueEvpPkey = std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>;
+
+[[nodiscard]] int checked_pem_size(
+	std::string_view pem,
+	char const *label) {
+	if (pem.empty()) {
+		throw TlsError{std::format("TLS: empty {} PEM", label)};
+	}
+	if (pem.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+		throw TlsError{std::format("TLS: {} PEM is too large for OpenSSL memory BIO", label)};
+	}
+	return static_cast<int>(pem.size());
+}
+
+[[nodiscard]] UniqueBio pem_mem_bio(
+	std::string_view pem,
+	char const *label) {
+	UniqueBio bio{BIO_new_mem_buf(pem.data(), checked_pem_size(pem, label))};
+	if (!bio) {
+		throw TlsError{std::format("TLS: cannot create {} memory BIO", label)};
+	}
+	return bio;
+}
+
+[[nodiscard]] bool pem_no_start_line() noexcept {
+	unsigned long const err = ERR_peek_last_error();
+	return ERR_GET_LIB(err) == ERR_LIB_PEM && ERR_GET_REASON(err) == PEM_R_NO_START_LINE;
+}
+
+void load_certificate_chain_pem(
+	SSL_CTX *ctx,
+	std::string_view cert_pem) {
+	UniqueBio cert_bio = pem_mem_bio(cert_pem, "certificate");
+	UniqueX509 cert{PEM_read_bio_X509_AUX(cert_bio.get(), nullptr, nullptr, nullptr)};
+	if (!cert) {
+		throw TlsError{"TLS: cannot parse certificate PEM"};
+	}
+	if (SSL_CTX_use_certificate(ctx, cert.get()) != 1) {
+		throw TlsError{"TLS: cannot use certificate PEM"};
+	}
+	for (;;) {
+		UniqueX509 chain_cert{PEM_read_bio_X509(cert_bio.get(), nullptr, nullptr, nullptr)};
+		if (!chain_cert) {
+			if (pem_no_start_line()) {
+				ERR_clear_error();
+				break;
+			}
+			throw TlsError{"TLS: cannot parse certificate chain PEM"};
+		}
+		if (SSL_CTX_add_extra_chain_cert(ctx, chain_cert.get()) != 1) {
+			throw TlsError{"TLS: cannot use certificate chain PEM"};
+		}
+		chain_cert.release();
+	}
+}
+
+void load_private_key_pem(
+	SSL_CTX *ctx,
+	std::string_view key_pem) {
+	UniqueBio key_bio = pem_mem_bio(key_pem, "private key");
+	UniqueEvpPkey key{PEM_read_bio_PrivateKey(key_bio.get(), nullptr, nullptr, nullptr)};
+	if (!key) {
+		throw TlsError{"TLS: cannot parse private key PEM"};
+	}
+	if (SSL_CTX_use_PrivateKey(ctx, key.get()) != 1) {
+		throw TlsError{"TLS: cannot use private key PEM"};
+	}
+}
+
+void load_server_credentials(
+	SSL_CTX *ctx,
+	TlsServerOptions const &opts) {
+	bool const has_files = !opts.cert_file.empty() || !opts.key_file.empty();
+	bool const has_pem = !opts.cert_pem.empty() || !opts.key_pem.empty();
+	if (has_files && has_pem) {
+		throw TlsError{"TLS: configure either certificate files or in-memory PEM, not both"};
+	}
+	if (has_pem) {
+		if (opts.cert_pem.empty() || opts.key_pem.empty()) {
+			throw TlsError{"TLS: in-memory cert_pem and key_pem must be set together"};
+		}
+		load_certificate_chain_pem(ctx, opts.cert_pem);
+		load_private_key_pem(ctx, opts.key_pem);
+	} else {
+		if (opts.cert_file.empty() || opts.key_file.empty()) {
+			throw TlsError{"TLS: cert_file and key_file must be set together"};
+		}
+		if (SSL_CTX_use_certificate_chain_file(ctx, std::string{opts.cert_file}.c_str()) != 1) {
+			throw TlsError{std::format("TLS: cannot load cert: {}", opts.cert_file)};
+		}
+		if (SSL_CTX_use_PrivateKey_file(ctx, std::string{opts.key_file}.c_str(), SSL_FILETYPE_PEM) != 1) {
+			throw TlsError{std::format("TLS: cannot load key: {}", opts.key_file)};
+		}
+	}
+	if (SSL_CTX_check_private_key(ctx) != 1) {
+		throw TlsError{"TLS: certificate and private key do not match"};
+	}
+}
+
 inline UniqueSslCtx make_server_ctx(
 	TlsServerOptions const &opts) {
 	UniqueSslCtx ctx{SSL_CTX_new(TLS_server_method())};
@@ -107,12 +226,7 @@ inline UniqueSslCtx make_server_ctx(
 	}
 	SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_SERVER);
 	SSL_CTX_set_session_id_context(ctx.get(), kSessionIdContext.data(), kSessionIdContext.size());
-	if (SSL_CTX_use_certificate_chain_file(ctx.get(), std::string{opts.cert_file}.c_str()) != 1) {
-		throw TlsError{std::format("TLS: cannot load cert: {}", opts.cert_file)};
-	}
-	if (SSL_CTX_use_PrivateKey_file(ctx.get(), std::string{opts.key_file}.c_str(), SSL_FILETYPE_PEM) != 1) {
-		throw TlsError{std::format("TLS: cannot load key: {}", opts.key_file)};
-	}
+	load_server_credentials(ctx.get(), opts);
 	return ctx;
 }
 inline int sni_callback(

@@ -293,10 +293,14 @@ struct TmplValue {
 			return std::get<T>(data);
 		}
 	}
-	[[nodiscard]] Array &as_array() { return std::get<Array>(data); }
-	[[nodiscard]] Array const &as_array() const { return std::get<Array>(data); }
-	[[nodiscard]] Object &as_object() { return std::get<Object>(data); }
-	[[nodiscard]] Object const &as_object() const { return std::get<Object>(data); }
+	[[nodiscard]] decltype(auto) as_array(
+		this auto &&self) {
+		return std::get<Array>(self.data);
+	}
+	[[nodiscard]] decltype(auto) as_object(
+		this auto &&self) {
+		return std::get<Object>(self.data);
+	}
 	void set(
 		std::string_view key,
 		TmplValue val) {
