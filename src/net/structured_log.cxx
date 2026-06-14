@@ -80,9 +80,8 @@ private:
 		}
 		auto file = conflux::file_io_sync::blocking_open_file(fpath, O_WRONLY | O_CREAT | O_APPEND, 0644);
 		if (!file) {
-			auto msg = std::format("structured_log: open '{}' failed: {}\n", fpath, file.error().what());
-			[[maybe_unused]] auto _ =
-				conflux::file_io_sync::blocking_write_all_fd(STDERR_FILENO, std::as_bytes(std::span{msg}));
+			conflux::utils::eprintln(
+				std::format("structured_log: open '{}' failed: {}", fpath, file.error().what()));
 		} else {
 			file_ = std::move(*file);
 		}
