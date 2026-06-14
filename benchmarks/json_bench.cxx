@@ -1190,8 +1190,12 @@ void bench_decode(
 	if (!doc) {
 		return;
 	}
-	// Measure: parse + extract name field as std::string_view from each object
-	run_row("decode/struct-like (sv fields)", [&] {
+	// Measure: parse + extract name field as std::string_view from each object.
+	// NOTE(claim-scope): this is DOM parse + array traversal + "name" member lookup via
+	// as_string(), NOT a typed struct decode. For typed direct-to-struct claims use
+	// conflux_json_direct_struct_bench. Row name renamed from "decode/struct-like (sv fields)";
+	// see benchmarks/bench_row_renames.txt.
+	run_row("decode/dom+traverse+lookup (sv fields)", [&] {
 		return measure(
 			[&] {
 				auto res = parse(corpus);
@@ -1230,8 +1234,12 @@ void bench_find_member(
 	if (!obj) {
 		return;
 	}
-	// batch=1000: amortise clock overhead for sub-microsecond lookup
-	run_row("find_member/1024-member object (per lookup)", [&] {
+	// batch=1000: amortise clock overhead for sub-microsecond lookup.
+	// NOTE(claim-scope): the member index is pre-built before timing (warm_member_index above),
+	// so this is hot steady-state indexed lookup; it hides first-access/hash-build latency. Add
+	// cold-first-lookup and cold-miss rows before making object-lookup claims. Row name renamed
+	// from "find_member/1024-member object (per lookup)"; see benchmarks/bench_row_renames.txt.
+	run_row("find_member/1024-member object (hot indexed, per lookup)", [&] {
 		auto s = measure(
 			[&] {
 				(void)obj->find_member("member_0");
@@ -1275,7 +1283,11 @@ void bench_array_traversal(
 	});
 }
 void bench_builder() {
-	run_row("builder/64-member object", [&] {
+	// NOTE(claim-scope): std::format runs inside the timed loop, so formatter cost contaminates
+	// builder insertion cost — this is dynamic object construction with formatted keys, not pure
+	// builder cost. Row name renamed from "builder/64-member object"; see
+	// benchmarks/bench_row_renames.txt.
+	run_row("builder/64-member object (formatted keys)", [&] {
 		return measure(
 			[&] {
 				auto b = value_builder();
@@ -2138,7 +2150,7 @@ int main(
 #else
 		R"({"name":"json",)"
 #endif
-		R"("parser":"standard","configs":[{"name":"default","extra":{"kind":"micro/user-space","case":"JSON parser coverage suite"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--iterations","0","--warmup","0"]},{"name":"parse_large","extra":{"kind":"micro/user-space","case":"large nested JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/large (","--config-name","parse_large","--iterations","0","--warmup","0"]},{"name":"parse_long_strings","extra":{"kind":"micro/user-space","case":"large borrowed-string JSON parse"},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/long_strings (","--config-name","parse_long_strings","--iterations","0","--warmup","0"]},{"name":"parse_escape_heavy","extra":{"kind":"micro/user-space","case":"escape-heavy JSON parse"},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","parse/escape_heavy (","--config-name","parse_escape_heavy","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
+		R"("parser":"standard","configs":[{"name":"default","extra":{"kind":"micro/user-space","case":"JSON parser coverage suite","claim_scope":"diagnostic","interpretation":"Synthetic JSON micro rows (DOM/direct decode, builder, member lookup); diagnostic ceilings, not product claims."},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--iterations","0","--warmup","0"]},{"name":"parse_large","extra":{"kind":"micro/user-space","case":"large nested JSON parse","claim_scope":"diagnostic","interpretation":"Synthetic JSON micro rows (DOM/direct decode, builder, member lookup); diagnostic ceilings, not product claims."},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/large (","--config-name","parse_large","--iterations","0","--warmup","0"]},{"name":"parse_long_strings","extra":{"kind":"micro/user-space","case":"large borrowed-string JSON parse","claim_scope":"diagnostic","interpretation":"Synthetic JSON micro rows (DOM/direct decode, builder, member lookup); diagnostic ceilings, not product claims."},"target_ms":500,"max_iterations":1000,"calibration_iterations":4,"args":["--filter","parse/long_strings (","--config-name","parse_long_strings","--iterations","0","--warmup","0"]},{"name":"parse_escape_heavy","extra":{"kind":"micro/user-space","case":"escape-heavy JSON parse","claim_scope":"diagnostic","interpretation":"Synthetic JSON micro rows (DOM/direct decode, builder, member lookup); diagnostic ceilings, not product claims."},"target_ms":500,"max_iterations":5000,"calibration_iterations":4,"args":["--filter","parse/escape_heavy (","--config-name","parse_escape_heavy","--iterations","0","--warmup","0"]}],"filters":["--filter SUBSTR"]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_args = cfg;
 	g_csv = cfg.json_out;

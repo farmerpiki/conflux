@@ -595,7 +595,7 @@ int main(
 	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
 		std::print(
 			"{}\n",
-			R"({"name":"router","parser":"standard","configs":[{"name":"default","extra":{},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0"]}]})");
+			R"({"name":"router","parser":"standard","configs":[{"name":"default","extra":{"claim_scope":"diagnostic","interpretation":"Single config covering both kinds of rows: route-lookup/dispatch rows are hot-path micros, and the compress rows are best-case payload compression ceilings on repeated-byte payloads; not gzip/zstd/brotli behavior on real JSON/HTML/API payloads."},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0"]}]})");
 		return 0;
 	}
 	try {

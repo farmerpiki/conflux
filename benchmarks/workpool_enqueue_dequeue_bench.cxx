@@ -512,6 +512,10 @@ int main(
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 				",\"queue_modes\":[\"stealing\",\"no_stealing\"]"
 #endif
+				",\"claim_scope\":\"diagnostic\",\"interpretation\":\"Task roundtrip "
+				"latency: includes task-source creation and blocking_join per job, not "
+				"raw queue throughput. The external_burst row is closer to queue "
+				"throughput.\""
 				"}},\"target_ms\":1000,\"max_iterations\":5000,\"calibration_iterations\":2,"
 				"\"args\":[\"--threads\",\"{0}\","
 				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"0\",\"--warmup\",\"0\","

@@ -890,7 +890,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http11_representative","parser":"standard","configs":[{"name":"smoke","extra":{"label":"live-kernel-sanity","suite":"representative-http11"},"args":["--duration","1","--warmup","0","--workload","all","--config-name","smoke"],"reps":1},{"name":"api_mixed_middleware_30s","extra":{"label":"end-to-end-proof","workload":"api_mixed_middleware"},"args":["--duration","30","--warmup","5","--workload","api_mixed_middleware","--config-name","api_mixed_middleware_30s"],"reps":1}]})");
+		R"({"name":"http11_representative","parser":"standard","configs":[{"name":"smoke","extra":{"label":"live-kernel-sanity","suite":"representative-http11","claim_scope":"sanity","interpretation":"1s, no-warmup live smoke; proves the path runs, not a performance claim on its own."},"args":["--duration","1","--warmup","0","--workload","all","--config-name","smoke"],"reps":1},{"name":"api_mixed_middleware_30s","extra":{"label":"end-to-end-proof","workload":"api_mixed_middleware","claim_scope":"proof-candidate","interpretation":"Representative weighted request mix over a live server with tail latency and counters; public proof candidate (still pair with an external load generator for public comparisons)."},"args":["--duration","30","--warmup","5","--workload","api_mixed_middleware","--config-name","api_mixed_middleware_30s"],"reps":1}]})");
 
 	try {
 		auto const argv_span = std::span{argv, static_cast<std::size_t>(argc)};

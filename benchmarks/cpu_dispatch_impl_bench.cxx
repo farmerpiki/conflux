@@ -885,7 +885,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"cpu-dispatch-impl","parser":"standard","configs":[{"name":"default","extra":{"requires":"CONFLUX_SIMD_SELECTION=RUNTIME"},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0","--warmup","0"]}]})");
+		R"({"name":"cpu-dispatch-impl","parser":"standard","configs":[{"name":"default","extra":{"requires":"CONFLUX_SIMD_SELECTION=RUNTIME","claim_scope":"diagnostic","interpretation":"SIMD best-case scan ceiling on no-special-byte input; not the special-byte/escaped/UTF-8 distribution of real JSON, and not sufficient to justify dispatch policy alone."},"target_ms":500,"max_iterations":1000000,"calibration_iterations":16,"args":["--iterations","0","--warmup","0"]}]})");
 	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_json = cfg.json_out;
 
