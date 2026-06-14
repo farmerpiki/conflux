@@ -195,6 +195,49 @@ LEFT JOIN summary sb
  AND sb.variant = b.variant;
 
 -- ---------------------------------------------------------------------------
+-- Claim-scope views — reporting discipline.
+--
+-- Each --bench-info config carries an `extra.claim_scope` of
+--   'proof-candidate' — representative / e2e / real-corpus rows usable as
+--                        public evidence (still pair with external load gens).
+--   'sanity'          — live-kernel rows that prove a path runs but are not a
+--                        standalone performance claim.
+--   'diagnostic'      — micro / best-case ceiling rows; internal cost models,
+--                        not product claims.
+-- (stored in runs.config_extra; see benchmarks/README.md "Claim scope".)
+--
+-- bench_claim_scope annotates every summary row with its scope so a report can
+-- promote proof-candidate rows and demote diagnostic ceilings. Rows from configs
+-- recorded before this field existed show 'unclassified'.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW bench_claim_scope AS
+SELECT
+    r.run_id,
+    runs.name,
+    r.benchmark,
+    runs.config_name,
+    r.variant,
+    COALESCE(runs.config_extra->>'claim_scope', 'unclassified') AS claim_scope,
+    runs.config_extra->>'interpretation' AS interpretation,
+    runs.config_extra->>'kind' AS kind,
+    r.ns_per_iter AS med_ns,
+    r.p50,
+    r.p99,
+    r.best,
+    r.p10,
+    r.mad,
+    r.sample_count
+FROM results r
+JOIN runs ON runs.id = r.run_id
+WHERE r.extra->>'kind' = 'summary';
+
+-- bench_proof_candidates — only the public-claim-eligible summary rows.
+CREATE OR REPLACE VIEW bench_proof_candidates AS
+SELECT *
+FROM bench_claim_scope
+WHERE claim_scope = 'proof-candidate';
+
+-- ---------------------------------------------------------------------------
 -- bench_budgets — merge-gate regression budgets.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS bench_budgets (

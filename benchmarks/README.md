@@ -5,6 +5,61 @@ in-process performance work. It is intentionally scoped to routing, header
 lookup, middleware composition, and compression paths, so the numbers are not
 polluted by sandbox/kernel/io_uring variability.
 
+## Claim scope: proof candidates vs diagnostic ceilings
+
+Reporting discipline is the most important rule in this suite. Most benchmarks
+answer "is this local mechanism faster?" (diagnostic ceilings); only a few
+answer "is the server fast as a product?" (proof candidates). Their names can be
+read as product claims even when they are not. **Public performance reports must
+promote proof-candidate rows and demote diagnostic rows — never cite a synthetic
+ceiling as product performance.**
+
+Each `--bench-info` config carries a machine-readable `extra.claim_scope`:
+
+| claim_scope | meaning | use in public reports |
+|---|---|---|
+| `proof-candidate` | representative / e2e / real-corpus, with tail latency + counters | promote; still pair with an external load generator |
+| `sanity` | live-kernel row proving a path runs | supporting only; not a standalone claim |
+| `diagnostic` | micro / best-case ceiling isolating a local mechanism | demote to a "diagnostic ceiling"; never a product claim |
+
+Query by scope with the DB views (see `scripts/bench_db_migrate.sql`):
+
+```sql
+-- public-claim-eligible rows only
+SELECT benchmark, config_name, variant, med_ns, interpretation
+FROM bench_proof_candidates WHERE run_id = 123;
+
+-- every summary row annotated with its scope (promote/demote sort)
+SELECT claim_scope, benchmark, config_name, variant, med_ns
+FROM bench_claim_scope WHERE run_id = 123
+ORDER BY claim_scope, benchmark;
+```
+
+Honest interpretation of the commonly-misread rows (the full sentence is in each
+config's `extra.interpretation`):
+
+| Benchmark / row | claim_scope | Read it as |
+|---|---|---|
+| `http_server` | diagnostic | Endpoint smoke/regression latency over loopback (mostly a single synchronous client send/recv loop) — not throughput, fairness, queueing, or tail latency. |
+| `http_server` compression / full-stack rows | diagnostic | Best-case compression ceiling on tiny, highly compressible payloads. |
+| `router` codec / compress rows | diagnostic | Codec/backend overhead and best-case payload compression on repeated-byte payloads — not real JSON/HTML/API compression. |
+| `cpu_dispatch_impl` JSON scan | diagnostic | SIMD best-case scan ceiling (no special byte) — not enough to justify dispatch policy alone. |
+| `workpool_enqueue_dequeue` single_thread / contended | diagnostic | Task roundtrip latency (task-source + `blocking_join` per job), not raw queue throughput; `external_burst` is closest to queue throughput. |
+| `json` `decode/dom+traverse+lookup (sv fields)` | diagnostic | DOM parse + array traversal + member lookup; for typed decode use `json_direct_struct`. _(renamed from `decode/struct-like (sv fields)`)_ |
+| `json` `builder/64-member object (formatted keys)` | diagnostic | Dynamic object construction with `std::format` keys inside the timed loop — not pure builder cost. _(renamed)_ |
+| `json` `find_member/1024-member object (hot indexed, per lookup)` | diagnostic | Hot indexed lookup; the index is pre-built before timing. Add cold-first / cold-miss rows before object-lookup claims. _(renamed)_ |
+| `json_direct_struct` | diagnostic | Focused direct-to-struct decode gate (no I/O, DOM traversal, or routing). |
+| `http_app_path` | diagnostic | User-space framework cost floor — an internal cost model, not server performance; do not compare to web frameworks. |
+| `http11_representative` smoke | sanity | 1s, no-warmup live smoke. |
+| `http11_representative` `api_mixed_middleware_30s` | proof-candidate | Representative weighted request mix, 30s + 5s warmup, with tail latency and counters. |
+
+Row renames are recorded in `benchmarks/bench_row_renames.txt` (pre-v1 breaking
+renames are mapped old → new there, since DB history and notebooks match rows by
+name). Deferred work — the missing "opposite-case" rows (realistic compression
+corpora, SIMD special-byte positions, cold/miss JSON lookup, raw queue
+throughput, and a `public_server_defaults_30s` HTTP profile with real
+limits/timeouts) — is tracked as benchmark follow-ups.
+
 ## Perf presets
 
 Use the `perf-*` presets for benchmark recording and profiling. They build only
@@ -178,12 +233,13 @@ pressure.
   --json --workload api_mixed_middleware --duration 30 --warmup 5
 ```
 
-Interpretation labels:
+Interpretation labels (the older `kind` field; maps onto `claim_scope` from the
+"Claim scope" section above):
 
 ```text
-micro/user-space       isolates Conflux implementation cost
-live-kernel-sanity     exercises real kernel path; not a performance claim alone
-end-to-end-proof       representative workload with counters and tail latency
+micro/user-space       isolates Conflux implementation cost        -> diagnostic
+live-kernel-sanity     exercises real kernel path; not a claim alone -> sanity
+end-to-end-proof       representative workload w/ counters + tail     -> proof-candidate
 ```
 
 For HTTP/1.1 perf candidates, use `api_mixed_middleware` as the default

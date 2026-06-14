@@ -1,0 +1,52 @@
+conflux benchmark row/variant renames
+======================================
+
+Why this file exists
+--------------------
+Benchmark `variant`/row names feed two things that span time:
+  1. historical comparison in the bench DB (bench_compare_summary / bench_raw
+     match rows by `variant` string), and
+  2. results notebooks like benchmarks/corpus/baseline.md.
+
+When a row name is misleading, we rename it (pre-v1: breaking renames are
+allowed) and record the old -> new mapping here so anyone reading older DB
+summary rows, baseline.md tables, or external reports can line them up with the
+current emitting code.
+
+Format: OLD_NAME  =>  NEW_NAME  (benchmark binary)  -- reason
+
+Renames
+-------
+decode/struct-like (sv fields)
+  => decode/dom+traverse+lookup (sv fields)        (conflux_json_bench)
+  -- It never decoded a typed struct: it parses to DOM, walks the array, finds
+     "name", and calls as_string(). New name describes DOM parse + traversal +
+     member lookup. For typed decode claims use conflux_json_direct_struct_bench.
+
+find_member/1024-member object (per lookup)
+  => find_member/1024-member object (hot indexed, per lookup)   (conflux_json_bench)
+  -- The member index is pre-built (warm_member_index) before timing, so it
+     measures hot steady-state indexed lookup and hides first-access/hash-build
+     latency. Name now says "hot indexed". (Cold-first / cold-miss rows are
+     tracked as deferred work; see findings/benchmark_followups_C.md.)
+
+builder/64-member object
+  => builder/64-member object (formatted keys)     (conflux_json_bench)
+  -- std::format runs inside the timed loop, so formatter cost contaminates
+     builder insertion cost. Name now says the keys are formatted in-loop.
+
+Not renamed (intentionally)
+---------------------------
+workpool_enqueue_dequeue variants single_thread / contended
+  -- These are task-roundtrip rows (task-source creation + blocking_join per
+     job), not raw queue throughput; external_burst is the closest to raw queue
+     throughput. The README deliberately keeps these historical variant names
+     for long-baseline comparison. The honest reading is carried in the
+     benchmark's --bench-info `interpretation`/`claim_scope` fields and in
+     benchmarks/README.md rather than in a rename.
+
+Mapping notes for old artifacts
+-------------------------------
+Any DB summary row, baseline.md entry, or external report produced BEFORE this
+change uses the OLD names above. They are the same logical rows; apply the
+mapping when comparing pre-rename history to post-rename runs.
