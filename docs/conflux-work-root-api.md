@@ -33,6 +33,23 @@ All root async vocabulary (`Task<T>`, `Posted<T>`, `Operation<T>`, source/contro
 types, `Outcome<T>`, join, abandon APIs) lives in `conflux.work.root`. Import
 `conflux.work` when you also need `WorkPool` or `RingLane`.
 
+`conflux.work.uring_executor` is a complete-only low-level module for callers
+that need a persistent owner thread around an owned `io_uring`:
+
+```cpp
+import conflux.work;
+import conflux.work.uring_executor;
+```
+
+It provides `try_make_uring_executor(UringExecutorOptions)` and
+`UringExecutor::async_submit(fn)`, where `fn` is invoked on the ring-owner thread
+as `Task<T> fn(UringExecutorContext&)`. The context exposes the owned ring,
+completion table, user-data encoder, and `RingLane` for domain-specific adapters.
+Shutdown is cooperative: `stop()`, `join()`, and destruction may wait for
+admitted tasks and providers to observe cancellation and release their completion
+slots. Blocking or CPU-heavy work still belongs on `WorkPool`, not on the ring
+executor.
+
 ## Root Categories
 
 Root async values are split into three categories:

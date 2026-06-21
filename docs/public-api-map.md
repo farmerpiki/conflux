@@ -17,6 +17,7 @@ semantics, see [`api-surface-profiles.md`](api-surface-profiles.md).
 | Advanced | `import conflux.work;` / `<conflux/work.hxx>` | Task/runtime primitives. |
 | Low-level public | `import conflux.complete;` / `<conflux/complete.hxx>` | Documented low-level escape hatches. |
 | Low-level public | `import conflux.uring;` / `<conflux/uring.hxx>` | Raw Linux/io_uring machinery. |
+| Low-level public | `import conflux.work.uring_executor;` | Generic io_uring owner-thread executor. |
 
 Lower-level `conflux.net.*`, partition, generated, and detail imports are
 experimental or internal/detail unless a focused document says otherwise.

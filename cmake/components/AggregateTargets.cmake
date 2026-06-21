@@ -44,6 +44,7 @@ target_link_libraries(conflux
     PUBLIC  conflux_http_app
     PUBLIC  conflux_net_http
     PUBLIC  conflux_work
+    PUBLIC  conflux_work_uring_executor
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
     PRIVATE conflux_direct_slot_pool

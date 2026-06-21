@@ -616,6 +616,14 @@ if(TARGET conflux)
         EXPECT "RingLaneOptions")
 
     conflux_add_compile_fail_test(
+        TARGET conflux_work_uring_executor_compile_fail_extended
+        SOURCE work_uring_executor_compile_fail_extended.cxx
+        TEST api-surface/extended-hides-work-uring-executor
+        LINK conflux conflux_options
+        LABELS build api-surface compile-fail
+        EXPECT "UringExecutorOptions")
+
+    conflux_add_compile_fail_test(
         TARGET conflux_work_compile_fail_global_cancelled
         SOURCE work_compile_fail_global_cancelled.cxx
         TEST api-surface/work-hides-global-cancelled
