@@ -2,6 +2,7 @@ module;
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
+#include <liburing.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -23,6 +24,7 @@ import conflux.work;
 import conflux.uring.completion;
 import conflux.socket_io;
 import conflux.socket_io.coro;
+import conflux.socket_io.blocking;
 import conflux.net.client;
 import conflux.net.cancel;
 import conflux.dns_bridge;
@@ -38,6 +40,68 @@ namespace wroot = conflux::work::root;
 using TP = std::chrono::steady_clock::time_point;
 
 constexpr std::size_t kClientMaxChunkCount = 100000;
+
+constexpr std::uint64_t pack_socket_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
+}
+
+struct OneShotSocketRing {
+	::io_uring ring{};
+	conflux::uring::CompletionTable completions{};
+	SocketTaskRing task_ring;
+	bool ring_ok{false};
+
+	OneShotSocketRing()
+		: task_ring{SocketRawRing{&ring}, completions, pack_socket_ud} {}
+	~OneShotSocketRing() {
+		if (ring_ok) {
+			::io_uring_queue_exit(&ring);
+		}
+	}
+	OneShotSocketRing(OneShotSocketRing const &) = delete;
+	OneShotSocketRing &operator =(OneShotSocketRing const &) = delete;
+};
+
+[[nodiscard]] ClientResult make_async_blocking_runtime_error(
+	std::string message,
+	int os_errno = 0) {
+	return std::unexpected(
+		HttpError{
+			.kind = HttpErrorKind::protocol,
+			.phase = HttpPhase::connect,
+			.os_errno = os_errno,
+			.message = std::move(message)});
+}
+
+[[nodiscard]] ClientResult run_async_blocking_send_owned(
+	HttpClient const &client,
+	ClientRequest request,
+	AsyncClientRunOptions opts) {
+	if (opts.ring_entries == 0) {
+		return make_async_blocking_runtime_error("io_uring_queue_init failed: ring_entries must be > 0", EINVAL);
+	}
+	OneShotSocketRing runtime{};
+	int const rc = ::io_uring_queue_init(opts.ring_entries, &runtime.ring, 0);
+	if (rc < 0) {
+		return make_async_blocking_runtime_error("io_uring_queue_init failed", -rc);
+	}
+	runtime.ring_ok = true;
+
+	try {
+		return conflux::socket_io::sync_wait_socket_task(
+			runtime.task_ring, async_send(client, runtime.task_ring, request));
+	} catch (wroot::CancelledError const &) {
+		return make_async_blocking_runtime_error("async HTTP client operation cancelled");
+	} catch (conflux::work::Cancelled const &) {
+		return make_async_blocking_runtime_error("async HTTP client operation cancelled");
+	} catch (std::exception const &e) {
+		return make_async_blocking_runtime_error(std::format("async HTTP client runtime failed: {}", e.what()));
+	} catch (...) {
+		return make_async_blocking_runtime_error("async HTTP client runtime failed with unknown exception");
+	}
+}
 
 [[nodiscard]] std::span<std::uint8_t const> byte_view(
 	std::string_view text) noexcept {
@@ -882,6 +946,20 @@ namespace conflux::http {
 	auto driver = async_detail::run_async_request_driver(ring, req, client.options(), src, cancel);
 	std::move(driver).detach();
 	return std::move(out);
+}
+
+[[nodiscard]] ClientResult async_blocking_send(
+	HttpClient const &client,
+	ClientRequest const &request,
+	AsyncClientRunOptions opts) {
+	return async_detail::run_async_blocking_send_owned(client, ClientRequest{request}, opts);
+}
+
+[[nodiscard]] ClientResult async_blocking_send(
+	HttpClient const &client,
+	ClientRequest &&request,
+	AsyncClientRunOptions opts) {
+	return async_detail::run_async_blocking_send_owned(client, std::move(request), opts);
 }
 
 } // namespace conflux::http

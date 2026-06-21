@@ -1,7 +1,15 @@
 add_executable(conflux_client_cancellation_e2e client_cancellation_e2e.cxx)
 target_link_libraries(conflux_client_cancellation_e2e
     PRIVATE
-        conflux
+        conflux_net_async_client
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
+add_executable(conflux_http_async_client_import_smoke http_async_client_import_smoke.cxx)
+target_link_libraries(conflux_http_async_client_import_smoke
+    PRIVATE
+        conflux_net_async_client
         conflux_options
         Catch2::Catch2WithMain
 )

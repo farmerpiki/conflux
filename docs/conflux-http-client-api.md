@@ -2,7 +2,10 @@
 
 `conflux::http::HttpClient` — blocking HTTP/1.1 user agent. TLS via OpenSSL (`https://`) when the build has TLS support. Link the `conflux::http_client` component and import the first-contact `conflux.net.http.client` module; the component carries the lower-level client/wire modules plus runtime and DNS dependencies.
 
-Also available: `async_send` — coroutine-based async transport backed by `SocketTaskRing`. HTTP and HTTPS (via `TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
+Also available: `async_blocking_send` — one-shot helper that runs the async
+transport on a temporary socket ring, and `async_send` — coroutine-based async
+transport backed by caller-owned `SocketTaskRing`. HTTP and HTTPS (via
+`TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
 
 Status: **Blocking and async transports stable.** New connection per request (no pool, no keep-alive).
 
@@ -14,7 +17,7 @@ import conflux.net.http.client;   // first-contact client surface
 import conflux.net.http.types;    // HttpError, HttpTimeouts, HttpTelemetry, Url
 import conflux.net.http.request;  // ClientRequest, ClientRequest::Builder
 import conflux.net.client;        // HttpClient, HttpClientOptions, ClientResponse, ClientResult
-import conflux.net.async_client;  // async_send
+import conflux.net.async_client;  // async_blocking_send, async_send
 ```
 
 All public types live in namespace `conflux::http`.
@@ -452,7 +455,24 @@ transport waits on the caller thread for `poll`/socket/TLS I/O.
 **Module:** `conflux.net.async_client` — not re-exported from `conflux.net.http`.
 
 ```cpp
+import conflux.net.http.client;
 import conflux.net.async_client;
+
+struct AsyncClientRunOptions {
+    unsigned ring_entries = 256;
+};
+
+[[nodiscard]] ClientResult
+conflux::http::async_blocking_send(
+    HttpClient const& client,
+    ClientRequest const& req,
+    AsyncClientRunOptions opts = {});
+
+[[nodiscard]] ClientResult
+conflux::http::async_blocking_send(
+    HttpClient const& client,
+    ClientRequest&& req,
+    AsyncClientRunOptions opts = {});
 
 [[nodiscard]] conflux::work::root::Task<ClientResult>
 conflux::http::async_send(
@@ -460,6 +480,19 @@ conflux::http::async_send(
     SocketTaskRing&   ring,
     ClientRequest const& req);
 ```
+
+Use `async_blocking_send(...)` when a caller wants the async transport behavior
+without manually creating a `SocketTaskRing`. It blocks the caller while it owns
+and pumps a temporary io_uring ring, returns `ClientResult`, and accepts both
+lvalue and temporary `ClientRequest` values without casts. Request phase
+deadlines still come from `ClientRequest::timeouts()`.
+
+If temporary ring initialization fails, `async_blocking_send(...)` returns
+`ClientResult` with `kind == protocol`, `phase == connect`, `os_errno` set to
+the positive errno value, and a message naming `io_uring_queue_init`. Runtime
+pump failures are also converted to `ClientResult` protocol errors; programmer
+errors such as invalid request construction can still throw before the helper is
+called.
 
 Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all
 outlive the coroutine; do not destroy them while the task is suspended.
