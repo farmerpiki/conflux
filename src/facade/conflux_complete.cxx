@@ -13,6 +13,10 @@ export import conflux.uring.handle;
 export import conflux.uring.timeout;
 #endif
 
+#if CONFLUX_SURFACE_HAS_WORK_URING_EXECUTOR
+export import conflux.work.uring_executor;
+#endif
+
 #if CONFLUX_SURFACE_HAS_FILE_IO
 export import conflux.file_io;
 #endif

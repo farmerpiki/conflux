@@ -29,6 +29,7 @@
       "conflux.uring.flow",
       "conflux.uring.handle",
       "conflux.uring.timeout",
+      "conflux.work.uring_executor",
       "conflux.file_io",
       "conflux.socket_io",
       "conflux.socket_io.blocking",

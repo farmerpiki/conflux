@@ -52,6 +52,9 @@ public:
 			slot = free_.back();
 			free_.pop_back();
 		} else {
+			if (slots_.size() >= static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
+				throw std::length_error{"conflux.uring: completion table slot capacity exhausted"};
+			}
 			slot = static_cast<std::uint32_t>(slots_.size());
 			slots_.emplace_back();
 		}

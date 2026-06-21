@@ -55,6 +55,7 @@ set(CONFLUX_COMPONENT_DECLARATIONS
     "conflux_uring|uring|REQUESTABLE|ADVANCED"
     "conflux_uring_timeout|uring_timeout|REQUESTABLE|ADVANCED"
     "conflux_work|work|REQUESTABLE|ADVANCED"
+    "conflux_work_uring_executor|work_uring_executor|EXPLICIT|ADVANCED"
     "conflux_file_io_sync|file_io_sync|REQUESTABLE|ADVANCED"
     "conflux_file_map|file_map|REQUESTABLE|ADVANCED"
     "conflux_file_io|file_io|REQUESTABLE|ADVANCED"

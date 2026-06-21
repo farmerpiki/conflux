@@ -71,6 +71,15 @@ target_link_libraries(conflux_work
     PUBLIC  PkgConfig::LIBURING
 )
 
+conflux_add_module_library(conflux_work_uring_executor
+    PUBLIC_MODULES ${CONFLUX_SRC_ROOT}/work/uring_executor.cxx
+)
+target_link_libraries(conflux_work_uring_executor
+    PRIVATE conflux_options
+    PUBLIC  conflux_work
+    PUBLIC  conflux_uring
+)
+
 endif() # CONFLUX_NEEDS_RUNTIME (uring + work)
 
 if(CONFLUX_WANT_PROCESS)
