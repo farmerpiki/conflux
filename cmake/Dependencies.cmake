@@ -3,7 +3,7 @@
 # for small test-only dependencies not yet packaged on this host. pkg-config is
 # requested lazily so core/header/package configures do not require it.
 
-include(ConfluxExternalDependencyRegistry)
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxExternalDependencyRegistry.cmake")
 
 function(conflux_require_pkg_config reason)
     if(NOT PkgConfig_FOUND)

@@ -2,7 +2,7 @@
 # Public package targets / install-export
 # ---------------------------------------------------------------------------
 
-include(ConfluxHeaderInstall)
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxHeaderInstall.cmake")
 
 set(CONFLUX_PACKAGE_COMPONENTS)
 set(CONFLUX_PACKAGE_TARGETS)
@@ -17,7 +17,7 @@ set(CONFLUX_PACKAGE_ALL_TARGETS)
 set(CONFLUX_PUBLIC_COMPONENT_TARGETS)
 set(CONFLUX_INSTALL_TARGET_CANDIDATES)
 
-include(ConfluxComponentRegistry)
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxComponentRegistry.cmake")
 
 function(conflux_requestable_component_enabled out export_name)
     set(_enabled TRUE)

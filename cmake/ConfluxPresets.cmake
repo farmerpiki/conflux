@@ -8,7 +8,7 @@ set_property(CACHE CONFLUX_FEATURE_SET PROPERTY STRINGS
     core auto work json http-minimal http-api http-api-full web-server http-server-complete complete
     dev-core dev-json dev-http dev-all dev-exp-all release-core release-json release-http-api release-web-server release-pg release-full)
 
-include(ConfluxExternalDependencyRegistry)
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxExternalDependencyRegistry.cmake")
 
 # ---------------------------------------------------------------------------
 # Tri-state resolver
