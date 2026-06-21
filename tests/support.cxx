@@ -23,7 +23,7 @@ import conflux.net.http_server;
 import conflux.net.router;
 import conflux.net.vhost;
 
-namespace {
+namespace conflux::tests::support_detail {
 
 #if CONFLUX_HAS_TLS
 struct TestBioDeleter {
@@ -127,13 +127,13 @@ using TestUniqueX509 = std::unique_ptr<X509, TestX509Deleter>;
 }
 #endif
 
-} // namespace
+} // namespace conflux::tests::support_detail
 
 export namespace conflux::tests {
 
 std::pair<std::string, std::string> const &cached_test_cert() {
 #if CONFLUX_HAS_TLS
-	static std::pair<std::string, std::string> const bytes = make_test_cert_pem_pair();
+	static std::pair<std::string, std::string> const bytes = support_detail::make_test_cert_pem_pair();
 	return bytes;
 #else
 	static std::pair<std::string, std::string> const bytes{};

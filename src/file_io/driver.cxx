@@ -78,10 +78,19 @@ void pump_until(
 		::io_uring_cqe *cqe = nullptr;
 		int rc = 0;
 		if (deadline) {
-			__kernel_timespec ts{.tv_sec = 1, .tv_nsec = 0};
+			auto const now = std::chrono::steady_clock::now();
+			if (now >= *deadline) {
+				throw PumpTimeout{};
+			}
+			auto const remaining_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - now);
+			auto const wait_ns = std::min(
+				remaining_ns, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds{1}));
+			__kernel_timespec ts{
+				.tv_sec = static_cast<__kernel_time64_t>(wait_ns.count() / 1'000'000'000),
+				.tv_nsec = wait_ns.count() % 1'000'000'000};
 			rc = ::io_uring_submit_and_wait_timeout(ring, &cqe, 1, &ts, nullptr);
 			if (rc == -ETIME) {
-				if (std::chrono::steady_clock::now() > *deadline) {
+				if (std::chrono::steady_clock::now() >= *deadline) {
 					throw PumpTimeout{};
 				}
 				continue;

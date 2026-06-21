@@ -780,14 +780,14 @@ static_assert(kCanCallParseBorrowedRvalue<std::string_view>);
 static_assert(kCanCallParseBorrowedRvalue<std::string &>);
 static_assert(!kCanCallParseBorrowedRvalue<std::string>);
 
-// parse is now also a borrowing/view API; use parse_copy for std::string rvalues.
+// parse borrows lvalues and owns std::string rvalues by moving them.
 template<class T, class = void>
 constexpr bool kCanCallParseRvalue = false;
 template<class T>
 constexpr bool kCanCallParseRvalue<T, std::void_t<decltype(json::parse(std::declval<T>()))>> = true;
 static_assert(kCanCallParseRvalue<std::string_view>);
 static_assert(kCanCallParseRvalue<std::string &>);
-static_assert(!kCanCallParseRvalue<std::string>);
+static_assert(kCanCallParseRvalue<std::string>);
 
 template<class T, class = void>
 constexpr bool kCanCallParseCopyRvalue = false;
@@ -796,6 +796,24 @@ constexpr bool kCanCallParseCopyRvalue<T, std::void_t<decltype(json::parse_copy(
 static_assert(kCanCallParseCopyRvalue<std::string_view>);
 static_assert(kCanCallParseCopyRvalue<std::string &>);
 static_assert(kCanCallParseCopyRvalue<std::string>);
+static_assert(requires { json::parse("{}"); });
+static_assert(requires { json::parse_copy("{}"); });
+static_assert(requires { json::parse("{}", {}, std::pmr::get_default_resource()); });
+static_assert(requires { json::parse_copy("{}", {}, std::pmr::get_default_resource()); });
+
+TEST_CASE(
+	"phase1: parse owns std::string rvalues",
+	"[conformance][phase1][input]") {
+	auto doc = json::parse(std::string{R"({"k":"moved"})"});
+	REQUIRE(doc.has_value());
+	auto root = doc->root().as_object();
+	REQUIRE(root.has_value());
+	auto member = root->member("k");
+	REQUIRE(member.has_value());
+	auto value = member->as_string();
+	REQUIRE(value.has_value());
+	CHECK(*value == "moved");
+}
 // ---------------------------------------------------------------------------
 // v11 Phase 2 — zero-copy strings on parse side.
 // ---------------------------------------------------------------------------

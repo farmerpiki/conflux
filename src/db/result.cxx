@@ -97,7 +97,11 @@ public:
 		if (is_null(idx)) {
 			return std::nullopt;
 		}
-		return as<T>(idx);
+		try {
+			return as<T>(idx);
+		} catch (PgError const &) {
+			return std::nullopt;
+		}
 	}
 	template<class... Ts>
 	[[nodiscard]] std::tuple<Ts...> as_tuple(

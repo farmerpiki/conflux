@@ -242,7 +242,7 @@ public:
 };
 ```
 
-Built-in `Row::as<T>` specializations: `i32`, `i64`, `double`, `bool`, `std::string`, `std::string_view` (borrows from the result). Parse failures throw `PgError`.
+Built-in `Row::as<T>` specializations: `i32`, `i64`, `double`, `bool`, `std::string`, `std::string_view` (borrows from the result). `as<T>` parse failures throw `PgError`; `as_opt<T>` returns `std::nullopt` for SQL NULL or parse failure.
 
 ---
 

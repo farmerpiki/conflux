@@ -100,6 +100,30 @@ TEST_CASE(
 	REQUIRE(enc != nullptr);
 	CHECK(std::string_view{enc} == "UTF8");
 }
+
+TEST_CASE(
+	"db: Row as_opt returns nullopt on null or parse failure",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	conflux::file_io::CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	auto r = conflux::file_io::block_on(
+		fx->reader,
+		conn->query("SELECT NULL::text AS empty, 'not-int'::text AS bad, '42'::text AS ok"),
+		std::chrono::seconds{30});
+	REQUIRE(r.ok());
+	REQUIRE(r.rows() == 1);
+	CHECK_FALSE(r[0].as_opt<std::int64_t>(0).has_value());
+	CHECK_FALSE(r[0].as_opt<std::int64_t>(1).has_value());
+	CHECK(r[0].as_opt<std::int64_t>(2) == std::optional<std::int64_t>{42});
+	CHECK_THROWS_AS(r[0].as<std::int64_t>(1), PgError);
+}
+
 TEST_CASE(
 	"db: bad credentials reject with PgError",
 	"[db][integration]") {
