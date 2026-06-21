@@ -43,6 +43,25 @@ def check_conflux_private_modules_use_explicit_paths() -> None:
         fail("\n".join(errors))
 
 
+def check_conflux_paths_are_project_scoped() -> None:
+    errors: list[str] = []
+    paths = [Path("CMakeLists.txt")]
+    for root in [Path("cmake"), Path("tests"), Path("examples"), Path("benchmarks"), Path("fuzz")]:
+        paths.extend(root.rglob("*.cmake"))
+        cmakelists = root / "CMakeLists.txt"
+        if cmakelists.exists():
+            paths.append(cmakelists)
+    for path in sorted(set(paths)):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"\bCMAKE_(?:SOURCE|BINARY)_DIR\b", text):
+            errors.append(
+                f"{path}:{text.count(chr(10), 0, match.start()) + 1}: "
+                "Conflux-owned paths must use PROJECT_SOURCE_DIR or PROJECT_BINARY_DIR",
+            )
+    if errors:
+        fail("\n".join(errors))
+
+
 def cmake_cache_strings(text: str, variable: str) -> set[str]:
     match = re.search(
         rf"set_property\(CACHE\s+{re.escape(variable)}\s+PROPERTY\s+STRINGS\s+(?P<body>[^)]*)\)",
@@ -2240,7 +2259,7 @@ def check_install_tree_ctest_helpers() -> None:
         'string(REPLACE ";" "\\\\;" _conflux_escaped_components': "package smoke CTest helpers must preserve component lists as one command argument",
     }
     missing = sorted(message for marker, message in required_markers.items() if marker not in options)
-    if 'conflux_add_install_tree_smoke_test("${CMAKE_SOURCE_DIR}")' not in tests:
+    if 'conflux_add_install_tree_smoke_test("${PROJECT_SOURCE_DIR}")' not in tests:
         missing.append("install-tree smoke CTest must use the shared filtered argument helper")
     if 'conflux_add_install_tree_smoke_test("${CMAKE_CURRENT_SOURCE_DIR}")' not in header:
         missing.append("header install-tree smoke CTest must use the shared filtered argument helper")
@@ -2929,7 +2948,7 @@ def check_build_docs_guard_contracts() -> None:
         "tests/MainTests.cmake": {
             "add_executable(conflux_tests)": "main test fragment must define the main test target",
             "http_protocol_e2e.cxx": "main test fragment must keep protocol e2e source wiring",
-            "target_include_directories(conflux_tests PRIVATE \"${CMAKE_SOURCE_DIR}/src/net\")": "main test fragment must keep net-private include path",
+            "target_include_directories(conflux_tests PRIVATE \"${PROJECT_SOURCE_DIR}/src/net\")": "main test fragment must keep net-private include path",
             "target_link_libraries(conflux_tests PRIVATE ZLIB::ZLIB)": "main test fragment must keep optional ZLIB edge",
         },
         "tests/CoreTests.cmake": {
@@ -3783,6 +3802,7 @@ def main() -> int:
         os.chdir(sys.argv[1])
 
     check_conflux_private_modules_use_explicit_paths()
+    check_conflux_paths_are_project_scoped()
     check_no_legacy_stdsimd_option()
     check_no_explicit_build_parallelism()
     check_provider_policy_scenarios_are_isolated()

@@ -46,8 +46,8 @@ function(conflux_add_compile_fail_test)
     add_library(${CF_TARGET} EXCLUDE_FROM_ALL OBJECT ${CF_SOURCE})
     target_link_libraries(${CF_TARGET} PRIVATE ${CF_LINK})
     add_test(NAME ${CF_TEST}
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
+        COMMAND "${PROJECT_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${PROJECT_BINARY_DIR}"
                 ${CF_TARGET}
                 ${CF_EXPECT})
     set_tests_properties(${CF_TEST} PROPERTIES

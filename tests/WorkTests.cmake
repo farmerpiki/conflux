@@ -60,7 +60,7 @@ target_link_libraries(conflux_direct_slot_pool_tests
         conflux_direct_slot_pool
         Catch2::Catch2WithMain
 )
-target_include_directories(conflux_direct_slot_pool_tests PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_include_directories(conflux_direct_slot_pool_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/net")
 
 conflux_add_compile_fail_test(
     TARGET conflux_direct_slot_pool_compile_fail_global_pool

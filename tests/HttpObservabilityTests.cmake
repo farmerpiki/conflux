@@ -6,7 +6,7 @@ if(TARGET conflux_http_observability)
         PRIVATE FILE_SET CXX_MODULES FILES
             support.cxx
     )
-    target_include_directories(conflux_http_metrics_e2e PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+    target_include_directories(conflux_http_metrics_e2e PRIVATE "${PROJECT_SOURCE_DIR}/src/net")
     target_link_libraries(conflux_http_metrics_e2e
         PRIVATE
             conflux

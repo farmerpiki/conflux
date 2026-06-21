@@ -23,7 +23,7 @@ if(NOT _conflux_simd_backend STREQUAL "OFF" AND _conflux_simd_selection STREQUAL
         add_custom_target(conflux_simd_direct_shape
             COMMAND "${Python3_EXECUTABLE}"
                     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-simd-direct-shape.py"
-                    "${CMAKE_BINARY_DIR}"
+                    "${PROJECT_BINARY_DIR}"
                     "${CMAKE_NM}"
                     ${_conflux_simd_direct_shape_objects}
             DEPENDS ${_conflux_simd_direct_shape_deps}
