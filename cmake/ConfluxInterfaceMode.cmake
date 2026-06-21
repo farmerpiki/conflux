@@ -1114,7 +1114,7 @@ function(conflux_add_header_examples_from_source_ids)
     endif()
     if(CONFLUX_BUILD_TESTS)
         add_test(NAME examples/compile
-            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+            COMMAND "${CMAKE_COMMAND}" --build "${PROJECT_BINARY_DIR}"
                     --target conflux_examples --config "$<CONFIG>")
         set_tests_properties(examples/compile PROPERTIES
             LABELS "examples;build;header"
@@ -1150,7 +1150,7 @@ function(conflux_add_header_consumer_compile_target aggregate target_prefix enab
     endif()
     if(aggregate STREQUAL "conflux_header_tests" AND TARGET "${target_prefix}_tests_template_test")
         add_test(NAME template/header-compile
-            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+            COMMAND "${CMAKE_COMMAND}" --build "${PROJECT_BINARY_DIR}"
                     --target "${target_prefix}_tests_template_test" --config "$<CONFIG>")
         set_tests_properties(template/header-compile PROPERTIES
             LABELS "template;build;header"
@@ -1260,8 +1260,8 @@ function(conflux_add_header_compile_fail_test name source_id)
     set_property(TARGET ${_target} PROPERTY CONFLUX_SOURCE_ID "${source_id}")
     target_link_libraries(${_target} PRIVATE conflux_headers)
     add_test(NAME "${name}"
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
-                "${CMAKE_BINARY_DIR}"
+        COMMAND "${PROJECT_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${PROJECT_BINARY_DIR}"
                 ${_target}
                 ${_expected})
     set_tests_properties("${name}" PROPERTIES

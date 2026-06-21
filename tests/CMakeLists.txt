@@ -72,11 +72,11 @@ include("${CMAKE_CURRENT_LIST_DIR}/BuildAndDocsChecks.cmake")
 if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
         AND CONFLUX_PACKAGE_SMOKE_PREFIX)
     conflux_add_package_config_install_tree_test(
-        "${CMAKE_SOURCE_DIR}"
-        "${CMAKE_BINARY_DIR}/package-smoke")
+        "${PROJECT_SOURCE_DIR}"
+        "${PROJECT_BINARY_DIR}/package-smoke")
 endif()
 
 if((CONFLUX_BUILD_TESTS OR CONFLUX_BUILD_PACKAGE_TESTS)
         AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
-    conflux_add_install_tree_smoke_test("${CMAKE_SOURCE_DIR}")
+    conflux_add_install_tree_smoke_test("${PROJECT_SOURCE_DIR}")
 endif()

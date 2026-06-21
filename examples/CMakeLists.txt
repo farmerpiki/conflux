@@ -215,23 +215,23 @@ endif()
 
 if(CONFLUX_BUILD_TESTS)
     add_test(NAME examples/quickstart-policy
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-quickstart-examples.sh"
-                "${CMAKE_SOURCE_DIR}/examples/quickstart"
+        COMMAND "${PROJECT_SOURCE_DIR}/scripts/check-quickstart-examples.sh"
+                "${PROJECT_SOURCE_DIR}/examples/quickstart"
     )
     set_tests_properties(examples/quickstart-policy PROPERTIES
         LABELS "examples;lint"
     )
 
     add_test(NAME examples/public-policy
-        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-public-examples.sh"
-                "${CMAKE_SOURCE_DIR}/examples"
+        COMMAND "${PROJECT_SOURCE_DIR}/scripts/check-public-examples.sh"
+                "${PROJECT_SOURCE_DIR}/examples"
     )
     set_tests_properties(examples/public-policy PROPERTIES
         LABELS "examples;lint"
     )
 
     add_test(NAME examples/compile
-        COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+        COMMAND "${CMAKE_COMMAND}" --build "${PROJECT_BINARY_DIR}"
                 --target conflux_examples --config "$<CONFIG>"
     )
     set_tests_properties(examples/compile PROPERTIES
@@ -243,7 +243,7 @@ if(CONFLUX_BUILD_TESTS)
         if(TARGET ${TARGET_NAME})
             add_test(NAME examples/e2e-${CASE_NAME}
                 COMMAND "${Python3_EXECUTABLE}"
-                        "${CMAKE_SOURCE_DIR}/scripts/run-example-e2e.py"
+                        "${PROJECT_SOURCE_DIR}/scripts/run-example-e2e.py"
                         --case "${CASE_NAME}"
                         --exe "$<TARGET_FILE:${TARGET_NAME}>"
             )

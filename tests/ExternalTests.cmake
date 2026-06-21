@@ -89,7 +89,7 @@ if(CONFLUX_ENABLE_THIRD_PARTY_TESTS AND TARGET conflux_http_app)
 
     if(TARGET conflux_http2 AND CONFLUX_HAS_TLS STREQUAL "true")
         add_test(NAME third-party/h2spec
-            COMMAND "${CMAKE_SOURCE_DIR}/scripts/third-party/run-h2spec.sh"
+            COMMAND "${PROJECT_SOURCE_DIR}/scripts/third-party/run-h2spec.sh"
                     "$<TARGET_FILE:conflux_third_party_conformance_server>")
         set_tests_properties(third-party/h2spec PROPERTIES
             LABELS "third-party;h2;conformance"
@@ -100,7 +100,7 @@ if(CONFLUX_ENABLE_THIRD_PARTY_TESTS AND TARGET conflux_http_app)
 
     if(TARGET conflux_http_realtime)
         add_test(NAME third-party/autobahn
-            COMMAND "${CMAKE_SOURCE_DIR}/scripts/third-party/run-autobahn.sh"
+            COMMAND "${PROJECT_SOURCE_DIR}/scripts/third-party/run-autobahn.sh"
                     "$<TARGET_FILE:conflux_third_party_conformance_server>")
         set_tests_properties(third-party/autobahn PROPERTIES
             LABELS "third-party;websocket;conformance"

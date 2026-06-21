@@ -25,7 +25,7 @@ target_sources(conflux_tests
         support.cxx
         smoke.cxx
 )
-target_include_directories(conflux_tests PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+target_include_directories(conflux_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/net")
 target_link_libraries(conflux_tests
     PRIVATE
         conflux
