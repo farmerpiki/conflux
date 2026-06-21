@@ -2993,6 +2993,7 @@ export namespace conflux::json {
 // Explicit owning parse: copies input into the Document's owned buffer.
 // Number lexemes index directly into that buffer (zero-copy on read paths).
 std::expected<Document, JsonError> parse_copy(std::string_view input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse_copy(char const *input, JsonParseOptions const &opts = {});
 // Move-in owning overload: avoids the input copy. Keep this a concrete
 // std::string rvalue overload so unrelated string-like temporaries continue to
 // select parse_copy(string_view) instead of trying to become owned storage.
@@ -3003,15 +3004,14 @@ std::expected<Document, JsonError> parse_borrowed(std::string_view input, JsonPa
 std::expected<Document, JsonError> parse_borrowed_unsafe(std::string_view input, JsonParseOptions const &opts = {});
 std::expected<Document, JsonError> parse_view(std::string_view input, JsonParseOptions const &opts = {});
 // Performance-default parse: borrows/view-parses from stable caller-owned
-// storage. Use parse_copy(...) when the returned Document must own the bytes.
+// storage. Passing an std::string rvalue owns it by moving into the Document.
 std::expected<Document, JsonError> parse(std::string_view input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse(char const *input, JsonParseOptions const &opts = {});
+std::expected<Document, JsonError> parse(std::string &&input, JsonParseOptions const &opts = {});
 
-// Deleted std::string rvalue overloads (Correction T) — borrowing requires
+// Deleted std::string rvalue overloads (Correction T) — explicit borrowing requires
 // caller-owned bytes. String literals and string_view temporaries still select
 // the string_view overloads; only owned string temporaries are rejected.
-template<typename T>
-	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-std::expected<Document, JsonError> parse(T &&, JsonParseOptions const & = {}) = delete;
 template<typename T>
 	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
 std::expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const & = {}) = delete;
@@ -3027,6 +3027,10 @@ std::expected<Document, JsonError> parse_view(T &&, JsonParseOptions const & = {
 std::expected<Document, JsonError>
 parse_copy(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
 std::expected<Document, JsonError>
+parse_copy(char const *input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+std::expected<Document, JsonError>
+parse_copy(std::string &&input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+std::expected<Document, JsonError>
 parse_borrowed(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
 std::expected<Document, JsonError>
 parse_borrowed_unsafe(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
@@ -3034,10 +3038,10 @@ std::expected<Document, JsonError>
 parse_view(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
 std::expected<Document, JsonError>
 parse(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
-
-template<typename T>
-	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
-std::expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+std::expected<Document, JsonError>
+parse(char const *input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+std::expected<Document, JsonError>
+parse(std::string &&input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
 template<typename T>
 	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
 std::expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;

@@ -139,6 +139,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"file_io: pump_until honors subsecond timeout budgets",
+	"[file_io][driver]") {
+	auto fx = RingFixture::make();
+	if (!fx) {
+		SKIP("io_uring init failed");
+	}
+
+	std::atomic_flag done{};
+	auto const started = std::chrono::steady_clock::now();
+	CHECK_THROWS_AS(
+		conflux::file_io::pump_until(fx->reader, done, std::chrono::milliseconds{25}),
+		conflux::file_io::PumpTimeout);
+	auto const elapsed = std::chrono::steady_clock::now() - started;
+	CHECK(elapsed < std::chrono::milliseconds{500});
+}
+
+TEST_CASE(
 	"file_io: async_futex_wake wakes zero waiters on uncontested futex",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();

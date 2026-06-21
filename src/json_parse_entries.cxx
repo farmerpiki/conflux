@@ -159,6 +159,12 @@ std::expected<Document, JsonError> parse_copy(
 }
 
 std::expected<Document, JsonError> parse_copy(
+	char const *input,
+	JsonParseOptions const &opts) {
+	return parse_copy(std::string_view{input}, opts);
+}
+
+std::expected<Document, JsonError> parse_copy(
 	std::string &&input,
 	JsonParseOptions const &opts) {
 	auto const input_size = input.size();
@@ -199,6 +205,18 @@ std::expected<Document, JsonError> parse(
 	return parse_borrowed(input, opts);
 }
 
+std::expected<Document, JsonError> parse(
+	char const *input,
+	JsonParseOptions const &opts) {
+	return parse(std::string_view{input}, opts);
+}
+
+std::expected<Document, JsonError> parse(
+	std::string &&input,
+	JsonParseOptions const &opts) {
+	return parse_copy(std::move(input), opts);
+}
+
 std::expected<Document, JsonError> parse_copy(
 	std::string_view input,
 	JsonParseOptions const &opts,
@@ -208,6 +226,27 @@ std::expected<Document, JsonError> parse_copy(
 		std::make_unique<DocumentStorage>(resource),
 		opts,
 		[input](DocumentStorage &storage) { prepare_copied_input(storage, input); });
+}
+
+std::expected<Document, JsonError> parse_copy(
+	char const *input,
+	JsonParseOptions const &opts,
+	std::pmr::memory_resource *resource) {
+	return parse_copy(std::string_view{input}, opts, resource);
+}
+
+std::expected<Document, JsonError> parse_copy(
+	std::string &&input,
+	JsonParseOptions const &opts,
+	std::pmr::memory_resource *resource) {
+	auto const input_size = input.size();
+	return parse_document_storage(
+		input_size,
+		std::make_unique<DocumentStorage>(resource),
+		opts,
+		[input = std::move(input)](DocumentStorage &storage) mutable {
+			prepare_moved_input(storage, std::move(input));
+		});
 }
 
 std::expected<Document, JsonError> parse_borrowed(
@@ -240,6 +279,20 @@ std::expected<Document, JsonError> parse(
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	return parse_borrowed(input, opts, resource);
+}
+
+std::expected<Document, JsonError> parse(
+	char const *input,
+	JsonParseOptions const &opts,
+	std::pmr::memory_resource *resource) {
+	return parse(std::string_view{input}, opts, resource);
+}
+
+std::expected<Document, JsonError> parse(
+	std::string &&input,
+	JsonParseOptions const &opts,
+	std::pmr::memory_resource *resource) {
+	return parse_copy(std::move(input), opts, resource);
 }
 
 namespace detail {

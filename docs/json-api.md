@@ -90,6 +90,7 @@ aggregate P2996 serde is desired. Framework modules should not import
 
 ```cpp
 expected<Document, JsonError> parse(string_view input, JsonParseOptions const& opts = {});
+expected<Document, JsonError> parse(string&&      input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse_borrowed(string_view input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse_borrowed_unsafe(string_view input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse_view(string_view input, JsonParseOptions const& opts = {});
@@ -99,15 +100,16 @@ expected<Document, JsonError> parse_copy(string&&      input, JsonParseOptions c
 
 - `parse(string_view)` / `parse_view(string_view)` — performance-default,
   zero-copy view parse. String values borrow directly from `input`.
+- `parse(string&&)` — convenience owning parse for temporary `std::string`
+  values; equivalent to `parse_copy(std::move(input))`.
 - `parse_borrowed(string_view)` / `parse_borrowed_unsafe(string_view)` —
   explicit aliases for `parse_view` when a review should notice that the
   returned `Document` contains views into caller-owned bytes.
 - `parse_copy(string_view)` — copies input into the `Document`'s owned buffer.
 - `parse_copy(string&&)` — moves the input string into the `Document`; no copy.
-- `parse(string&&)`, `parse_view(string&&)`, and `parse_borrowed(string&&)` are
+- `parse_view(string&&)` and `parse_borrowed(string&&)` are
   `= delete` to prevent accidental dangling, including PMR overloads that take
-  a caller-supplied memory resource. Use `parse_copy(std::move(s))` for rvalue
-  strings.
+  a caller-supplied memory resource.
 
 ```cpp
 auto doc = parse_view(R"({"x": 1, "y": 2})");
@@ -840,10 +842,12 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
   The only internal mutation is lazy hash-index construction via atomic CAS.
 - All borrowed handles (`NodeRef`, `ObjectView`, `ArrayView`, etc.) are valid
   across moves of the same `Document`.
-- `parse`, `parse_view`, `parse_borrowed`, and `parse_borrowed_unsafe` string values point into the original `input` buffer.
+- `parse` on lvalue/view input, `parse_view`, `parse_borrowed`, and
+  `parse_borrowed_unsafe` string values point into the original `input` buffer.
   Destroying or mutating that buffer after parse is undefined behaviour.
-- `parse_copy` stores the bytes inside the returned `Document`; use it whenever
-  the source buffer cannot remain alive and immutable.
+- `parse_copy` and `parse(std::string&&)` store the bytes inside the returned
+  `Document`; use an owning parse whenever the source buffer cannot remain
+  alive and immutable.
 - `NdjsonRange` returns per-line `Document` values that borrow from the original
   NDJSON buffer. The entire NDJSON input must remain alive and immutable while
   any iterator result is alive.
