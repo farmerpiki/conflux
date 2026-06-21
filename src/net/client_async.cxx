@@ -9,7 +9,21 @@ export namespace conflux::http {
 
 using conflux::socket_io::SocketTaskRing;
 
+struct AsyncClientRunOptions {
+	unsigned ring_entries = 256;
+};
+
 [[nodiscard]] conflux::work::root::Task<ClientResult>
 async_send(HttpClient const &client, SocketTaskRing &ring, ClientRequest const &req);
+
+[[nodiscard]] ClientResult async_blocking_send(
+	HttpClient const &client,
+	ClientRequest const &request,
+	AsyncClientRunOptions opts = {});
+
+[[nodiscard]] ClientResult async_blocking_send(
+	HttpClient const &client,
+	ClientRequest &&request,
+	AsyncClientRunOptions opts = {});
 
 } // namespace conflux::http

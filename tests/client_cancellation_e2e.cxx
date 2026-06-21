@@ -152,6 +152,7 @@ std::unique_ptr<RingFixture> require_ring_fixture() {
 class ScriptedTcpServer {
 public:
 	enum class Mode : std::uint8_t {
+		ok_response,
 		idle_after_accept,
 		idle_after_request,
 		partial_body_then_idle,
@@ -252,6 +253,11 @@ private:
 			}
 		}
 		request_seen_.store(true, std::memory_order_release);
+		if (mode_ == Mode::ok_response) {
+			auto _ = send_all(fd, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+			::close(fd);
+			return;
+		}
 		if (mode_ == Mode::partial_body_then_idle) {
 			std::string_view wire = "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nab";
 			auto _ = send_all(fd, wire);
@@ -337,6 +343,44 @@ chttp::HttpClient make_client(
 }
 
 } // namespace
+
+TEST_CASE(
+	"http async client: async_blocking_send handles rvalue request without caller ring",
+	"[http][client][async_blocking][uring]") {
+	ScriptedTcpServer server{ScriptedTcpServer::Mode::ok_response};
+	auto client = make_client(std::chrono::seconds{5});
+	auto result = chttp::async_blocking_send(client, get_request(server.port()));
+	REQUIRE(result.has_value());
+	CHECK(result->head.status == 200);
+	CHECK(result->body == "ok");
+}
+
+TEST_CASE(
+	"http async client: async_blocking_send handles lvalue request without caller ring",
+	"[http][client][async_blocking][uring]") {
+	ScriptedTcpServer server{ScriptedTcpServer::Mode::ok_response};
+	auto client = make_client(std::chrono::seconds{5});
+	auto req = get_request(server.port());
+	auto result = chttp::async_blocking_send(client, req);
+	REQUIRE(result.has_value());
+	CHECK(result->head.status == 200);
+	CHECK(result->body == "ok");
+}
+
+TEST_CASE(
+	"http async client: async_blocking_send reports invalid ring init as ClientResult",
+	"[http][client][async_blocking][uring]") {
+	auto client = make_client(std::chrono::seconds{5});
+	auto result = chttp::async_blocking_send(
+		client,
+		chttp::ClientRequest::get("http://127.0.0.1:9/"),
+		chttp::AsyncClientRunOptions{.ring_entries = 0});
+	REQUIRE_FALSE(result.has_value());
+	CHECK(result.error().kind == chttp::HttpErrorKind::protocol);
+	CHECK(result.error().phase == chttp::HttpPhase::connect);
+	CHECK(result.error().os_errno == EINVAL);
+	CHECK(result.error().message.find("io_uring_queue_init") != std::string::npos);
+}
 
 TEST_CASE(
 	"http async client: cancellation before connect completion is terminal",

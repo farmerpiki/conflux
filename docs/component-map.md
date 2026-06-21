@@ -167,7 +167,7 @@ component list.
 | `http_compression` | `conflux::http_compression` | `conflux.net.compress` and enabled backend modules | complete | `examples/public/gzip.cxx` |
 | `http_openapi` | `conflux::http_openapi` | `conflux.net.openapi` | extended | `examples/advanced/vhost_openapi.cxx` |
 | `http_vhost` | `conflux::http_vhost` | `conflux.net.vhost` | extended | `examples/advanced/vhost_openapi.cxx` |
-| `http_async_client` | `conflux::http_async_client` | `conflux.net.async_client` | complete | `docs/conflux-http-client-api.md`, `examples/advanced/http_client_builder.cxx` |
+| `http_async_client` | `conflux::http_async_client` | `conflux.net.async_client` (`async_blocking_send`, `async_send`) | complete | `docs/conflux-http-client-api.md`, `examples/advanced/http_client_builder.cxx` |
 | `http_proxy` | `conflux::http_proxy` | `conflux.net.proxy` | complete | `tests/http_e2e.cxx` |
 | `http1` | `conflux::http1` | `conflux.net.http1_parser` | complete | `docs/http-security-corpus.md`, `fuzz/fuzz_http1_parser.cxx` |
 | `http2` | `conflux::http2` | `conflux.net.http2` | complete | `tests/h2_external.cxx` |
