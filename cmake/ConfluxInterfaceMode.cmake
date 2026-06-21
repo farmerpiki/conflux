@@ -1,5 +1,5 @@
-include(ConfluxExternalDependencyRegistry)
-include(ConfluxComponentRegistry)
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxExternalDependencyRegistry.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxComponentRegistry.cmake")
 
 function(conflux_append_optional_bridge_inputs args_out roots_out)
     set(_args ${${args_out}})

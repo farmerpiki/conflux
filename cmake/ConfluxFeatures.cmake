@@ -1,4 +1,4 @@
-include(ConfluxProviderResolution)
+include("${CMAKE_CURRENT_LIST_DIR}/ConfluxProviderResolution.cmake")
 
 execute_process(
     COMMAND git rev-parse --short=12 HEAD

@@ -19,6 +19,30 @@ def read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def check_conflux_private_modules_use_explicit_paths() -> None:
+    owned_module_names = {path.stem for path in Path("cmake").glob("*.cmake")}
+    owned_module_names.add("Dependencies")
+    errors: list[str] = []
+    paths = [Path("CMakeLists.txt")]
+    paths.extend(Path("cmake").glob("*.cmake"))
+    for path in sorted(paths):
+        text = path.read_text(encoding="utf-8")
+        if path == Path("CMakeLists.txt") and re.search(
+            r"list\s*\(\s*APPEND\s+CMAKE_MODULE_PATH\s+\"\$\{CMAKE_CURRENT_SOURCE_DIR\}/cmake\"",
+            text,
+        ):
+            errors.append("root CMakeLists.txt must not append Conflux's private cmake directory to CMAKE_MODULE_PATH")
+        for match in re.finditer(r"^\s*include\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)", text, re.MULTILINE):
+            module = match.group(1)
+            if module in owned_module_names:
+                errors.append(
+                    f"{path}:{text.count(chr(10), 0, match.start()) + 1}: "
+                    f"Conflux-owned module '{module}' must be included by explicit path",
+                )
+    if errors:
+        fail("\n".join(errors))
+
+
 def cmake_cache_strings(text: str, variable: str) -> set[str]:
     match = re.search(
         rf"set_property\(CACHE\s+{re.escape(variable)}\s+PROPERTY\s+STRINGS\s+(?P<body>[^)]*)\)",
@@ -1356,14 +1380,14 @@ def check_preset_build_dir_usage_contracts() -> None:
 def check_cmake_extraction_contracts() -> None:
     checks = {
         "CMakeLists.txt": {
-            "include(ConfluxProviderSelection)": "missing provider selection CMake module include",
-            "include(ConfluxPython)": "missing Python configuration CMake module include",
-            "include(ConfluxUringProbes)": "missing io_uring probe CMake module include",
-            "include(ConfluxCompilerProbes)": "missing compiler probes CMake module include",
-            "include(ConfluxOptionsTarget)": "missing options target CMake module include",
-            "include(ConfluxCompilerWorkarounds)": "missing compiler workaround CMake module include",
-            "include(ConfluxModuleLibrary)": "missing module-library helper CMake module include",
-            "include(ConfluxComponentValidation)": "missing component validation CMake module include",
+            "ConfluxProviderSelection.cmake": "missing provider selection CMake module include",
+            "ConfluxPython.cmake": "missing Python configuration CMake module include",
+            "ConfluxUringProbes.cmake": "missing io_uring probe CMake module include",
+            "ConfluxCompilerProbes.cmake": "missing compiler probes CMake module include",
+            "ConfluxOptionsTarget.cmake": "missing options target CMake module include",
+            "ConfluxCompilerWorkarounds.cmake": "missing compiler workaround CMake module include",
+            "ConfluxModuleLibrary.cmake": "missing module-library helper CMake module include",
+            "ConfluxComponentValidation.cmake": "missing component validation CMake module include",
         },
         "cmake/ConfluxProviderSelection.cmake": {
             'set(CONFLUX_JSON_HASH_PROVIDER "${CONFLUX_EFFECTIVE_JSON_HASH_PROVIDER}")': "provider selection module must bridge effective provider requests",
@@ -1387,10 +1411,10 @@ def check_cmake_extraction_contracts() -> None:
             "function(conflux_add_module_library target)": "module-library helper must define conflux_add_module_library",
         },
         "cmake/ConfluxHeaderInterface.cmake": {
-            "include(ConfluxComponentValidation)": "header interface must run component validation before defining header targets",
+            "ConfluxComponentValidation.cmake": "header interface must run component validation before defining header targets",
             "function(conflux_header_support_component target export_name)": "header support component metadata must use the shared header helper",
             "conflux_header_support_component(conflux_headers headers)": "headers support component must use the shared header helper",
-            "include(ConfluxHeaderInstall)": "header interface must delegate header install helpers to ConfluxHeaderInstall.cmake",
+            "ConfluxHeaderInstall.cmake": "header interface must delegate header install helpers to ConfluxHeaderInstall.cmake",
             "function(conflux_validate_header_impl_metadata)": "header implementation metadata lists must be validated before package metadata assembly",
             "header implementation metadata lists are out of sync": "header implementation metadata validation must reject out-of-sync lists",
             "header implementation target '${_target}' is listed more than once": "header implementation metadata validation must reject duplicate targets",
@@ -2235,8 +2259,8 @@ def check_provider_selection_order() -> None:
         read("CMakeLists.txt"),
         [
             "conflux_apply_preset()",
-            "include(ConfluxProviderSelection)",
-            "include(Dependencies)",
+            "ConfluxProviderSelection.cmake",
+            "Dependencies.cmake",
         ],
         "provider selection must run after presets and before dependency discovery",
     )
@@ -2246,8 +2270,8 @@ def check_python_setup_order() -> None:
     check_marker_order(
         read("CMakeLists.txt"),
         [
-            "include(ConfluxPython)",
-            "include(ConfluxInterfaceMode)",
+            "ConfluxPython.cmake",
+            "ConfluxInterfaceMode.cmake",
             "conflux_configure_interface_mode()",
         ],
         "Python setup must run before interface-mode configuration",
@@ -2258,8 +2282,8 @@ def check_compiler_probe_order() -> None:
     check_marker_order(
         read("CMakeLists.txt"),
         [
-            "include(ConfluxCompilerProbes)",
-            "include(ConfluxOptionsTarget)",
+            "ConfluxCompilerProbes.cmake",
+            "ConfluxOptionsTarget.cmake",
         ],
         "compiler probes must run before conflux_options publishes probe results",
     )
@@ -2269,7 +2293,7 @@ def check_options_target_order() -> None:
     check_marker_order(
         read("CMakeLists.txt"),
         [
-            "include(ConfluxOptionsTarget)",
+            "ConfluxOptionsTarget.cmake",
             "include(cmake/components/CoreTargets.cmake)",
         ],
         "conflux_options target setup must run before component targets",
@@ -3378,7 +3402,7 @@ def check_file_io_sync_effective_flag_contract() -> None:
         read("CMakeLists.txt"),
         [
             "include(cmake/components/JsonTargets.cmake)",
-            "include(ConfluxComponentValidation)",
+            "ConfluxComponentValidation.cmake",
             "include(cmake/components/FileTargets.cmake)",
         ],
         "component validation must derive effective file_io_sync before file targets",
@@ -3758,6 +3782,7 @@ def main() -> int:
         Path(sys.argv[1]).resolve(strict=True)
         os.chdir(sys.argv[1])
 
+    check_conflux_private_modules_use_explicit_paths()
     check_no_legacy_stdsimd_option()
     check_no_explicit_build_parallelism()
     check_provider_policy_scenarios_are_isolated()
