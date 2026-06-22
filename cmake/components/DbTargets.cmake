@@ -11,6 +11,10 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
             ${CONFLUX_SRC_ROOT}/db/pool.cxx
             ${CONFLUX_SRC_ROOT}/db/pg.cxx
     )
+    target_sources(conflux_pg
+        PRIVATE
+            ${CONFLUX_SRC_ROOT}/db/result_impl.cxx
+    )
     target_link_libraries(conflux_pg
         PRIVATE conflux_options
         PUBLIC  conflux_work
