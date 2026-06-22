@@ -203,7 +203,7 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 			if (lane != nullptr) {
 				auto _ = lane->enqueue([] {});
 			}
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): wake is best-effort during shutdown notification.
 		cv.notify_all();
 	}
 
@@ -475,7 +475,7 @@ struct Submission final
 		std::exception_ptr error) noexcept {
 		try {
 			auto _ = source.try_set_exception(error);
-		} catch (...) {}
+		} catch (...) {} // NOLINT(bugprone-empty-catch): commit is noexcept; release admission regardless.
 		release();
 	}
 
