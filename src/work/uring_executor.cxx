@@ -2,6 +2,7 @@ module;
 #include <cerrno>
 #include <cstdint>
 #include <liburing.h>
+#include <memory>
 
 export module conflux.work.uring_executor;
 
@@ -72,14 +73,10 @@ struct SubmissionBase {
 	std::atomic<bool> admission_released{false};
 
 	virtual ~SubmissionBase() = default;
-	virtual void start(
-		UringExecutorSharedState &state) noexcept = 0;
-	virtual void cancel(
-		root::CancelReason reason) noexcept = 0;
+	virtual void start(UringExecutorSharedState &state) noexcept = 0;
+	virtual void cancel(root::CancelReason reason) noexcept = 0;
 	virtual void cancel_shutdown() noexcept = 0;
-	virtual void fail_enqueue(
-		std::error_code ec,
-		std::string_view message) noexcept = 0;
+	virtual void fail_enqueue(std::error_code ec, std::string_view message) noexcept = 0;
 };
 
 struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorSharedState> {
@@ -113,9 +110,7 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 		UringExecutorOptions opts)
 		: options{opts} {}
 
-	~UringExecutorSharedState() {
-		join();
-	}
+	~UringExecutorSharedState() { join(); }
 
 	[[nodiscard]] std::uint64_t encode(
 		std::uint32_t slot,
@@ -126,9 +121,7 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 		return pack_user_data(slot, gen);
 	}
 
-	[[nodiscard]] std::uint64_t wake_user_data() const noexcept {
-		return pack_user_data(kExecutorSlot, kWakeTag);
-	}
+	[[nodiscard]] std::uint64_t wake_user_data() const noexcept { return pack_user_data(kExecutorSlot, kWakeTag); }
 
 	void start() {
 		auto self = shared_from_this();
@@ -141,13 +134,9 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 		return startup_error;
 	}
 
-	[[nodiscard]] bool on_owner_thread() const noexcept {
-		return std::this_thread::get_id() == owner_thread;
-	}
+	[[nodiscard]] bool on_owner_thread() const noexcept { return std::this_thread::get_id() == owner_thread; }
 
-	[[nodiscard]] int ring_fd() const noexcept {
-		return ring_fd_value.load(std::memory_order_acquire);
-	}
+	[[nodiscard]] int ring_fd() const noexcept { return ring_fd_value.load(std::memory_order_acquire); }
 
 	[[nodiscard]] bool stopped() const noexcept {
 		auto const s = state.load(std::memory_order_acquire);
@@ -278,12 +267,11 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 		}
 
 		completions = std::make_unique<conflux::uring::CompletionTable>(options.completion_slots);
-		lane = std::make_unique<RingLane>(
-			RingLaneOptions{
-				.ring_fd = ring.ring_fd,
-				.wake_user_data = wake_user_data(),
-				.drain_budget = options.lane_drain_budget,
-				.allow_inline_on_owner = true});
+		lane = std::make_unique<RingLane>(RingLaneOptions{
+			.ring_fd = ring.ring_fd,
+			.wake_user_data = wake_user_data(),
+			.drain_budget = options.lane_drain_budget,
+			.allow_inline_on_owner = true});
 		lane->adopt_current_thread();
 		publish_startup(UringExecutorState::running);
 		loop(st);
@@ -435,7 +423,9 @@ public:
 namespace uring_executor_detail {
 
 template<class T, class Fn>
-struct Submission final : SubmissionBase, std::enable_shared_from_this<Submission<T, Fn>> {
+struct Submission final
+	: SubmissionBase
+	, std::enable_shared_from_this<Submission<T, Fn>> {
 	using source_t = root::TaskSource<T>;
 
 	std::weak_ptr<UringExecutorSharedState> executor{};
@@ -464,7 +454,8 @@ struct Submission final : SubmissionBase, std::enable_shared_from_this<Submissio
 			}
 		});
 		if (!installed) {
-			commit_exception(std::make_exception_ptr(root::WorkError{"conflux.work.uring_executor: cancel hook install failed"}));
+			commit_exception(
+				std::make_exception_ptr(root::WorkError{"conflux.work.uring_executor: cancel hook install failed"}));
 		}
 	}
 
@@ -501,9 +492,7 @@ struct Submission final : SubmissionBase, std::enable_shared_from_this<Submissio
 		release();
 	}
 
-	void cancel_shutdown() noexcept override {
-		cancel(root::CancelReason::shutdown);
-	}
+	void cancel_shutdown() noexcept override { cancel(root::CancelReason::shutdown); }
 
 	void cancel(
 		root::CancelReason reason) noexcept override {
@@ -530,7 +519,8 @@ struct Submission final : SubmissionBase, std::enable_shared_from_this<Submissio
 		try {
 			UringExecutorContext ctx{state};
 			auto child = std::invoke(fn, ctx);
-			auto child_handle = std::make_shared<root::TaskJoinHandle<T>>(root::into_join_handle(std::move(child)));
+			auto child_handle = std::shared_ptr<root::TaskJoinHandle<T>>{
+				new root::TaskJoinHandle<T>(root::into_join_handle(std::move(child)))};
 			auto const generation = outer_control.bind_child_for_cancellation(child_handle->control());
 			bool request_cancel = false;
 			root::CancelReason reason = root::CancelReason::requested;
@@ -546,9 +536,8 @@ struct Submission final : SubmissionBase, std::enable_shared_from_this<Submissio
 				auto _ = child_handle->control().request_cancel(reason);
 			}
 			auto self = this->shared_from_this();
-			child_handle->control().set_on_ready_or_run([self, child_handle]() noexcept {
-				self->complete_child(child_handle);
-			});
+			child_handle->control().set_on_ready_or_run(
+				[self, child_handle]() noexcept { self->complete_child(child_handle); });
 		} catch (...) {
 			record_state.store(SubmissionState::terminal, std::memory_order_release);
 			commit_exception(std::current_exception());
@@ -574,9 +563,7 @@ struct Submission final : SubmissionBase, std::enable_shared_from_this<Submissio
 					auto _ = source.try_set_cancelled(arm.reason);
 				}
 			});
-		} catch (root::CancelledError const &err) {
-			auto _ = source.try_set_cancelled(err.reason());
-		} catch (...) {
+		} catch (root::CancelledError const &err) { auto _ = source.try_set_cancelled(err.reason()); } catch (...) {
 			auto _ = source.try_set_exception(std::current_exception());
 		}
 		release();
@@ -592,8 +579,8 @@ export class UringExecutor final {
 		std::shared_ptr<uring_executor_detail::UringExecutorSharedState> state) noexcept
 		: state_{std::move(state)} {}
 
-	friend std::expected<std::unique_ptr<UringExecutor>, std::error_code> try_make_uring_executor(
-		UringExecutorOptions opts);
+	friend std::expected<std::unique_ptr<UringExecutor>, std::error_code>
+	try_make_uring_executor(UringExecutorOptions opts);
 
 public:
 	~UringExecutor() { join(); }
@@ -622,10 +609,15 @@ public:
 		}
 
 		auto [task, src] = root::make_task_source<T>();
-		auto submission = std::make_shared<uring_executor_detail::Submission<T, fn_t>>(
-			state_, fn_t{std::forward<Fn>(fn)}, std::move(src), task.control());
+		auto submission =
+			std::shared_ptr<uring_executor_detail::Submission<T, fn_t>>{new uring_executor_detail::Submission<T, fn_t>(
+				state_,
+				fn_t{std::forward<Fn>(fn)},
+				std::move(src),
+				task.control())};
 		submission->install_cancel_hook();
-		if (submission->record_state.load(std::memory_order_acquire) == uring_executor_detail::SubmissionState::terminal) {
+		if (submission->record_state.load(std::memory_order_acquire)
+			== uring_executor_detail::SubmissionState::terminal) {
 			return std::move(task);
 		}
 		auto const admit = state_->admit(submission);
@@ -639,9 +631,8 @@ public:
 				"conflux.work.uring_executor: submission queue full");
 			return std::move(task);
 		}
-		if (state_->lane == nullptr || !state_->lane->enqueue([state = state_, submission]() mutable {
-				submission->start(*state);
-			})) {
+		if (state_->lane == nullptr
+			|| !state_->lane->enqueue([state = state_, submission]() mutable { submission->start(*state); })) {
 			submission->fail_enqueue(
 				std::make_error_code(std::errc::io_error),
 				"conflux.work.uring_executor: ring wake failed");
@@ -651,11 +642,12 @@ public:
 };
 
 export [[nodiscard]] std::expected<std::unique_ptr<UringExecutor>, std::error_code> try_make_uring_executor(
-	UringExecutorOptions opts) {
+	UringExecutorOptions opts = {}) {
 	if (opts.ring_entries == 0 || opts.max_submission_queue == 0) {
 		return std::unexpected{std::make_error_code(std::errc::invalid_argument)};
 	}
-	auto state = std::make_shared<uring_executor_detail::UringExecutorSharedState>(opts);
+	auto state = std::shared_ptr<uring_executor_detail::UringExecutorSharedState>{
+		new uring_executor_detail::UringExecutorSharedState(opts)};
 	state->start();
 	if (auto ec = state->wait_started(); ec) {
 		state->join();

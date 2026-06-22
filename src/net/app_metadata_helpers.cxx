@@ -26,17 +26,35 @@ template<class Arg>
 	if constexpr (StateArg<Clean>) {
 		return "State";
 	} else if constexpr (PathArg<Clean>) {
-		return std::format("Path<{}>", PathType<Clean>::name.view());
+		std::string out{"Path<"};
+		out += PathType<Clean>::name.view();
+		out += '>';
+		return out;
 	} else if constexpr (PathAtArg<Clean>) {
-		return std::format("PathAt<{}>", PathAtType<Clean>::index);
+		std::string out{"PathAt<"};
+		out += std::to_string(PathAtType<Clean>::index);
+		out += '>';
+		return out;
 	} else if constexpr (QueryArg<Clean>) {
-		return std::format("Query<{}>", QueryType<Clean>::name.view());
+		std::string out{"Query<"};
+		out += QueryType<Clean>::name.view();
+		out += '>';
+		return out;
 	} else if constexpr (HeaderArg<Clean>) {
-		return std::format("Header<{}>", HeaderType<Clean>::name.view());
+		std::string out{"Header<"};
+		out += HeaderType<Clean>::name.view();
+		out += '>';
+		return out;
 	} else if constexpr (CookieArg<Clean>) {
-		return std::format("Cookie<{}>", CookieType<Clean>::name.view());
+		std::string out{"Cookie<"};
+		out += CookieType<Clean>::name.view();
+		out += '>';
+		return out;
 	} else if constexpr (FormArg<Clean>) {
-		return std::format("Form<{}>", FormType<Clean>::name.view());
+		std::string out{"Form<"};
+		out += FormType<Clean>::name.view();
+		out += '>';
+		return out;
 #if CONFLUX_HAS_JSON
 	} else if constexpr (QueryParamsArg<Clean>) {
 		return "QueryParams";

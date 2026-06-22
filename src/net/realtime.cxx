@@ -1,6 +1,8 @@
 module;
 #include <cerrno>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -20,9 +22,6 @@ import conflux.net.http.types;
 export import conflux.net.http.server_types;
 import conflux.crypto;
 import conflux.utils;
-#if CONFLUX_HAS_TLS
-import conflux.net.tls;
-#endif
 
 export namespace conflux::http {
 
@@ -253,7 +252,7 @@ public:
 	SseBroadcaster &operator =(SseBroadcaster &&) = delete;
 	// Register a new subscriber.  Returns the SP to pass to Response::sse().
 	std::shared_ptr<SseChannel> subscribe() {
-		auto ch = std::make_shared<SseChannel>();
+		auto ch = std::shared_ptr<SseChannel>{new SseChannel()};
 		std::scoped_lock const lk{mtx_};
 		channels_.emplace_back(ch);
 		return ch;
@@ -590,6 +589,12 @@ public:
 #endif
 	~WsConn() noexcept {
 		stop_keepalive();
+#if CONFLUX_HAS_TLS
+		if (ssl_ != nullptr) {
+			SSL_free(ssl_);
+			ssl_ = nullptr;
+		}
+#endif
 		if (!closed_.test_and_set()) {
 			::shutdown(fd_, SHUT_WR);
 		}
@@ -674,9 +679,10 @@ public:
 			// close_notify, deadlocking against a client that sent a WS close frame
 			// but hasn't yet issued a TLS close_notify.  WS close frames are
 			// application-level; just free the SSL object and shut the socket.
-			ssl_.reset();
+			SSL_free(ssl_);
+			ssl_ = nullptr;
 		}
-#endif
+	#endif
 		::shutdown(fd_, SHUT_WR);
 	}
 	[[nodiscard]] bool is_open() const noexcept { return !closed_.test(); }
@@ -705,8 +711,8 @@ public:
 		keepalive_thread_ = std::jthread([this, interval_ms](std::stop_token const &st) {
 			std::unique_lock lk{keepalive_mtx_};
 			while (is_open()) {
-				if (keepalive_cv_.wait_for(lk, st, std::chrono::milliseconds{interval_ms}, [this] {
-						return !is_open();
+				if (keepalive_cv_.wait_for(lk, std::chrono::milliseconds{interval_ms}, [this, &st] {
+						return st.stop_requested() || !is_open();
 					})) {
 					break;
 				}
@@ -757,7 +763,7 @@ private:
 
 	int fd_;
 #if CONFLUX_HAS_TLS
-	conflux::net_tls::UniqueSsl ssl_;
+	SSL *ssl_{};
 #endif
 	std::atomic_flag closed_{};
 	std::atomic_flag pressure_counted_{};
@@ -765,7 +771,7 @@ private:
 	std::mutex send_mtx_;
 	std::mutex close_mtx_;
 	std::mutex keepalive_mtx_;
-	std::condition_variable_any keepalive_cv_;
+	std::condition_variable keepalive_cv_;
 	std::jthread keepalive_thread_{};
 	std::vector<std::function<void()>> close_callbacks_{};
 	std::string buf_;
@@ -784,7 +790,7 @@ private:
 			std::array<char, 4096> tmp{};
 #if CONFLUX_HAS_TLS
 			if (ssl_) {
-				auto rc = SSL_read(ssl_.get(), tmp.data(), static_cast<int>(tmp.size()));
+				auto rc = SSL_read(ssl_, tmp.data(), static_cast<int>(tmp.size()));
 				if (rc <= 0) {
 					mark_remote_close_noexcept();
 					return false;
@@ -986,7 +992,7 @@ private:
 		bool ok = false;
 #if CONFLUX_HAS_TLS
 		if (ssl_) {
-			ok = detail::ws_tls_send_frame(ssl_.get(), opcode, payload);
+			ok = detail::ws_tls_send_frame(ssl_, opcode, payload);
 		} else
 #endif
 		{

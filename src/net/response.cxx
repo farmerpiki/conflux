@@ -1,13 +1,15 @@
 module;
 #include <cerrno>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <sys/eventfd.h>
 #include <unistd.h>
 export module conflux.net.http.response;
 
 import std;
 import conflux.types;
-import conflux.work;
+import conflux.work.root;
 import conflux.file_map.types;
 export import conflux.utils;
 import conflux.net.http.types;

@@ -1,11 +1,12 @@
 module;
+#include <memory>
+#include <mutex>
 
 export module conflux.net.app;
 
-export import conflux.net.app.response;
-export import conflux.net.app.types;
+import conflux.net.app.response;
+import conflux.net.app.types;
 import std;
-import conflux.net.app.defer;
 import conflux.net.app.extractor_helpers;
 import conflux.net.app.json_helpers;
 import conflux.net.app.metadata_helpers;
@@ -17,10 +18,10 @@ import conflux.types;
 import conflux.net.config;
 import conflux.net.auth;
 import conflux.net.http.types;
+import conflux.net.http.server_types;
+import conflux.net.http_server;
 import conflux.net.path;
 import conflux.net.router;
-import conflux.net.router_dispatch;
-import conflux.net.http_server;
 import conflux.net.observability;
 import conflux.net.request_id;
 import conflux.net.tracing;
@@ -32,7 +33,7 @@ import conflux.crypto;
 import conflux.json;
 import conflux.net.http.native_json;
 #endif
-import conflux.work;
+import conflux.work.root;
 export namespace conflux::http {
 
 class App;
@@ -41,6 +42,19 @@ conflux::http::Router const &router(App const &app) noexcept;
 std::vector<conflux::http::RouteInfo> route_infos(App const &app);
 
 namespace detail {
+
+template<class T, class... Args>
+[[nodiscard]] std::shared_ptr<T> shared_new(
+	Args &&...args) {
+	return std::shared_ptr<T>{new T(std::forward<Args>(args)...)};
+}
+
+template<class T>
+[[nodiscard]] std::string duplicate_state_message() {
+	std::string out{"duplicate app state: "};
+	out += typeid(T).name();
+	return out;
+}
 
 template<class T>
 struct IsTaskResult : std::false_type {};
@@ -171,11 +185,11 @@ class App : public detail::AppRouteVerbAccessors {
 		std::string response_schema{};
 		int success_status{kHttpOk};
 		bool problem_response{};
-		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
-		std::shared_ptr<detail::AppRouteRateLimit> rate_limit = std::make_shared<detail::AppRouteRateLimit>();
-		std::shared_ptr<std::chrono::milliseconds> timeout = std::make_shared<std::chrono::milliseconds>();
+		std::shared_ptr<std::size_t> max_body_size = detail::shared_new<std::size_t>(std::size_t{0});
+		std::shared_ptr<detail::AppRouteRateLimit> rate_limit = detail::shared_new<detail::AppRouteRateLimit>();
+		std::shared_ptr<std::chrono::milliseconds> timeout = detail::shared_new<std::chrono::milliseconds>();
 		std::size_t middleware_count{};
-		std::shared_ptr<std::string> bearer_token_policy = std::make_shared<std::string>();
+		std::shared_ptr<std::string> bearer_token_policy = detail::shared_new<std::string>();
 		std::string openapi_auth_scheme{};
 		std::string openapi_summary{};
 		std::string openapi_description{};
@@ -208,14 +222,14 @@ class App : public detail::AppRouteVerbAccessors {
 		if (group_middlewares_ == nullptr || group_middlewares_->empty()) {
 			return {};
 		}
-		return std::make_shared<ScopedMiddlewareList>(*group_middlewares_);
+		return detail::shared_new<ScopedMiddlewareList>(*group_middlewares_);
 	}
 
 	[[nodiscard]] std::shared_ptr<ScopedContextMiddlewareList const> current_group_context_middlewares() const {
 		if (group_context_middlewares_ == nullptr || group_context_middlewares_->empty()) {
 			return {};
 		}
-		return std::make_shared<ScopedContextMiddlewareList>(*group_context_middlewares_);
+		return detail::shared_new<ScopedContextMiddlewareList>(*group_context_middlewares_);
 	}
 
 	[[nodiscard]] CapturedRoutePolicy capture_route_policy() const {
@@ -256,85 +270,23 @@ class App : public detail::AppRouteVerbAccessors {
 		std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
 		conflux::http::RequestView req,
 		RequestContext const &ctx,
-		conflux::http::Router::ContextHandler inner) {
-		if (!middlewares || middlewares->empty()) {
-			co_return co_await inner(req, ctx);
-		}
-		struct Step {
-			std::shared_ptr<ScopedContextMiddlewareList const> middlewares;
-			conflux::http::Router::ContextHandler inner;
-			std::size_t index{};
-
-			conflux::work::root::Task<Response> call(
-				std::shared_ptr<Step> self,
-				conflux::http::RequestView const &r,
-				RequestContext const &c) {
-				if (index == middlewares->size()) {
-					return inner(r, c);
-				}
-				auto const &middleware = (*middlewares)[index++];
-				conflux::http::Router::ContextHandler next =
-					[self = std::move(self)](
-						conflux::http::RequestView const &next_req,
-						RequestContext const &next_ctx) mutable -> conflux::work::root::Task<Response> {
-					return self->call(self, next_req, next_ctx);
-				};
-				return middleware(r, c, next);
-			}
-		};
-		auto step = std::make_shared<Step>(std::move(middlewares), std::move(inner));
-		co_return co_await step->call(step, req, ctx);
-	}
-
+		conflux::http::Router::ContextHandler inner);
 	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_sync_route_as_context(
 		std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares,
 		std::shared_ptr<ScopedMiddlewareList const> middlewares,
 		conflux::http::RequestView req,
 		RequestContext const &ctx,
-		conflux::http::Router::Handler inner) {
-		conflux::http::Router::ContextHandler context_inner =
-			[middlewares = std::move(middlewares), inner = std::move(inner)](
-				conflux::http::RequestView const &inner_req,
-				RequestContext const &) mutable -> conflux::work::root::Task<Response> {
-			co_return run_scoped_middlewares(middlewares, inner_req, std::move(inner));
-		};
-		co_return co_await run_scoped_context_middlewares(
-			std::move(context_middlewares),
-			std::move(req),
-			ctx,
-			std::move(context_inner));
-	}
-
+		conflux::http::Router::Handler inner);
 	[[nodiscard]] static conflux::work::root::Task<Response> run_owned_scoped_context_route(
 		conflux::http::Router::ContextHandler inner,
 		conflux::http::OwnedRequest req,
-		RequestContext ctx) {
-		conflux::http::RequestView const view{req};
-		co_return co_await inner(view, ctx);
-	}
-
+		RequestContext ctx);
 	[[nodiscard]] static conflux::work::root::Task<Response> run_scoped_context_route(
 		std::shared_ptr<ScopedMiddlewareList const> middlewares,
 		std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares,
 		conflux::http::RequestView req,
 		RequestContext const &ctx,
-		conflux::http::Router::ContextHandler inner) {
-		auto context_inner = [context_middlewares = std::move(context_middlewares), inner = std::move(inner)](
-								 conflux::http::RequestView const &inner_req,
-								 RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
-			co_return co_await run_scoped_context_middlewares(context_middlewares, inner_req, inner_ctx, inner);
-		};
-		if (!middlewares || middlewares->empty()) {
-			co_return co_await context_inner(req, ctx);
-		}
-		conflux::http::Router::Handler sync_inner =
-			[ctx, context_inner = std::move(context_inner)](
-				conflux::http::RequestView const &inner_req) mutable -> Response {
-			return conflux::http::detail::router_defer_http_task(
-				run_owned_scoped_context_route(context_inner, inner_req.to_owned(), ctx));
-		};
-		co_return run_scoped_middlewares(middlewares, req, std::move(sync_inner));
-	}
+		conflux::http::Router::ContextHandler inner);
 
 	[[nodiscard]] static std::optional<Response> route_prelude_failure(
 		CapturedRoutePolicy const &policy,
@@ -466,9 +418,9 @@ public:
 		conflux::http::Config cfg = conflux::http::Config::public_server())
 		: cfg_(std::move(cfg))
 		, router_(cfg_)
-		, states_(std::make_shared<StateMap>())
+		, states_(detail::shared_new<StateMap>())
 #if CONFLUX_HAS_JSON
-		, json_options_(std::make_shared<AppJsonOptions>())
+		, json_options_(detail::shared_new<AppJsonOptions>())
 #endif
 	{
 	}
@@ -1055,7 +1007,7 @@ public:
 		T &value) {
 		auto const key = std::type_index{typeid(T)};
 		if (states_->contains(key)) {
-			state_issues_.push_back(std::format("duplicate app state: {}", typeid(T).name()));
+			state_issues_.push_back(detail::duplicate_state_message<T>());
 		}
 		(*states_)[key] = std::shared_ptr<void>{std::addressof(value), [](void *) {}};
 		return *this;
@@ -1065,16 +1017,16 @@ public:
 		std::shared_ptr<T> value) {
 		auto const key = std::type_index{typeid(T)};
 		if (states_->contains(key)) {
-			state_issues_.push_back(std::format("duplicate app state: {}", typeid(T).name()));
+			state_issues_.push_back(detail::duplicate_state_message<T>());
 		}
 		auto shared_value = std::move(value);
 		(*states_)[key] = shared_value;
 		using SharedState = std::shared_ptr<T>;
 		auto const shared_key = std::type_index{typeid(SharedState)};
 		if (states_->contains(shared_key)) {
-			state_issues_.push_back(std::format("duplicate app state: {}", typeid(SharedState).name()));
+			state_issues_.push_back(detail::duplicate_state_message<SharedState>());
 		}
-		(*states_)[shared_key] = std::make_shared<SharedState>(std::move(shared_value));
+		(*states_)[shared_key] = detail::shared_new<SharedState>(std::move(shared_value));
 		return *this;
 	}
 	template<class T>
@@ -1090,7 +1042,7 @@ public:
 	template<class T>
 	App &state_owned(
 		T value) {
-		return state_shared(std::make_shared<T>(std::move(value)));
+		return state_shared(detail::shared_new<T>(std::move(value)));
 	}
 	template<class T>
 	[[nodiscard]] State<T> state() const {
@@ -1961,10 +1913,7 @@ public:
 #endif
 	}
 
-	[[nodiscard]] static conflux::work::root::Task<Response> extraction_failure_response(
-		Response response) {
-		co_return response;
-	}
+	[[nodiscard]] static conflux::work::root::Task<Response> extraction_failure_response(Response response);
 
 	template<class Args, class Fn, std::size_t... Is>
 	[[nodiscard]] static conflux::work::root::Task<Response> invoke_fixed_route_async(

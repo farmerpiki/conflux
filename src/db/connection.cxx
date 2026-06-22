@@ -5,6 +5,7 @@ module;
 #include <cstdint>
 #include <fcntl.h>
 #include <libpq-fe.h>
+#include <memory>
 #include <poll.h>
 #include <shared_mutex>
 

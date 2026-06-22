@@ -97,6 +97,7 @@ target_link_libraries(conflux_net_async_client
     PUBLIC  conflux_net_client
     PUBLIC  conflux_http_core
     PUBLIC  conflux_work
+    PUBLIC  conflux_work_uring_executor
     PUBLIC  conflux_uring
     PUBLIC  conflux_socket_io
     PUBLIC  conflux_net_cancel

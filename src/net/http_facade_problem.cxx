@@ -2,7 +2,7 @@ export module conflux.http:problem;
 
 import std;
 import conflux.net.http.response;
-import conflux.net.app;
+import conflux.net.app.types;
 import conflux.utils;
 
 export namespace conflux::http::problem {

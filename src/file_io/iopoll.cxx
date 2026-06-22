@@ -52,7 +52,7 @@ export class IopollFileReader {
 		int err,
 		char const *message) const {
 		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(raw_src));
+		auto shared_src = std::shared_ptr<root::TaskSource<T>>{new root::TaskSource<T>(std::move(raw_src))};
 		auto _ = shared_src->try_set_exception(std::make_exception_ptr(IoError{err, message}));
 		return std::move(task);
 	}
@@ -62,7 +62,8 @@ export class IopollFileReader {
 		std::size_t bytes) const {
 		auto [task, raw_src] =
 			root::make_task_source<FileReader::ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<FileReader::ReadFixedResult>>(std::move(raw_src));
+		auto shared_src = std::shared_ptr<root::TaskSource<FileReader::ReadFixedResult>>{
+			new root::TaskSource<FileReader::ReadFixedResult>(std::move(raw_src))};
 		auto _ = shared_src->try_set_value({
 			FileReader::ReadFixedResult{.buffer = std::move(buf), .bytes = bytes}
         });
@@ -119,7 +120,8 @@ public:
 		}
 		auto [task, raw_src] =
 			root::make_task_source<FileReader::ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<FileReader::ReadFixedResult>>(std::move(raw_src));
+		auto shared_src = std::shared_ptr<root::TaskSource<FileReader::ReadFixedResult>>{
+			new root::TaskSource<FileReader::ReadFixedResult>(std::move(raw_src))};
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			auto _ = shared_src->try_set_exception(std::make_exception_ptr(IoError{ENOSPC, "file_io: iopoll SQ full"}));
@@ -329,7 +331,7 @@ T block_on_iopoll(
 		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
 	auto slot = std::make_shared<Slot>();
-	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
+	auto jh = std::shared_ptr<TaskJoinHandle<T>>{new TaskJoinHandle<T>(into_join_handle(std::move(task)))};
 	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
 		try {
 			auto outcome = blocking_join(std::move(*jh));

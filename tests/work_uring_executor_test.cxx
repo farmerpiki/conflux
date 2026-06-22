@@ -1,11 +1,12 @@
+#include <catch2/catch_test_macros.hpp>
+
 import std;
 
 import conflux.work;
 import conflux.work.uring_executor;
 import conflux.uring;
 import conflux.uring.completion;
-
-#include <catch2/catch_test_macros.hpp>
+import conflux.file_io;
 
 namespace {
 
@@ -83,9 +84,8 @@ TEST_CASE(
 	std::array<std::jthread, 4> threads{};
 	for (auto &thread: threads) {
 		thread = std::jthread{[&] {
-			auto task = exec->async_submit([](work::UringExecutorContext &) -> root::Task<int> {
-				return ready_int(1);
-			});
+			auto task =
+				exec->async_submit([](work::UringExecutorContext &) -> root::Task<int> { return ready_int(1); });
 			completed.fetch_add(work::sync_wait(std::move(task)), std::memory_order_relaxed);
 		}};
 	}
@@ -99,10 +99,36 @@ TEST_CASE(
 	"work uring executor: completion table CQE dispatch completes child task",
 	"[work][uring_executor]") {
 	auto exec = make_executor_or_skip();
-	auto task = exec->async_submit([](work::UringExecutorContext &ctx) -> root::Task<int> {
-		return nop_then_int(ctx, 42);
-	});
+	auto task =
+		exec->async_submit([](work::UringExecutorContext &ctx) -> root::Task<int> { return nop_then_int(ctx, 42); });
 	CHECK(work::sync_wait(std::move(task)) == 42);
+}
+
+TEST_CASE(
+	"work uring executor: file_io helper installs ambient reader",
+	"[work][uring_executor][file_io]") {
+	auto exec = make_executor_or_skip();
+	auto task = conflux::file_io::async_file_io(*exec, [](conflux::file_io::FileReader &reader) -> root::Task<bool> {
+		bool const installed = conflux::file_io::current_file_reader() == &reader;
+		co_await reader.async_nop();
+		co_return installed && conflux::file_io::current_file_reader() == &reader;
+	});
+	CHECK(work::sync_wait(std::move(task)));
+}
+
+TEST_CASE(
+	"work uring executor: file_io helper forbids nested blocking pump",
+	"[work][uring_executor][file_io]") {
+	auto exec = make_executor_or_skip();
+	auto task = conflux::file_io::async_file_io(*exec, [](conflux::file_io::FileReader &reader) -> root::Task<bool> {
+		std::atomic_flag done{};
+		done.test_and_set(std::memory_order_release);
+		try {
+			conflux::file_io::pump_until(reader, done, std::chrono::milliseconds{1});
+		} catch (std::logic_error const &) { co_return true; }
+		co_return false;
+	});
+	CHECK(work::sync_wait(std::move(task)));
 }
 
 TEST_CASE(
@@ -110,12 +136,11 @@ TEST_CASE(
 	"[work][uring_executor]") {
 	auto exec = make_executor_or_skip(work::UringExecutorOptions{.max_submission_queue = 1});
 	auto [gate_task, gate_src] = root::make_task_source<void>();
-	auto first = exec->async_submit([gate = std::move(gate_task)](work::UringExecutorContext &) mutable -> root::Task<int> {
-		return wait_then_int(std::move(gate), 1);
-	});
-	auto second = exec->async_submit([](work::UringExecutorContext &) -> root::Task<int> {
-		return ready_int(2);
-	});
+	auto first =
+		exec->async_submit([gate = std::move(gate_task)](work::UringExecutorContext &) mutable -> root::Task<int> {
+			return wait_then_int(std::move(gate), 1);
+		});
+	auto second = exec->async_submit([](work::UringExecutorContext &) -> root::Task<int> { return ready_int(2); });
 	CHECK_THROWS_AS(work::sync_wait(std::move(second)), std::system_error);
 	auto _ = gate_src.try_set_value(root::Success<void>{});
 	CHECK(work::sync_wait(std::move(first)) == 1);
@@ -126,9 +151,7 @@ TEST_CASE(
 	"[work][uring_executor]") {
 	auto exec = make_executor_or_skip();
 	exec->stop();
-	auto task = exec->async_submit([](work::UringExecutorContext &) -> root::Task<int> {
-		return ready_int(1);
-	});
+	auto task = exec->async_submit([](work::UringExecutorContext &) -> root::Task<int> { return ready_int(1); });
 	CHECK_THROWS_AS(work::sync_wait(std::move(task)), work::Cancelled);
 	exec->join();
 }

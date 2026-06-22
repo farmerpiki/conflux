@@ -1,14 +1,21 @@
+module;
+#include <expected>
+#include <string>
+#include <string_view>
+#include <utility>
+
 export module conflux.http;
 
 export import :problem;
 export import conflux.net.app;
+export import conflux.net.app.response;
+export import conflux.net.app.types;
 export import conflux.net.http.server_types;
 export import conflux.net.http.response;
 export import conflux.net.http.request;
 export import conflux.net.http.realtime;
 export import conflux.json;
 import conflux.net.http.native_json;
-import std;
 
 export import conflux.net.config;
 export import conflux.net.http.app_json;
@@ -229,9 +236,9 @@ template<class T>
 
 export namespace conflux::http::codec::json {
 
-[[nodiscard]] inline AppJsonRoutes<DefaultJsonProvider> routes(
+[[nodiscard]] inline AppJsonRoutes<DefaultJsonProvider, App> routes(
 	App &app) {
-	return AppJsonRoutes<DefaultJsonProvider>{app};
+	return AppJsonRoutes<DefaultJsonProvider, App>{app};
 }
 
 } // namespace conflux::http::codec::json

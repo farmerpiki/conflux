@@ -5,6 +5,7 @@ module;
 #include <linux/futex.h>
 #include <linux/openat2.h>
 #include <linux/stat.h>
+#include <memory>
 #include <poll.h>
 #include <sys/epoll.h>
 #include <sys/random.h>
@@ -70,7 +71,7 @@ export class FileReader {
 	template<typename T>
 	[[nodiscard]] PreparedSqe<T> prepare_sqe() const {
 		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(raw_src));
+		auto shared_src = std::shared_ptr<root::TaskSource<T>>{new root::TaskSource<T>(std::move(raw_src))};
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (!sqe) {
 			auto _ = shared_src->try_set_exception(std::make_exception_ptr(IoError{ENOSPC, "file_io: SQ full"}));
@@ -234,8 +235,8 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto path_owner = std::make_shared<std::string>(std::move(path));
-		auto stx_owner = std::make_shared<struct statx>();
+		auto path_owner = std::shared_ptr<std::string>{new std::string(std::move(path))};
+		auto stx_owner = std::shared_ptr<struct statx>{new struct statx()};
 		sqe.prep_statx(dir_fd, path_owner->c_str(), flags, mask, stx_owner.get());
 		auto [slot, gen] = completions_->reserve([shared_src, path_owner, stx_owner](IoResult r) mutable {
 			try {
@@ -391,7 +392,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto fds = std::make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
+		auto fds = std::shared_ptr<std::array<int, 2>>{new std::array<int, 2>{-1, -1}};
 		sqe.prep_pipe(fds->data(), pipe_flags);
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
@@ -414,7 +415,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto addr_owner = std::make_shared<sockaddr_storage>(addr);
+		auto addr_owner = std::shared_ptr<sockaddr_storage>{new sockaddr_storage(addr)};
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_bind(fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
 		});
@@ -473,7 +474,8 @@ public:
 		FileHandle const &fh,
 		unsigned flags = 0) {
 		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<root::TaskSource<FileHandle>>(std::move(raw_src));
+		auto shared_src = std::shared_ptr<root::TaskSource<FileHandle>>{
+			new root::TaskSource<FileHandle>(std::move(raw_src))};
 		if (!fh.is_direct()) {
 			auto _ = shared_src->try_set_exception(
 				std::make_exception_ptr(IoError{EINVAL, "file_io: fixed_fd_install requires direct slot"}));
@@ -611,7 +613,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto ts = std::make_shared<__kernel_timespec>();
+		auto ts = std::shared_ptr<__kernel_timespec>{new __kernel_timespec()};
 		auto const sec = std::chrono::duration_cast<std::chrono::seconds>(ms);
 		ts->tv_sec = sec.count();
 		ts->tv_nsec = (ms - sec).count() * 1000000LL;
@@ -756,7 +758,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto wv = std::make_shared<std::vector<futex_waitv>>(std::move(waiters));
+		auto wv = std::shared_ptr<std::vector<futex_waitv>>{new std::vector<futex_waitv>(std::move(waiters))};
 		sqe.prep_futex_waitv(wv->data(), static_cast<std::uint32_t>(wv->size()), flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [wv](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -818,7 +820,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto addr_owner = std::make_shared<sockaddr_storage>(addr);
+		auto addr_owner = std::shared_ptr<sockaddr_storage>{new sockaddr_storage(addr)};
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_connect(fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
 		});
@@ -868,7 +870,7 @@ public:
 			std::shared_ptr<root::TaskSource<std::size_t>> src;
 		};
 		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto st = std::make_shared<State>(State{
+		auto st = std::shared_ptr<State>{new State{
 			.ring = ring_,
 			.completions = completions_,
 			.encode_ud = encode_ud_,
@@ -879,7 +881,8 @@ public:
 			.file_off = off,
 			.remaining = len,
 			.delivered = 0,
-			.src = std::make_shared<root::TaskSource<std::size_t>>(std::move(raw_src))});
+			.src = std::shared_ptr<root::TaskSource<std::size_t>>{
+				new root::TaskSource<std::size_t>(std::move(raw_src))}}};
 		step_splice(st);
 		return std::move(task);
 	}
@@ -1056,7 +1059,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto sa = std::make_shared<sockaddr_storage>(addr);
+		auto sa = std::shared_ptr<sockaddr_storage>{new sockaddr_storage(addr)};
 		visit_fd(fh, [&](RingFd auto fd) {
 			sqe.prep_sendto(
 				fd,
@@ -1130,7 +1133,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto p = std::make_shared<std::string>(std::move(path));
+		auto p = std::shared_ptr<std::string>{new std::string(std::move(path))};
 		sqe.prep_unlinkat(conflux::uring::SqeFd{dir_fd}, p->c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -1147,7 +1150,8 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto paths = std::make_shared<std::pair<std::string, std::string>>(std::move(old_path), std::move(new_path));
+		auto paths = std::shared_ptr<std::pair<std::string, std::string>>{
+			new std::pair<std::string, std::string>(std::move(old_path), std::move(new_path))};
 		sqe.prep_renameat(
 			conflux::uring::SqeFd{old_dir_fd},
 			paths->first.c_str(),
@@ -1166,7 +1170,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto p = std::make_shared<std::string>(std::move(path));
+		auto p = std::shared_ptr<std::string>{new std::string(std::move(path))};
 		sqe.prep_mkdir(p->c_str(), mode);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable {});
 		io_uring_sqe_set_data64(sqe.raw(), encode_ud_(slot, gen));
@@ -1232,7 +1236,7 @@ public:
 		if (!sqe) {
 			return std::move(task);
 		}
-		auto fds = std::make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
+		auto fds = std::shared_ptr<std::array<int, 2>>{new std::array<int, 2>{-1, -1}};
 		sqe.prep_pipe_direct(fds->data(), pipe_flags, conflux::uring::DirectSlot{file_index});
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {

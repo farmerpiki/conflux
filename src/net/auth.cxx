@@ -1,3 +1,7 @@
+module;
+#include <memory>
+#include <mutex>
+
 export module conflux.net.auth;
 import std;
 import conflux.types;
@@ -395,7 +399,8 @@ AuthFailureLimiter::AuthFailureLimiter()
 
 AuthFailureLimiter::AuthFailureLimiter(
 	AuthThrottleOptions opts)
-	: state_(std::make_shared<auth_detail::AuthThrottleState>(std::max<std::size_t>(opts.max_subjects, 1)))
+	: state_(std::shared_ptr<auth_detail::AuthThrottleState>{
+		  new auth_detail::AuthThrottleState(std::max<std::size_t>(opts.max_subjects, 1))})
 	, opts_(opts) {}
 
 AuthThrottleOutcome AuthFailureLimiter::before_attempt(
@@ -560,7 +565,8 @@ template<typename Validator>
 conflux::http::Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	BasicAuthOptions opts) {
-	auto state = std::make_shared<auth_detail::FailedAuthState>(std::max<std::size_t>(opts.max_failed_clients, 1));
+	auto state = std::shared_ptr<auth_detail::FailedAuthState>{
+		new auth_detail::FailedAuthState(std::max<std::size_t>(opts.max_failed_clients, 1))};
 	return [v = std::decay_t<Validator>(std::forward<Validator>(validator)), opts = std::move(opts), state](
 			   conflux::http::RequestView const &req,
 			   conflux::http::Router::Handler const &next) -> conflux::http::Response {

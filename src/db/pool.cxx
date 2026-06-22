@@ -1,4 +1,5 @@
 module;
+#include <memory>
 
 export module conflux.pg.pool;
 

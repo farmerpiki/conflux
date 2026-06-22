@@ -15,6 +15,10 @@ target_sources(conflux_http_policy
         ${CONFLUX_SRC_ROOT}/net/security.cxx
         ${CONFLUX_SRC_ROOT}/net/trailing_slash.cxx
 )
+target_sources(conflux_http_policy
+    PRIVATE
+        ${CONFLUX_SRC_ROOT}/net/rate_limit_impl.cxx
+)
 target_link_libraries(conflux_http_policy
     PRIVATE conflux_options
     PUBLIC  conflux_http_core

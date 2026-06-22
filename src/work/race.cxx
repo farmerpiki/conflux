@@ -1,4 +1,5 @@
 module;
+#include <memory>
 
 export module conflux.work.race;
 
@@ -254,8 +255,8 @@ template<class Wait>
 [[nodiscard]] root::Task<void> make_blocking_fallback_trigger_task(
 	Wait wait) {
 	auto [task, src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = true});
-	auto state = std::make_shared<blocking_fallback_trigger_state>();
-	auto shared_src = std::make_shared<root::TaskSource<void>>(std::move(src));
+	auto state = std::shared_ptr<blocking_fallback_trigger_state>{new blocking_fallback_trigger_state()};
+	auto shared_src = std::shared_ptr<root::TaskSource<void>>{new root::TaskSource<void>(std::move(src))};
 	(void)shared_src->install_cancel_hook([state](root::CancelReason cancel_reason) noexcept {
 		{
 			std::scoped_lock const lk{state->mu};
@@ -391,7 +392,7 @@ template<root::progress_capability Cap, root::work_value T, class Handle>
 	};
 
 	auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = true});
-	auto shared_src = std::make_shared<root::TaskSource<T>>(std::move(src));
+	auto shared_src = std::shared_ptr<root::TaskSource<T>>{new root::TaskSource<T>(std::move(src))};
 	auto control = handle.control();
 	auto state = std::make_shared<State>(State{.cap = &cap, .handle = std::move(handle), .src = shared_src});
 	std::weak_ptr<State> weak_state{state};

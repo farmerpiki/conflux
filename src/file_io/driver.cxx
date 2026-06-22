@@ -7,6 +7,7 @@ export module conflux.file_io.driver;
 import std;
 import conflux.types;
 import conflux.work;
+import conflux.work.uring_executor;
 export import conflux.uring.completion;
 export import conflux.file_io.reader;
 
@@ -21,24 +22,39 @@ namespace conflux::file_io {
 // async uring paths and synchronous fallbacks.
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace driver_detail {
 
-thread_local FileReader *tls_current_reader{nullptr};
+inline thread_local FileReader *tls_current_reader{nullptr};
+inline thread_local bool tls_blocking_pump_forbidden{false};
 
-} // namespace
+} // namespace driver_detail
 export FileReader *current_file_reader() noexcept {
-	return tls_current_reader;
+	return driver_detail::tls_current_reader;
 }
+export enum class BlockingPumpPolicy {
+	allow,
+	forbid,
+};
+export struct CurrentFileReaderScopeOptions {
+	BlockingPumpPolicy blocking_pump = BlockingPumpPolicy::allow;
+};
 export class CurrentFileReaderScope {
 	FileReader *prev_;
+	bool prev_blocking_pump_forbidden_;
 
 public:
 	explicit CurrentFileReaderScope(
-		FileReader *next) noexcept
-		: prev_{tls_current_reader} {
-		tls_current_reader = next;
+		FileReader *next,
+		CurrentFileReaderScopeOptions options = {}) noexcept
+		: prev_{driver_detail::tls_current_reader}
+		, prev_blocking_pump_forbidden_{driver_detail::tls_blocking_pump_forbidden} {
+		driver_detail::tls_current_reader = next;
+		driver_detail::tls_blocking_pump_forbidden = options.blocking_pump == BlockingPumpPolicy::forbid;
 	}
-	~CurrentFileReaderScope() { tls_current_reader = prev_; }
+	~CurrentFileReaderScope() {
+		driver_detail::tls_current_reader = prev_;
+		driver_detail::tls_blocking_pump_forbidden = prev_blocking_pump_forbidden_;
+	}
 	CurrentFileReaderScope(CurrentFileReaderScope const &) = delete;
 	CurrentFileReaderScope &operator =(CurrentFileReaderScope const &) = delete;
 	CurrentFileReaderScope(CurrentFileReaderScope &&) = delete;
@@ -71,6 +87,9 @@ void pump_until(
 	std::atomic_flag const &done,
 	std::optional<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
+	if (driver_detail::tls_blocking_pump_forbidden) {
+		throw std::logic_error{"conflux.file_io: blocking pump is not allowed on this executor thread"};
+	}
 	auto *ring = reader.ring();
 	auto *completions = reader.completions();
 	auto const deadline = budget ? std::make_optional(std::chrono::steady_clock::now() + *budget) : std::nullopt;
@@ -83,8 +102,8 @@ void pump_until(
 				throw PumpTimeout{};
 			}
 			auto const remaining_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - now);
-			auto const wait_ns = std::min(
-				remaining_ns, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds{1}));
+			auto const wait_ns =
+				std::min(remaining_ns, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds{1}));
 			__kernel_timespec ts{
 				.tv_sec = static_cast<__kernel_time64_t>(wait_ns.count() / 1'000'000'000),
 				.tv_nsec = wait_ns.count() % 1'000'000'000};
@@ -144,7 +163,7 @@ T block_on(
 		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
 	auto slot = std::make_shared<Slot>();
-	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
+	auto jh = std::shared_ptr<TaskJoinHandle<T>>{new TaskJoinHandle<T>(into_join_handle(std::move(task)))};
 	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
 		try {
 			auto outcome = blocking_join(std::move(*jh));
@@ -173,6 +192,44 @@ T block_on(
 	std::optional<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
 	return block_on(reader, std::move(task).detach_to_task(), budget, std::move(decode));
+}
+template<class T>
+concept file_io_root_task_result = requires {
+	typename std::remove_cvref_t<T>::value_type;
+} && std::same_as<std::remove_cvref_t<T>, conflux::work::root::Task<typename std::remove_cvref_t<T>::value_type>>;
+template<class Fn>
+using executor_file_io_result_t = std::invoke_result_t<std::decay_t<Fn> &, FileReader &>;
+template<class Fn>
+concept executor_file_io_task_body = file_io_root_task_result<executor_file_io_result_t<Fn>>;
+template<class Fn>
+using executor_file_io_value_t = typename std::remove_cvref_t<executor_file_io_result_t<Fn>>::value_type;
+export template<class Fn>
+	requires executor_file_io_task_body<Fn>
+[[nodiscard]] auto with_current_file_reader(
+	conflux::work::UringExecutorContext &ctx,
+	Fn &&fn) -> conflux::work::root::Task<executor_file_io_value_t<Fn>> {
+	using T = executor_file_io_value_t<Fn>;
+	FileReader reader{ctx.ring().raw(), &ctx.completions(), ctx.user_data_encoder()};
+	CurrentFileReaderScope const scope{
+		&reader,
+		CurrentFileReaderScopeOptions{.blocking_pump = BlockingPumpPolicy::forbid}};
+	if constexpr (std::is_void_v<T>) {
+		co_await std::invoke(std::forward<Fn>(fn), reader);
+		co_return;
+	} else {
+		co_return co_await std::invoke(std::forward<Fn>(fn), reader);
+	}
+}
+export template<class Fn>
+	requires executor_file_io_task_body<Fn>
+[[nodiscard]] auto async_file_io(
+	conflux::work::UringExecutor &executor,
+	Fn &&fn) -> conflux::work::root::Task<executor_file_io_value_t<Fn>> {
+	using fn_t = std::decay_t<Fn>;
+	using T = executor_file_io_value_t<Fn>;
+	return executor.async_submit(
+		[fn = fn_t{std::forward<Fn>(fn)}](conflux::work::UringExecutorContext &ctx) mutable
+			-> conflux::work::root::Task<T> { return with_current_file_reader(ctx, fn); });
 }
 
 } // namespace conflux::file_io

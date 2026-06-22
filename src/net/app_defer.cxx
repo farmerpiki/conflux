@@ -1,4 +1,6 @@
 module;
+#include <memory>
+#include <mutex>
 
 export module conflux.net.app.defer;
 
@@ -14,6 +16,15 @@ export namespace conflux::http {
 	#define CONFLUX_NET_APP_DEFER_DECLARED
 using conflux::work::WorkPool;
 
+namespace detail {
+
+[[nodiscard]] inline std::shared_ptr<DeferredResponse> make_deferred_response(
+	std::chrono::milliseconds timeout) {
+	return std::shared_ptr<DeferredResponse>{new DeferredResponse(timeout)};
+}
+
+} // namespace detail
+
 template<typename Fn>
 	requires(std::invocable<Fn &> && IntoResponse<std::invoke_result_t<Fn &>>)
 [[nodiscard]] Response defer(
@@ -23,7 +34,7 @@ template<typename Fn>
 	if (!pool) {
 		return Response::internal_error("defer: null pool");
 	}
-	auto deferred = std::make_shared<DeferredResponse>(timeout);
+	auto deferred = detail::make_deferred_response(timeout);
 	bool const enqueued = pool->enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(into_response(work()));
@@ -43,7 +54,7 @@ template<typename Fn>
 	WorkPool &pool,
 	Fn &&fn,
 	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
-	auto deferred = std::make_shared<DeferredResponse>(timeout);
+	auto deferred = detail::make_deferred_response(timeout);
 	bool const enqueued = pool.enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(into_response(work()));

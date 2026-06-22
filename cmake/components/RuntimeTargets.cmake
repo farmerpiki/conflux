@@ -127,6 +127,7 @@ target_link_libraries(conflux_file_io
     PUBLIC  conflux_uring
     PUBLIC  conflux_uring_timeout
     PUBLIC  conflux_work
+    PUBLIC  conflux_work_uring_executor
 )
 
 endif() # CONFLUX_WANT_FILE_IO
