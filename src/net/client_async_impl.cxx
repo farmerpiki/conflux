@@ -952,6 +952,13 @@ namespace conflux::http {
 
 [[nodiscard]] conflux::work::root::Task<ClientResult> async_send(
 	HttpClient const &client,
+	RequestRingRef ring,
+	ClientRequest const &req) {
+	return async_send(client, ring.as<SocketTaskRing>(), req);
+}
+
+[[nodiscard]] conflux::work::root::Task<ClientResult> async_send(
+	HttpClient const &client,
 	conflux::work::UringExecutor &executor,
 	ClientRequest const &req) {
 	return executor.async_submit([&client, request = ClientRequest{req}](

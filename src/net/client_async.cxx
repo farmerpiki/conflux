@@ -5,6 +5,7 @@ import conflux.work.uring_executor;
 import conflux.socket_io;
 import conflux.net.client;
 import conflux.net.http.request;
+import conflux.net.http.server_types;
 
 export namespace conflux::http {
 
@@ -16,6 +17,9 @@ struct AsyncClientRunOptions {
 
 [[nodiscard]] conflux::work::root::Task<ClientResult>
 async_send(HttpClient const &client, SocketTaskRing &ring, ClientRequest const &req);
+
+[[nodiscard]] conflux::work::root::Task<ClientResult>
+async_send(HttpClient const &client, RequestRingRef ring, ClientRequest const &req);
 
 [[nodiscard]] conflux::work::root::Task<ClientResult>
 async_send(HttpClient const &client, conflux::work::UringExecutor &executor, ClientRequest const &req);
