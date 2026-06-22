@@ -97,8 +97,8 @@ public:
     [[nodiscard]] bool on_owner_thread() const noexcept;
     [[nodiscard]] int ring_fd() const noexcept;
 
-    template<class Fn>
-    [[nodiscard]] auto async_submit(Fn&& fn) -> root::Task</* inferred T */>;
+    template<class Callable>
+    [[nodiscard]] auto async_submit(Callable&& callable) -> root::Task</* inferred value */>;
 };
 
 [[nodiscard]] std::expected<std::unique_ptr<UringExecutor>, std::error_code>
@@ -107,22 +107,22 @@ try_make_uring_executor(UringExecutorOptions opts = {});
 } // namespace conflux::work
 ```
 
-`async_submit(fn)` accepts exactly one callable shape:
+`async_submit(callable)` accepts exactly one callable shape:
 
 ```cpp
-root::Task<T> fn(UringExecutorContext&);
+root::Task<Value> callable(UringExecutorContext&);
 ```
 
-The implementation defines a concept equivalent to:
+The implementation constrains that callable equivalently to:
 
 ```cpp
-template<class Fn>
-concept uring_executor_task_body = requires(Fn& fn, UringExecutorContext& ctx) {
-    { fn(ctx) } -> root_task_result;
+template<class Callable>
+requires requires(Callable& callable, UringExecutorContext& ctx) {
+    { callable(ctx) } -> root_task_result;
 };
 ```
 
-`T` is inferred from `Task<T>::value_type`. Callers must not need explicit template arguments, overload casts, or tag arguments.
+The value type is inferred from `Task<Value>::value_type`. Callers must not need explicit template arguments, overload casts, or tag arguments.
 
 The name is `async_submit`, not `submit`, because it returns a coroutine task and follows the project prefix policy.
 
