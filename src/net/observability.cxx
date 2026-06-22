@@ -1,5 +1,7 @@
 module;
 #include <cctype>
+#include <memory>
+#include <mutex>
 
 #ifndef CONFLUX_WORK_QUEUE_STATS
 	#define CONFLUX_WORK_QUEUE_STATS 0
@@ -680,13 +682,15 @@ struct ObservabilityMiddleware {
 
 [[nodiscard]] ObservabilityMiddleware observability(
 	ObservabilityOptions options = {}) {
-	auto state = std::make_shared<observability_detail::ObservabilityState>();
+	auto state = std::shared_ptr<observability_detail::ObservabilityState>{
+		new observability_detail::ObservabilityState()};
 	state->options = options;
 	state->sinks.access_logs = options.access_log_sink;
 	state->sinks.pressure_metrics = options.pressure_metrics_source;
 	state->sensitive = observability_detail::sensitive_headers(options);
 #if CONFLUX_HAS_METRICS
-	state->registry = std::make_shared<observability_detail::ObservabilityRegistry>();
+	state->registry =
+		std::shared_ptr<observability_detail::ObservabilityRegistry>{new observability_detail::ObservabilityRegistry()};
 #endif
 	return ObservabilityMiddleware{.options = std::move(options), .state = std::move(state)};
 }
@@ -694,12 +698,14 @@ struct ObservabilityMiddleware {
 [[nodiscard]] ObservabilityMiddleware observability(
 	ObservabilityOptions options,
 	ObservabilitySinks sinks) {
-	auto state = std::make_shared<observability_detail::ObservabilityState>();
+	auto state = std::shared_ptr<observability_detail::ObservabilityState>{
+		new observability_detail::ObservabilityState()};
 	state->options = options;
 	state->sinks = std::move(sinks);
 	state->sensitive = observability_detail::sensitive_headers(options);
 #if CONFLUX_HAS_METRICS
-	state->registry = std::make_shared<observability_detail::ObservabilityRegistry>();
+	state->registry =
+		std::shared_ptr<observability_detail::ObservabilityRegistry>{new observability_detail::ObservabilityRegistry()};
 #endif
 	return ObservabilityMiddleware{.options = std::move(options), .state = std::move(state)};
 }

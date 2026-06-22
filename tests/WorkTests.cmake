@@ -6,7 +6,7 @@ target_link_libraries(conflux_work_tests PRIVATE conflux conflux_options Catch2:
 
 add_executable(conflux_work_uring_executor_tests work_uring_executor_test.cxx)
 target_link_libraries(conflux_work_uring_executor_tests
-    PRIVATE conflux_work_uring_executor conflux_options Catch2::Catch2WithMain)
+    PRIVATE conflux_work_uring_executor conflux_file_io conflux_options Catch2::Catch2WithMain)
 
 add_executable(conflux_work_root_tests work_root_test.cxx)
 target_link_libraries(conflux_work_root_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)

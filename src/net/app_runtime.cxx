@@ -5,6 +5,7 @@ import conflux.net.app.route_helpers;
 import conflux.net.config;
 import conflux.net.http_server;
 import conflux.net.observability;
+import conflux.net.router_dispatch;
 import conflux.types;
 import conflux.utils;
 
@@ -546,6 +547,93 @@ RunStatus App::run(
 		eprintln("http app run failed: unknown exception");
 		return RunStatus::fatal_internal_exception;
 	}
+}
+conflux::work::root::Task<Response> App::run_scoped_context_middlewares(
+	std::shared_ptr<ScopedContextMiddlewareList const> middlewares,
+	conflux::http::RequestView req,
+	RequestContext const &ctx,
+	conflux::http::Router::ContextHandler inner) {
+	if (!middlewares || middlewares->empty()) {
+		co_return co_await inner(req, ctx);
+	}
+	struct Step {
+		std::shared_ptr<ScopedContextMiddlewareList const> middlewares;
+		conflux::http::Router::ContextHandler inner;
+		std::size_t index{};
+
+		conflux::work::root::Task<Response> call(
+			std::shared_ptr<Step> self,
+			conflux::http::RequestView const &r,
+			RequestContext const &c) {
+			if (index == middlewares->size()) {
+				return inner(r, c);
+			}
+			auto const &middleware = (*middlewares)[index++];
+			conflux::http::Router::ContextHandler next =
+				[self = std::move(self)](
+					conflux::http::RequestView const &next_req,
+					RequestContext const &next_ctx) mutable -> conflux::work::root::Task<Response> {
+				return self->call(self, next_req, next_ctx);
+			};
+			return middleware(r, c, next);
+		}
+	};
+	auto step = detail::shared_new<Step>(std::move(middlewares), std::move(inner));
+	co_return co_await step->call(step, req, ctx);
+}
+
+conflux::work::root::Task<Response> App::run_scoped_sync_route_as_context(
+	std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares,
+	std::shared_ptr<ScopedMiddlewareList const> middlewares,
+	conflux::http::RequestView req,
+	RequestContext const &ctx,
+	conflux::http::Router::Handler inner) {
+	conflux::http::Router::ContextHandler context_inner =
+		[middlewares = std::move(middlewares), inner = std::move(inner)](
+			conflux::http::RequestView req,
+			RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+		co_return run_scoped_middlewares(middlewares, req, std::move(inner));
+	};
+	co_return co_await run_scoped_context_middlewares(
+		std::move(context_middlewares),
+		std::move(req),
+		ctx,
+		std::move(context_inner));
+}
+
+conflux::work::root::Task<Response> App::run_owned_scoped_context_route(
+	conflux::http::Router::ContextHandler inner,
+	conflux::http::OwnedRequest req,
+	RequestContext ctx) {
+	conflux::http::RequestView const view{req};
+	co_return co_await inner(view, ctx);
+}
+
+conflux::work::root::Task<Response> App::run_scoped_context_route(
+	std::shared_ptr<ScopedMiddlewareList const> middlewares,
+	std::shared_ptr<ScopedContextMiddlewareList const> context_middlewares,
+	conflux::http::RequestView req,
+	RequestContext const &ctx,
+	conflux::http::Router::ContextHandler inner) {
+	auto context_inner = [context_middlewares = std::move(context_middlewares), inner = std::move(inner)](
+							 conflux::http::RequestView const &inner_req,
+							 RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
+		co_return co_await run_scoped_context_middlewares(context_middlewares, inner_req, inner_ctx, inner);
+	};
+	if (!middlewares || middlewares->empty()) {
+		co_return co_await context_inner(req, ctx);
+	}
+	conflux::http::Router::Handler sync_inner = [ctx, context_inner = std::move(context_inner)](
+													conflux::http::RequestView const &inner_req) mutable -> Response {
+		return conflux::http::detail::router_defer_http_task(
+			run_owned_scoped_context_route(context_inner, inner_req.to_owned(), ctx));
+	};
+	co_return run_scoped_middlewares(middlewares, req, std::move(sync_inner));
+}
+
+conflux::work::root::Task<Response> App::extraction_failure_response(
+	Response response) {
+	co_return response;
 }
 
 } // namespace conflux::http

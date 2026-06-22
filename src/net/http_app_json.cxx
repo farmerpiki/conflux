@@ -1,9 +1,17 @@
+module;
+#include <concepts>
+#include <functional>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+
 export module conflux.net.http.app_json;
 
-import std;
 import conflux.types;
 import conflux.utils;
-import conflux.net.app;
+import conflux.net.app.response;
+import conflux.net.app.types;
 import conflux.net.router;
 import conflux.net.http.response_json;
 
@@ -213,15 +221,15 @@ private:
 	conflux::http::Router *router_{};
 };
 
-template<class Provider>
-class AppJsonRoutes : public JsonRouteVerbAccessors<AppJsonRoutes<Provider>, Provider> {
+template<class Provider, class AppLike>
+class AppJsonRoutes : public JsonRouteVerbAccessors<AppJsonRoutes<Provider, AppLike>, Provider> {
 public:
 	explicit AppJsonRoutes(
-		App &app)
+		AppLike &app)
 		: app_(&app) {}
 
 	template<class F>
-	App &add(
+	AppLike &add(
 		std::string_view method,
 		std::string_view path,
 		F &&fn,
@@ -233,7 +241,7 @@ public:
 	}
 
 	template<class Body, class F>
-	App &add_body(
+	AppLike &add_body(
 		std::string_view method,
 		std::string_view path,
 		F &&fn,
@@ -246,7 +254,7 @@ public:
 	}
 
 private:
-	App *app_{};
+	AppLike *app_{};
 };
 
 template<class Provider>
@@ -255,10 +263,11 @@ template<class Provider>
 	return RouterJsonRoutes<Provider>{router};
 }
 
-template<class Provider>
-[[nodiscard]] AppJsonRoutes<Provider> routes(
-	App &app) {
-	return AppJsonRoutes<Provider>{app};
+template<class Provider, class AppLike>
+	requires(!std::same_as<std::remove_cvref_t<AppLike>, conflux::http::Router>)
+[[nodiscard]] AppJsonRoutes<Provider, AppLike> routes(
+	AppLike &app) {
+	return AppJsonRoutes<Provider, AppLike>{app};
 }
 
 } // namespace conflux::http::codec::json

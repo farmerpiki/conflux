@@ -763,7 +763,7 @@ template<work_value T>
 	SubmitOptions opts = {},
 	std::source_location loc = std::source_location::current()) {
 	auto [task, src] = make_task_source<T>(opts, loc);
-	return {std::move(task), std::make_shared<TaskSource<T>>(std::move(src))};
+	return {std::move(task), std::shared_ptr<TaskSource<T>>{new TaskSource<T>(std::move(src))}};
 }
 template<work_value T>
 [[nodiscard]] Task<T> make_exception_task(
@@ -1111,10 +1111,11 @@ template<class Fn>
 	using T = typename is_task_result<child_task_t>::value_type;
 	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = true}, loc);
 	auto parent_control = task.control();
-	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+	auto shared_src = std::shared_ptr<TaskSource<T>>{new TaskSource<T>(std::move(src))};
 	try {
 		auto child = std::invoke(fn_t{std::forward<Fn>(fn)}, Cancellation{parent_control});
-		auto child_handle = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(child)));
+		auto child_handle =
+			std::shared_ptr<TaskJoinHandle<T>>{new TaskJoinHandle<T>(into_join_handle(std::move(child)))};
 		auto const generation = parent_control.bind_child_for_cancellation(child_handle->control());
 		child_handle->control().set_on_ready_or_run(
 			[shared_src, child_handle, parent_control, generation]() mutable noexcept {

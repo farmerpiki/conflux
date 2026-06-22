@@ -10,6 +10,7 @@
 import std;
 import conflux.types;
 import conflux.work;
+import conflux.work.uring_executor;
 import conflux.uring;
 import conflux.uring.completion;
 import conflux.socket_io;
@@ -20,6 +21,7 @@ using namespace conflux::socket_io;
 namespace {
 
 namespace chttp = conflux::http;
+namespace work = conflux::work;
 namespace root = conflux::work::root;
 using conflux::uring::CompletionTable;
 using conflux::uring::CqeFlags;
@@ -380,6 +382,21 @@ TEST_CASE(
 	CHECK(result.error().phase == chttp::HttpPhase::connect);
 	CHECK(result.error().os_errno == EINVAL);
 	CHECK(result.error().message.find("io_uring_queue_init") != std::string::npos);
+}
+
+TEST_CASE(
+	"http async client: async_send runs on generic uring executor",
+	"[http][client][async][uring_executor]") {
+	ScriptedTcpServer server{ScriptedTcpServer::Mode::ok_response};
+	auto client = make_client(std::chrono::seconds{5});
+	auto exec = work::try_make_uring_executor();
+	if (!exec) {
+		SKIP(std::format("io_uring executor unavailable: {}", exec.error().message()));
+	}
+	auto result = work::sync_wait(chttp::async_send(client, **exec, get_request(server.port())));
+	REQUIRE(result.has_value());
+	CHECK(result->head.status == 200);
+	CHECK(result->body == "ok");
 }
 
 TEST_CASE(

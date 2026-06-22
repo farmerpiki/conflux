@@ -1,6 +1,7 @@
 module;
 #include <liburing.h>
 #include <linux/futex.h>
+#include <memory>
 #include <pthread.h>
 #include <sched.h>
 #include <sys/syscall.h>

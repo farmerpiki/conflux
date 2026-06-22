@@ -32,7 +32,7 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_http_router_match
     PUBLIC  conflux_http_static
     PUBLIC  conflux_http_realtime
-    PUBLIC  conflux_http_server
+    PRIVATE conflux_http_server
     PUBLIC  conflux_crypto
     PUBLIC  conflux_uring
     PUBLIC  conflux_work

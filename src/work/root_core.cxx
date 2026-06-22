@@ -1335,7 +1335,8 @@ public:
 template<work_value T, bool EnableCancellation>
 [[nodiscard]] std::shared_ptr<ControlBlockInterface<T>> make_control_block_shared() {
 	using model_t = ControlBlockModel<T, EnableCancellation>;
-	return std::make_shared<model_t>();
+	auto model = std::shared_ptr<model_t>{new model_t()};
+	return std::shared_ptr<ControlBlockInterface<T>>{std::move(model)};
 }
 [[nodiscard]] inline std::pmr::memory_resource &task_coroutine_frame_resource() noexcept {
 	// Process-lifetime fallback pool: coroutine frames can be destroyed from any

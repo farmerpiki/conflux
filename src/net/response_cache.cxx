@@ -4,6 +4,8 @@
 // TTL is taken from the response Cache-Control max-age if present; otherwise
 // falls back to ResponseCacheOptions::default_ttl.
 module;
+#include <memory>
+#include <mutex>
 
 export module conflux.net.response_cache;
 import std;
@@ -195,7 +197,7 @@ std::string build_cache_key(
 Router::Middleware response_cache_middleware(
 	ResponseCacheOptions opts = {}) {
 	auto cache = std::make_shared<RespLruCache>(opts.max_entries, opts.max_bytes);
-	auto mtx = std::make_shared<std::mutex>();
+	auto mtx = std::shared_ptr<std::mutex>{new std::mutex()};
 
 	return [opts, cache, mtx](
 			   conflux::http::RequestView const &req,

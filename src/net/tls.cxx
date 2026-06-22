@@ -725,7 +725,8 @@ public:
 		TlsContext &ctx,
 		TcpStream stream,
 		std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay> cancel =
-			std::make_shared<conflux::net::detail::ActiveTaskCancelRelay>())
+			std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay>{
+				new conflux::net::detail::ActiveTaskCancelRelay()})
 		: ssl_{SSL_new(ctx.native_handle())}
 		, stream_{std::move(stream)}
 		, cancel_{std::move(cancel)} {

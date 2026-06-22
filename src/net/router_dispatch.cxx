@@ -10,7 +10,7 @@ import conflux.net.http.server_types;
 import conflux.net.http.realtime;
 import conflux.net.http.response;
 import conflux.net.router_match;
-import conflux.work;
+import conflux.work.root;
 
 #ifndef CONFLUX_ROUTER_LAZY_ROUTE_METADATA
 	#define CONFLUX_ROUTER_LAZY_ROUTE_METADATA 1
@@ -46,9 +46,11 @@ export conflux::http::Response router_defer_http_task(
 	conflux::work::root::Task<conflux::http::Response> task,
 	DeferredTaskOptions options = {}) {
 	namespace wroot = conflux::work::root;
-	auto deferred = std::make_shared<conflux::http::DeferredResponse>(options.timeout);
-	auto jh = std::make_shared<conflux::work::root::TaskJoinHandle<conflux::http::Response>>(
-		conflux::work::root::into_join_handle(std::move(task)));
+	auto deferred =
+		std::shared_ptr<conflux::http::DeferredResponse>{new conflux::http::DeferredResponse(options.timeout)};
+	auto jh = std::shared_ptr<conflux::work::root::TaskJoinHandle<conflux::http::Response>>{
+		new conflux::work::root::TaskJoinHandle<conflux::http::Response>(
+			conflux::work::root::into_join_handle(std::move(task)))};
 	deferred->attach_cancel(jh->control());
 	auto complete_ready = [deferred, jh]() noexcept {
 		try {
@@ -120,8 +122,9 @@ export conflux::http::Response router_defer_http_task(
 	constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
 	constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
 	auto const jwt_claim_overrides = [&](std::string_view key) {
-		return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
-			   && matched_params.get(key).has_value();
+		return req.params.get(kJwtAuthoritative).has_value()
+			&& req.params.get(key).has_value()
+			&& matched_params.get(key).has_value();
 	};
 
 	conflux::http::HttpFieldsView all_params;
@@ -236,8 +239,9 @@ export conflux::http::Response router_defer_http_task(
 	constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
 	constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
 	auto const jwt_claim_overrides = [&](std::string_view key) {
-		return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
-			   && matched_params.get(key).has_value();
+		return req.params.get(kJwtAuthoritative).has_value()
+			&& req.params.get(key).has_value()
+			&& matched_params.get(key).has_value();
 	};
 
 	auto matched = req.to_owned();
@@ -271,7 +275,7 @@ export conflux::http::Response router_defer_http_task(
 	conflux::http::HttpFieldsView const &matched_params,
 	auto const &work_pool,
 	bool observe_route) {
-	auto channel = std::make_shared<conflux::http::SseChannel>();
+	auto channel = std::shared_ptr<conflux::http::SseChannel>{new conflux::http::SseChannel()};
 	conflux::http::detail::router_launch_sse_handler(
 		work_pool,
 		route.handler,
@@ -388,8 +392,9 @@ export template<typename ContextRouteRange, typename Ctx>
 			constexpr std::string_view kJwtAuthoritative = "__conflux_jwt_claims_authoritative";
 			constexpr std::array<std::string_view, 3> kJwtClaimParams{"jwt_sub", "jwt_iss", "jwt_payload"};
 			auto const jwt_claim_overrides = [&](std::string_view key) {
-				return req.params.get(kJwtAuthoritative).has_value() && req.params.get(key).has_value()
-					   && matched_params.get(key).has_value();
+				return req.params.get(kJwtAuthoritative).has_value()
+					&& req.params.get(key).has_value()
+					&& matched_params.get(key).has_value();
 			};
 
 			auto matched_req = req.to_owned();
