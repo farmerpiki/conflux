@@ -122,6 +122,20 @@ if(CONFLUX_HAS_DB STREQUAL "true")
             PkgConfig::LIBPQ
     )
 
+    add_executable(conflux_db_module_chain_smoke)
+    target_sources(conflux_db_module_chain_smoke
+        PRIVATE
+            db_module_chain_smoke.cxx
+        PRIVATE FILE_SET CXX_MODULES FILES
+            db_module_chain_provider.cxx)
+    target_link_libraries(conflux_db_module_chain_smoke
+        PRIVATE
+            conflux_pg
+            conflux_options
+            Catch2::Catch2WithMain
+            PkgConfig::LIBPQ
+    )
+
     add_executable(conflux_db_integration db_integration_test.cxx)
     target_link_libraries(conflux_db_integration
         PRIVATE

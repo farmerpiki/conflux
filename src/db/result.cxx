@@ -91,18 +91,11 @@ public:
 		return as<T>(checked_column(c));
 	}
 	template<class T>
-	[[nodiscard]] std::optional<T> as_opt(
-		ColumnOrdinal auto c) const {
-		auto const idx = column_index(c);
-		if (is_null(idx)) {
-			return std::nullopt;
-		}
-		try {
-			return as<T>(idx);
-		} catch (PgError const &) {
-			return std::nullopt;
-		}
-	}
+	[[nodiscard]] std::optional<T> as_opt(int c) const;
+	template<class T>
+	[[nodiscard]] std::optional<T> as_opt(bool c) const = delete;
+	template<class T>
+	[[nodiscard]] std::optional<T> as_opt(Column c) const;
 	template<class... Ts>
 	[[nodiscard]] std::tuple<Ts...> as_tuple(
 		int start = 0) const {
@@ -111,67 +104,6 @@ public:
 		}(std::make_index_sequence<sizeof...(Ts)>{});
 	}
 };
-template<>
-inline std::string Row::as<std::string>(
-	int c) const {
-	return std::string{get(c)};
-}
-template<>
-inline std::string_view Row::as<std::string_view>(
-	int c) const {
-	return get(c);
-}
-template<>
-inline std::int64_t Row::as<std::int64_t>(
-	int c) const {
-	auto sv = get(c);
-	std::int64_t v = 0;
-	auto const *first = sv.data();
-	auto const *last = first + sv.size();
-	auto [p, ec] = std::from_chars(first, last, v);
-	if (ec != std::errc{} || p != last) {
-		throw PgError{std::format("int64 parse failed: {}", sv)};
-	}
-	return v;
-}
-template<>
-inline std::int32_t Row::as<std::int32_t>(
-	int c) const {
-	auto sv = get(c);
-	std::int32_t v = 0;
-	auto const *first = sv.data();
-	auto const *last = first + sv.size();
-	auto [p, ec] = std::from_chars(first, last, v);
-	if (ec != std::errc{} || p != last) {
-		throw PgError{std::format("int32 parse failed: {}", sv)};
-	}
-	return v;
-}
-template<>
-inline double Row::as<double>(
-	int c) const {
-	auto sv = get(c);
-	double v = 0;
-	auto const *first = sv.data();
-	auto const *last = first + sv.size();
-	auto [p, ec] = std::from_chars(first, last, v);
-	if (ec != std::errc{} || p != last) {
-		throw PgError{std::format("double parse failed: {}", sv)};
-	}
-	return v;
-}
-template<>
-inline bool Row::as<bool>(
-	int c) const {
-	auto sv = get(c);
-	if (sv == "t" || sv == "true" || sv == "1") {
-		return true;
-	}
-	if (sv == "f" || sv == "false" || sv == "0") {
-		return false;
-	}
-	throw PgError{std::format("bool parse failed: {}", sv)};
-}
 export class Result {
 	PGResultPtr res_{};
 
