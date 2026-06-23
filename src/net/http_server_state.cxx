@@ -140,6 +140,17 @@ struct PartialBuf {
 		buf.clear();
 		pos = 0;
 	}
+	inline void erase_view_range(
+		std::size_t first,
+		std::size_t last) {
+		auto const available = size();
+		first = std::min(first, available);
+		last = std::min(last, available);
+		if (first >= last) {
+			return;
+		}
+		buf.erase(pos + first, last - first);
+	}
 	[[nodiscard]] inline std::string take() {
 		if (pos > 0) {
 			buf.erase(0, pos);
