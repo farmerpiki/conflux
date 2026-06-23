@@ -247,6 +247,40 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"POST with many small chunked frames streams encoded upload framing") {
+	Config cfg = mw_config();
+	cfg.max_body_size = 8U * 1024U;
+	cfg.parser_limits.max_chunks = 6000;
+	conflux::http::Router router;
+	router.post("/upload", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::text(std::format("{}", req.body.size()));
+	});
+	ScopedTestServer srv{cfg, std::move(router)};
+
+	LocalTcpClient client{srv.port()};
+	client.set_recv_timeout(std::chrono::seconds{5});
+	std::string_view const headers =
+		"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nTransfer-Encoding: "
+		"chunked\r\nConnection: close\r\n\r\n";
+	auto sent = client.send(headers);
+	REQUIRE(sent >= 0);
+
+	static constexpr int kChunkCount = 4096;
+	for (int i = 0; i < kChunkCount; ++i) {
+		auto chunk = std::format("1;upload-frame={}\r\nx\r\n", i);
+		sent = client.send(chunk);
+		REQUIRE(sent >= 0);
+	}
+	sent = client.send("0\r\n\r\n");
+	REQUIRE(sent >= 0);
+
+	auto resp = client.read_one_response();
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(body_of(resp) == std::format("{}", kChunkCount));
+	srv.stop();
+}
+
+TEST_CASE(
 	"Cookie header is parsed and individual cookies are accessible") {
 	ScopedTestServer srv{mw_config(), cookie_and_group_router()};
 	auto resp = http_get_on(srv.port(), "/api/echo-cookie", "Cookie: name=hello; other=world\r\n");

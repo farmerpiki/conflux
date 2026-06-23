@@ -361,6 +361,17 @@ void queue_expect_continue_response(
 	return {.status = BodyDispatchStatus::Ready};
 }
 
+void compact_chunked_request_buffer(
+	Conn &conn,
+	std::size_t body_start) {
+	if (conn.chunked_decode.pos <= body_start) {
+		return;
+	}
+	conn.partial.erase_view_range(body_start, conn.chunked_decode.pos);
+	conn.chunked_decode.pos = body_start;
+	conn.chunked_decode.body_start = body_start;
+}
+
 void apply_http1_keep_alive(
 	Conn &conn,
 	std::string_view version,
@@ -578,6 +589,9 @@ void dispatch_request(
 	auto body_result =
 		resolve_http1_body_view(conn, raw, ring, body_start, max_body_size, limits, headers, common_headers);
 	if (body_result.status != BodyDispatchStatus::Ready) {
+		if (body_result.status == BodyDispatchStatus::Incomplete && common_headers.transfer_encoding_count != 0) {
+			compact_chunked_request_buffer(conn, body_start);
+		}
 		return;
 	}
 	body = body_result.body;
