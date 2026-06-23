@@ -46,6 +46,7 @@ struct H2Client {
 	struct ReqBody {
 		std::string data;
 		std::size_t off{0};
+		std::size_t frame_size{0};
 	};
 	// --- public API ---
 
@@ -147,6 +148,22 @@ struct H2Client {
 		std::string_view path,
 		std::string_view body_data) {
 		return post_with_headers(path, body_data, {});
+	}
+	H2Response post_with_frame_size(
+		std::string_view path,
+		std::string_view body_data,
+		std::size_t frame_size) {
+		auto rb =
+			std::make_unique<ReqBody>(ReqBody{.data = std::string{body_data}, .off = 0, .frame_size = frame_size});
+		ReqBody *rb_ptr = rb.get();
+		nghttp2_data_provider prd{};
+		prd.read_callback = read_cb;
+		prd.source.ptr = rb_ptr;
+
+		std::int32_t const sid = submit_request("POST", path, &prd);
+		req_bodies_.emplace(sid, std::move(rb));
+		pump_until_closed(sid);
+		return responses_[sid];
 	}
 	H2Response post_with_content_length(
 		std::string_view path,
@@ -373,6 +390,9 @@ private:
 		auto &rb = *static_cast<ReqBody *>(source->ptr);
 		auto remaining = rb.data.size() - rb.off;
 		auto to_copy = (remaining < length ? remaining : length);
+		if (rb.frame_size != 0 && to_copy > rb.frame_size) {
+			to_copy = rb.frame_size;
+		}
 		std::memcpy(
 			buf,
 			rb.data.data() + rb.off, // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -423,6 +443,15 @@ TEST_CASE(
 	auto resp = client.post("/echo", "hello h2 world");
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.body == "hello h2 world");
+}
+TEST_CASE(
+	"h2: POST body split into tiny DATA frames is echoed") {
+	conflux::tests::HttpsServerFixture const fx{make_router()};
+	H2Client client{fx.port()};
+	std::string body(4096, 'h');
+	auto resp = client.post_with_frame_size("/echo", body, 1);
+	REQUIRE(resp.status == 200);
+	REQUIRE(resp.body == body);
 }
 TEST_CASE(
 	"h2: content-length over max body resets stream") {
