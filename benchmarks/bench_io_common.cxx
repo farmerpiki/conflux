@@ -130,6 +130,13 @@ void bench_install_join(
 	});
 }
 
+export template<typename T>
+void bench_install_join(
+	conflux::work::root::JoinTask<T> task,
+	std::shared_ptr<BenchJoinSlot<T>> slot) {
+	bench_install_join(std::move(task).detach_to_task(), std::move(slot));
+}
+
 export inline void bench_pump_until_count(
 	conflux::file_io::FileReader &reader,
 	std::atomic<std::size_t> &done,

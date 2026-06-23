@@ -16,6 +16,7 @@ import conflux.net.http.response;
 import conflux.net.http_server_helpers;
 import conflux.net.router;
 import conflux.net.app;
+import conflux.net.app.types;
 import conflux.json;
 
 import bench_common;
