@@ -42,6 +42,7 @@ target_link_libraries(conflux_http3
     PUBLIC  conflux_types
     PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_parse_helpers
     PUBLIC  conflux_http_router
     PUBLIC  OpenSSL::SSL
     PUBLIC  OpenSSL::Crypto

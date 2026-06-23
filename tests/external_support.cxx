@@ -175,8 +175,11 @@ public:
 	Http3ServerFixture(Http3ServerFixture const &) = delete;
 	Http3ServerFixture &operator =(Http3ServerFixture const &) = delete;
 	explicit Http3ServerFixture(
+		conflux::http::Router router)
+		: Http3ServerFixture(conflux::http::Config{}, std::move(router)) {}
+	Http3ServerFixture(
+		conflux::http::Config cfg,
 		conflux::http::Router router) {
-		conflux::http::Config cfg{};
 		cfg.port = 0;
 		cfg.rings = 1;
 		cfg.ring_entries = 256;

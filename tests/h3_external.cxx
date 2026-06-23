@@ -5,6 +5,7 @@
 
 import std;
 import conflux.types;
+import conflux.net.config;
 import conflux.net.router;
 import conflux.tests.external_support;
 namespace {
@@ -39,6 +40,38 @@ TEST_CASE(
 			fx.port()));
 	REQUIRE(code == 0);
 	REQUIRE(out == "hello h3");
+}
+TEST_CASE(
+	"h3: curl --http3-only POST streams stdin upload body") {
+	conflux::http::Router r;
+	r.post("/size", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::text(std::to_string(req.body.size()));
+	});
+	conflux::tests::Http3ServerFixture const fx{std::move(r)};
+	auto [code, out] = conflux::tests::run_cmd(
+		std::format(
+			"dd if=/dev/zero bs=4096 count=1 2>/dev/null | tr '\\000' h | "
+			"curl -sk --http3-only --max-time 5 --resolve localhost:{}:127.0.0.1 "
+			"--data-binary @- https://localhost:{}/size",
+			fx.port(),
+			fx.port()));
+	REQUIRE(code == 0);
+	REQUIRE(out == "4096");
+}
+TEST_CASE(
+	"h3: DATA over max body is rejected") {
+	conflux::http::Config cfg{};
+	cfg.max_body_size = 8;
+	cfg.http3.max_body_size = 8;
+	conflux::tests::Http3ServerFixture const fx{cfg, make_router()};
+	auto [code, out] = conflux::tests::run_cmd(
+		std::format(
+			"curl -sk --http3-only --max-time 5 --resolve localhost:{}:127.0.0.1 "
+			"-d 012345678 -o /dev/null -w '%{{http_code}}' https://localhost:{}/echo",
+			fx.port(),
+			fx.port()));
+	bool const rejected = code != 0 || out != "200";
+	REQUIRE(rejected);
 }
 TEST_CASE(
 	"h3: unknown route returns 404") {

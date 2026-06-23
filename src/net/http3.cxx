@@ -24,6 +24,7 @@ import std;
 import conflux.types;
 import std.compat;
 import conflux.net.config;
+import conflux.net.http.parse_helpers;
 import conflux.net.http.types;
 import conflux.net.router;
 
@@ -85,8 +86,12 @@ struct Http3Stream {
 	std::string scheme;
 	std::vector<std::pair<std::string, std::string>> headers;
 	std::string body;
+	std::size_t expected_body_size{};
 	bool request_complete{false};
 	bool response_submitted{false};
+	bool body_reserved{false};
+	bool seen_content_length{false};
+	bool rejected{false};
 	conflux::http::Response response{};
 	std::string response_body_buf;
 	std::string status_str;
@@ -241,6 +246,14 @@ int stream_stop_sending_cb(
 	return 0;
 }
 void dispatch_stream(Http3Conn *c, Http3Stream &s);
+void h3_reject_stream(
+	Http3Conn *c,
+	Http3Stream &s,
+	std::int64_t stream_id,
+	std::uint64_t error_code) {
+	s.rejected = true;
+	auto _ = ngtcp2_conn_shutdown_stream(c->conn.get(), 0, stream_id, error_code);
+}
 int h3_recv_data_cb(
 	nghttp3_conn * /*conn*/,
 	std::int64_t stream_id,
@@ -254,9 +267,21 @@ int h3_recv_data_cb(
 		return 0;
 	}
 	auto &s = *it->second;
-	if (c->max_body_size != 0 && s.body.size() + datalen > c->max_body_size) {
-		ngtcp2_conn_shutdown_stream(c->conn.get(), 0, stream_id, NGHTTP3_H3_REQUEST_REJECTED);
+	if (s.rejected) {
 		return 0;
+	}
+	if (c->max_body_size != 0 && (datalen > c->max_body_size || s.body.size() > c->max_body_size - datalen)) {
+		h3_reject_stream(c, s, stream_id, NGHTTP3_H3_REQUEST_REJECTED);
+		return 0;
+	}
+	if (s.seen_content_length
+		&& (s.body.size() > s.expected_body_size || datalen > s.expected_body_size - s.body.size())) {
+		h3_reject_stream(c, s, stream_id, NGHTTP3_H3_MESSAGE_ERROR);
+		return 0;
+	}
+	if (!s.body_reserved && s.expected_body_size > 0) {
+		s.body.reserve(s.expected_body_size);
+		s.body_reserved = true;
 	}
 	s.body.append(reinterpret_cast<char const *>(data), datalen);
 	return 0;
@@ -280,6 +305,9 @@ int h3_recv_header_cb(
 	std::string_view const n{reinterpret_cast<char const *>(nv.base), nv.len};
 	std::string_view const v{reinterpret_cast<char const *>(vv.base), vv.len};
 	auto &s = *it->second;
+	if (s.rejected) {
+		return 0;
+	}
 	if (n == ":method") {
 		s.method = std::string{v};
 	} else if (n == ":path") {
@@ -289,6 +317,21 @@ int h3_recv_header_cb(
 	} else if (n == ":scheme") {
 		s.scheme = std::string{v};
 	} else {
+		if (n == "content-length") {
+			if (s.seen_content_length) {
+				h3_reject_stream(c, s, stream_id, NGHTTP3_H3_MESSAGE_ERROR);
+				return 0;
+			}
+			auto parsed_content_length = c->max_body_size == 0 ?
+											 conflux::http::parse_content_length_value(v) :
+											 conflux::http::parse_content_length_limited(v, c->max_body_size);
+			if (!parsed_content_length) {
+				h3_reject_stream(c, s, stream_id, NGHTTP3_H3_REQUEST_REJECTED);
+				return 0;
+			}
+			s.expected_body_size = *parsed_content_length;
+			s.seen_content_length = true;
+		}
 		s.headers.emplace_back(std::string{n}, std::string{v});
 	}
 	return 0;
@@ -322,6 +365,13 @@ int h3_end_stream_cb(
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
 	auto it = c->streams.find(stream_id);
 	if (it == c->streams.end()) {
+		return 0;
+	}
+	if (it->second->rejected) {
+		return 0;
+	}
+	if (it->second->seen_content_length && it->second->body.size() != it->second->expected_body_size) {
+		h3_reject_stream(c, *it->second, stream_id, NGHTTP3_H3_MESSAGE_ERROR);
 		return 0;
 	}
 	it->second->request_complete = true;
@@ -518,7 +568,7 @@ std::string addr_to_string(
 void dispatch_stream(
 	Http3Conn *c,
 	Http3Stream &s) {
-	if (s.response_submitted) {
+	if (s.rejected || s.response_submitted) {
 		return;
 	}
 	s.response_submitted = true;
