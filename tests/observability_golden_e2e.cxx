@@ -5,6 +5,7 @@
 import std;
 import conflux.json;
 import conflux.net.app;
+import conflux.net.app.types;
 import conflux.net.config;
 import conflux.net.http_server;
 import conflux.net.observability;
