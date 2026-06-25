@@ -613,6 +613,21 @@ int Ring::h2_on_frame_recv_cb(
 		request_lease->cookies,
 		request_lease->files,
 		body};
+	conflux::http::HttpFieldsView upload_form;
+	std::span<conflux::http::UploadedFile const> upload_files;
+	conflux::http::RequestView const upload_req{
+		method,
+		path,
+		version,
+		conn.remote_addr,
+		true,
+		params,
+		request_lease->headers,
+		request_lease->query,
+		upload_form,
+		request_lease->cookies,
+		upload_files,
+		{}};
 
 	conflux::http::Response resp;
 	try {
@@ -622,7 +637,7 @@ int Ring::h2_on_frame_recv_cb(
 			upload_body->push(std::string{body});
 		}
 		upload_body->finish();
-		if (auto async = ctx->ring->try_dispatch_context(req, std::move(upload_body))) {
+		if (auto async = ctx->ring->try_dispatch_context(upload_req, std::move(upload_body))) {
 			resp = std::move(*async);
 		} else {
 			resp = ctx->ring->dispatch(req);

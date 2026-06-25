@@ -388,6 +388,7 @@ void apply_http1_keep_alive(
 [[nodiscard]] conflux::http::Response invoke_http1_handler(
 	Ring &ring,
 	conflux::http::RequestView const &req,
+	conflux::http::RequestView const &fallback_req,
 	std::string_view method,
 	std::string_view path,
 	std::shared_ptr<conflux::http::detail::UploadBodyState> upload_body = {}) {
@@ -398,7 +399,7 @@ void apply_http1_keep_alive(
 			if (auto async = ring.try_dispatch_context(req, std::move(upload_body))) {
 				resp = std::move(*async);
 			} else {
-				resp = ring.dispatch(req);
+				resp = ring.dispatch(fallback_req);
 			}
 		} else if (auto async = ring.try_dispatch_context(req)) {
 			resp = std::move(*async);
@@ -640,12 +641,27 @@ void dispatch_request(
 		cookies,
 		file_views,
 		body};
+	conflux::http::HttpFieldsView upload_form;
+	std::span<conflux::http::UploadedFile const> upload_files;
+	conflux::http::RequestView const upload_req{
+		method,
+		path,
+		version,
+		conn.remote_addr,
+		conn.is_tls,
+		params,
+		headers,
+		query,
+		upload_form,
+		cookies,
+		upload_files,
+		{}};
 	auto upload_body = std::make_shared<conflux::http::detail::UploadBodyState>(
 		common_headers.has_content_length ? std::optional<std::uint64_t>{body.size()} : std::nullopt);
 	if (!body.empty()) {
 		upload_body->push(std::string{body});
 	}
 	upload_body->finish();
-	auto resp = invoke_http1_handler(ring, req, method, path, std::move(upload_body));
+	auto resp = invoke_http1_handler(ring, upload_req, req, method, path, std::move(upload_body));
 	install_response_state(conn, std::move(resp), ring, req, std::move(request_storage), std::move(request_files));
 }

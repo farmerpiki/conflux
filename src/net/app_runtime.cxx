@@ -332,6 +332,29 @@ void App::validate_route_extractors_and_body_policy(
 					.source_file = route.source_file,
 					.source_line = route.source_line});
 		}
+		if (has_upload_body) {
+			static constexpr std::array<std::string_view, 8> buffered_body_extractors{
+				"BodyText",
+				"BodyBytes",
+				"OwnedBodyBytes",
+				"Multipart",
+				"Json",
+				"JsonDocument",
+				"JsonPatch",
+				"MergePatch"};
+			for (auto const &extractor: route.extractors) {
+				if (std::ranges::contains(buffered_body_extractors, std::string_view{extractor})) {
+					report.issues.push_back(
+						ValidationIssue{
+							.message =
+								std::format("UploadBody cannot be combined with buffered body extractor {}", extractor),
+							.method = route.method,
+							.path = route.path,
+							.source_file = route.source_file,
+							.source_line = route.source_line});
+				}
+			}
+		}
 		if (route.uses_body && !route_has_body_limit(route)) {
 			report.issues.push_back(
 				ValidationIssue{
