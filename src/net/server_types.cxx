@@ -5,6 +5,7 @@ export module conflux.net.http.server_types;
 import std;
 import conflux.types;
 import conflux.net.http.types;
+import conflux.work.root;
 
 // ---------------------------------------------------------------------------
 // HTTP server run/telemetry types shared across the primary module and its
@@ -12,6 +13,265 @@ import conflux.net.http.types;
 // ---------------------------------------------------------------------------
 
 export namespace conflux::http {
+
+enum class UploadErrorKind : std::uint8_t {
+	malformed_body,
+	disconnected,
+	timeout,
+	cancelled,
+	body_too_large,
+	content_length_mismatch,
+	io_error,
+};
+
+struct UploadError {
+	UploadErrorKind kind{};
+	std::string detail{};
+};
+
+[[nodiscard]] constexpr std::string_view upload_error_code(
+	UploadErrorKind kind) noexcept {
+	switch (kind) {
+	case UploadErrorKind::malformed_body         : return "malformed_body";
+	case UploadErrorKind::disconnected           : return "disconnected";
+	case UploadErrorKind::timeout                : return "timeout";
+	case UploadErrorKind::cancelled              : return "cancelled";
+	case UploadErrorKind::body_too_large         : return "body_too_large";
+	case UploadErrorKind::content_length_mismatch: return "content_length_mismatch";
+	case UploadErrorKind::io_error               : return "io_error";
+	}
+	return "io_error";
+}
+
+struct UploadChunk {
+	using value_type = std::span<std::byte const>;
+
+	value_type value{};
+
+	[[nodiscard]] constexpr value_type get() const noexcept { return value; }
+	[[nodiscard]] constexpr value_type operator *() const noexcept { return value; }
+	[[nodiscard]] constexpr value_type bytes() const noexcept { return value; }
+	[[nodiscard]] std::string_view text_view() const noexcept {
+		if (value.empty()) {
+			return {};
+		}
+		return {reinterpret_cast<char const *>(value.data()), value.size()};
+	}
+};
+
+using UploadReadResult = std::expected<std::optional<UploadChunk>, UploadError>;
+
+struct UploadSaveOptions {
+	bool overwrite{};
+	bool create_parent_dirs{};
+	std::optional<std::uint64_t> max_bytes{};
+	std::size_t buffer_size = std::size_t{128} * 1024;
+};
+
+struct UploadSaveResult {
+	std::filesystem::path path;
+	std::uint64_t bytes_written{};
+};
+
+namespace detail {
+
+class UploadBodyState : public std::enable_shared_from_this<UploadBodyState> {
+	using PendingReadSource = conflux::work::root::TaskSource<UploadReadResult>;
+
+	mutable std::mutex mutex_{};
+	std::deque<std::string> chunks_{};
+	std::string active_chunk_{};
+	std::optional<UploadError> terminal_error_{};
+	bool eof_{};
+	bool read_pending_{};
+	std::optional<PendingReadSource> pending_read_{};
+	std::optional<std::uint64_t> content_length_{};
+	std::uint64_t bytes_read_{};
+
+	[[nodiscard]] UploadReadResult locked_next_result() {
+		if (terminal_error_) {
+			return std::unexpected{*terminal_error_};
+		}
+		if (!chunks_.empty()) {
+			active_chunk_ = std::move(chunks_.front());
+			chunks_.pop_front();
+			bytes_read_ += active_chunk_.size();
+			auto span = std::as_bytes(std::span{active_chunk_.data(), active_chunk_.size()});
+			return std::optional<UploadChunk>{UploadChunk{.value = span}};
+		}
+		if (eof_) {
+			return std::optional<UploadChunk>{};
+		}
+		return std::unexpected{
+			UploadError{.kind = UploadErrorKind::cancelled, .detail = "upload read is not ready"}
+        };
+	}
+
+	[[nodiscard]] std::optional<PendingReadSource> take_pending_locked() {
+		read_pending_ = false;
+		return std::move(pending_read_);
+	}
+
+	static void complete_pending(
+		std::optional<PendingReadSource> pending,
+		UploadReadResult result) {
+		if (pending) {
+			auto _ = pending->try_set_value(conflux::work::root::Success<UploadReadResult>{std::move(result)});
+		}
+	}
+
+public:
+	UploadBodyState() = default;
+	explicit UploadBodyState(
+		std::optional<std::uint64_t> content_length) noexcept
+		: content_length_{content_length} {}
+	UploadBodyState(UploadBodyState const &) = delete;
+	UploadBodyState &operator =(UploadBodyState const &) = delete;
+	UploadBodyState(UploadBodyState &&) = delete;
+	UploadBodyState &operator =(UploadBodyState &&) = delete;
+
+	[[nodiscard]] conflux::work::root::Task<UploadReadResult> read() {
+		std::optional<UploadReadResult> immediate;
+		std::optional<conflux::work::root::Task<UploadReadResult>> task;
+		{
+			std::scoped_lock const lk{mutex_};
+			if (terminal_error_ || !chunks_.empty() || eof_) {
+				immediate = locked_next_result();
+			} else if (read_pending_) {
+				immediate = std::unexpected{
+					UploadError{
+								.kind = UploadErrorKind::cancelled,
+								.detail = "concurrent UploadBody::read() is not allowed"}
+                };
+			} else {
+				auto [read_task, source] = conflux::work::root::make_task_source<UploadReadResult>();
+				pending_read_ = std::move(source);
+				read_pending_ = true;
+				task = std::move(read_task);
+			}
+		}
+		if (immediate) {
+			co_return std::move(*immediate);
+		}
+		co_return co_await std::move(*task);
+	}
+
+	[[nodiscard]] std::optional<std::uint64_t> content_length() const noexcept {
+		std::scoped_lock const lk{mutex_};
+		return content_length_;
+	}
+	[[nodiscard]] std::uint64_t bytes_read() const noexcept {
+		std::scoped_lock const lk{mutex_};
+		return bytes_read_;
+	}
+
+	void push(
+		std::string chunk) {
+		std::optional<UploadReadResult> ready;
+		std::optional<PendingReadSource> pending;
+		{
+			std::scoped_lock const lk{mutex_};
+			if (terminal_error_ || eof_) {
+				return;
+			}
+			chunks_.push_back(std::move(chunk));
+			if (read_pending_) {
+				ready = locked_next_result();
+				pending = take_pending_locked();
+			}
+		}
+		if (ready) {
+			complete_pending(std::move(pending), std::move(*ready));
+		}
+	}
+
+	void finish() {
+		std::optional<UploadReadResult> ready;
+		std::optional<PendingReadSource> pending;
+		{
+			std::scoped_lock const lk{mutex_};
+			eof_ = true;
+			if (read_pending_ && chunks_.empty()) {
+				ready = std::optional<UploadChunk>{};
+				pending = take_pending_locked();
+			} else if (read_pending_) {
+				ready = locked_next_result();
+				pending = take_pending_locked();
+			}
+		}
+		if (ready) {
+			complete_pending(std::move(pending), std::move(*ready));
+		}
+	}
+
+	void fail(
+		UploadError error) {
+		std::optional<UploadReadResult> ready;
+		std::optional<PendingReadSource> pending;
+		{
+			std::scoped_lock const lk{mutex_};
+			terminal_error_ = std::move(error);
+			chunks_.clear();
+			active_chunk_.clear();
+			if (read_pending_) {
+				ready = std::unexpected{*terminal_error_};
+				pending = take_pending_locked();
+			}
+		}
+		if (ready) {
+			complete_pending(std::move(pending), std::move(*ready));
+		}
+	}
+};
+
+} // namespace detail
+
+class UploadBody {
+	std::shared_ptr<detail::UploadBodyState> state_{};
+
+public:
+	UploadBody() = default;
+	explicit UploadBody(
+		std::shared_ptr<detail::UploadBodyState> state) noexcept
+		: state_{std::move(state)} {}
+	UploadBody(UploadBody &&) noexcept = default;
+	UploadBody &operator =(UploadBody &&) noexcept = default;
+	UploadBody(UploadBody const &) = delete;
+	UploadBody &operator =(UploadBody const &) = delete;
+	~UploadBody() = default;
+
+	[[nodiscard]] explicit operator bool() const noexcept { return state_ != nullptr; }
+	[[nodiscard]] conflux::work::root::Task<UploadReadResult> read() {
+		if (!state_) {
+			co_return std::unexpected{
+				UploadError{.kind = UploadErrorKind::cancelled, .detail = "upload body is not available"}
+            };
+		}
+		co_return co_await state_->read();
+	}
+	[[nodiscard]] std::optional<std::uint64_t> content_length() const noexcept {
+		return state_ ? state_->content_length() : std::nullopt;
+	}
+	[[nodiscard]] std::uint64_t bytes_read() const noexcept { return state_ ? state_->bytes_read() : 0; }
+	[[nodiscard]] conflux::work::root::Task<std::expected<void, UploadError>> discard() {
+		while (true) {
+			auto read_result = co_await read();
+			if (!read_result) {
+				co_return std::unexpected{std::move(read_result).error()};
+			}
+			if (!*read_result) {
+				co_return {};
+			}
+		}
+	}
+	[[nodiscard]] conflux::work::root::Task<std::expected<UploadSaveResult, UploadError>> save_to(
+		std::filesystem::path,
+		UploadSaveOptions = {}) {
+		co_return std::unexpected{
+			UploadError{.kind = UploadErrorKind::io_error, .detail = "UploadBody::save_to is not implemented"}
+        };
+	}
+};
 
 class RequestRingRef {
 	void *ptr_{};
@@ -35,6 +295,7 @@ public:
 
 struct RequestContext {
 	RequestRingRef ring;
+	std::shared_ptr<detail::UploadBodyState> upload_body;
 };
 
 } // namespace conflux::http

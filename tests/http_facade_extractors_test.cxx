@@ -1189,6 +1189,28 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app handlers can receive upload body extractor",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/upload-stream", [](http::UploadBody body) -> conflux::work::Task<http::Response> {
+		auto read = co_await body.read();
+		if (!read) {
+			co_return http::upload_error_response(read.error());
+		}
+		if (!*read) {
+			co_return http::text("");
+		}
+		co_return http::text((*read)->text_view());
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].extractors == std::vector<std::string>{"UploadBody"});
+	CHECK(routes[0].body_mode == http::BodyMode::streaming_raw);
+	CHECK(routes[0].consumes == std::vector<std::string>{"application/octet-stream"});
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive multipart extractor",
 	"[http.facade]") {
 	auto app = http::app();

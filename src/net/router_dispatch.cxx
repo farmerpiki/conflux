@@ -384,6 +384,9 @@ export template<typename ContextRouteRange, typename Ctx>
 	conflux::http::HttpFieldsView matched_params;
 	bool const observe_route = req.params.get("__conflux_observe_route").has_value();
 	for (auto const &route: context_routes) {
+		if (route.streaming_upload != static_cast<bool>(ctx.upload_body)) {
+			continue;
+		}
 		matched_params.clear();
 		bool const matched = route.has_exact_path ?
 								 (route.exact_path == path_sv) :

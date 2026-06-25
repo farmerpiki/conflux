@@ -10,6 +10,7 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
         PRIVATE conflux_options
         PUBLIC  conflux_crypto
         PUBLIC  conflux_types
+        PUBLIC  conflux_work
         PUBLIC  conflux_utils
     )
 endif()

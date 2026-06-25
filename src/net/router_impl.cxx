@@ -57,6 +57,7 @@ struct Router::Impl {
 		std::string exact_path{};
 		bool has_exact_path{};
 		std::shared_ptr<std::chrono::milliseconds> timeout{};
+		bool streaming_upload{};
 		ContextHandler handler{};
 	};
 	std::vector<Route> routes{};
@@ -604,7 +605,8 @@ void Router::add_context_prepared(
 	std::string_view method,
 	std::string_view path,
 	std::shared_ptr<std::chrono::milliseconds> timeout,
-	ContextHandler handler) {
+	ContextHandler handler,
+	bool streaming_upload) {
 	auto prepared = prepare_route_pattern(path);
 	auto const route_index = impl_->context_routes.size();
 	index_route_pattern(
@@ -619,6 +621,7 @@ void Router::add_context_prepared(
 		.exact_path = std::move(prepared.exact_path),
 		.has_exact_path = prepared.has_exact_path,
 		.timeout = std::move(timeout),
+		.streaming_upload = streaming_upload,
 		.handler = std::move(handler),
 	});
 }

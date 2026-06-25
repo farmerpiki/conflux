@@ -213,6 +213,9 @@ concept BodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, BodyBytes>;
 template<class Arg>
 concept OwnedBodyBytesArg = std::same_as<std::remove_cvref_t<Arg>, OwnedBodyBytes>;
 
+template<class Arg>
+concept UploadBodyArg = std::same_as<std::remove_cvref_t<Arg>, UploadBody>;
+
 #if CONFLUX_HAS_JSON
 template<class Arg>
 concept JsonDocumentArg = std::same_as<std::remove_cvref_t<Arg>, JsonDocument>;
@@ -316,6 +319,7 @@ consteval bool has_state_arg_impl(
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
 			|| OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
+			|| UploadBodyArg<std::tuple_element_t<Is, Args>>
 #if CONFLUX_HAS_JSON
 			|| JsonDocumentArg<std::tuple_element_t<Is, Args>>
 			|| JsonPatchArg<std::tuple_element_t<Is, Args>>
@@ -336,6 +340,17 @@ consteval bool has_state_arg_impl(
 template<class Args>
 consteval bool has_state_arg() {
 	return has_state_arg_impl<Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
+}
+
+template<class Args, std::size_t... Is>
+consteval bool has_upload_body_arg_impl(
+	std::index_sequence<Is...>) {
+	return (false || ... || UploadBodyArg<std::tuple_element_t<Is, Args>>);
+}
+
+template<class Args>
+consteval bool has_upload_body_arg() {
+	return has_upload_body_arg_impl<Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
 }
 
 template<class Args, std::size_t Index, std::size_t... Is>

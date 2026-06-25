@@ -210,6 +210,16 @@ public:
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
+	Router &add_upload_context_with_timeout(
+		std::string_view method,
+		std::string_view path,
+		std::shared_ptr<std::chrono::milliseconds> timeout,
+		F &&handler) {
+		add_context_prepared(method, path, std::move(timeout), ContextHandler{std::forward<F>(handler)}, true);
+		return *this;
+	}
+	template<typename F>
+		requires ContextHandlerFunction<F>
 	Router &add_context(
 		conflux::http::HttpMethod method,
 		std::string_view path,
@@ -517,7 +527,8 @@ private:
 		std::string_view method,
 		std::string_view path,
 		std::shared_ptr<std::chrono::milliseconds> timeout,
-		ContextHandler handler);
+		ContextHandler handler,
+		bool streaming_upload = false);
 	void add_context_prepared(
 		conflux::http::HttpMethod method,
 		std::string_view path,

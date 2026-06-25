@@ -65,6 +65,26 @@ struct IsTaskResult<conflux::work::root::Task<T>> : std::true_type {};
 template<class T>
 inline constexpr bool IsTaskResultV = IsTaskResult<std::remove_cvref_t<T>>::value;
 
+template<class T>
+[[nodiscard]] decltype(auto) move_if_move_only(
+	T &value) noexcept {
+	if constexpr (std::copy_constructible<std::remove_cvref_t<T>>) {
+		return (value);
+	} else {
+		return std::move(value);
+	}
+}
+
+template<class Tuple>
+struct TupleAllCopyConstructible;
+
+template<class... Args>
+struct TupleAllCopyConstructible<std::tuple<Args...>>
+	: std::bool_constant<(std::copy_constructible<std::remove_cvref_t<Args>> && ...)> {};
+
+template<class Tuple>
+inline constexpr bool TupleAllCopyConstructibleV = TupleAllCopyConstructible<std::remove_cvref_t<Tuple>>::value;
+
 struct AppRouteVerbAccessors {
 	template<typename F>
 	auto get(
@@ -196,6 +216,7 @@ class App : public detail::AppRouteVerbAccessors {
 		std::vector<std::string> openapi_tags{};
 		bool uses_body{};
 		bool allow_get_body{};
+		BodyMode body_mode{BodyMode::none};
 	};
 
 	struct CapturedRoutePolicy {
@@ -1383,8 +1404,18 @@ public:
 			meta.openapi_auth_scheme = "basic";
 		}
 		meta.uses_body = detail::has_body_extractor<Args>() || handler_kind == "json_body";
+		if (contains_extractor("UploadBody")) {
+			meta.body_mode = BodyMode::streaming_raw;
+			meta.consumes = {"application/octet-stream"};
+		} else if (contains_extractor("Multipart")) {
+			meta.body_mode = BodyMode::buffered_multipart;
+		} else if (meta.uses_body || handler_kind == "json_body") {
+			meta.body_mode = BodyMode::buffered_raw;
+		}
 		if constexpr (detail::has_body_extractor<Args>()) {
-			if (contains_extractor("JsonDocument")) {
+			if (contains_extractor("UploadBody")) {
+				meta.consumes = {"application/octet-stream"};
+			} else if (contains_extractor("JsonDocument")) {
 				meta.consumes = {"application/json", "application/problem+json"};
 			} else if (contains_extractor("JsonPatch")) {
 				meta.consumes = {"application/json-patch+json"};
@@ -1733,7 +1764,8 @@ public:
 	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
 		StateMap const &states,
-		conflux::http::RequestView const &req
+		conflux::http::RequestView const &req,
+		RequestContext const *ctx
 #if CONFLUX_HAS_JSON
 		,
 		AppJsonOptions const &json_options,
@@ -1777,6 +1809,11 @@ public:
 				max_body_size
 #endif
 			);
+		} else if constexpr (detail::UploadBodyArg<Clean>) {
+			if (ctx == nullptr || !ctx->upload_body) {
+				throw ExtractorFailure{Response::bad_request("upload body is not available")};
+			}
+			return UploadBody{ctx->upload_body};
 		} else if constexpr (
 			detail::MultipartArg<Clean>
 			|| detail::RequestIdArg<Clean>
@@ -1823,7 +1860,8 @@ public:
 	template<class Args, std::size_t Index>
 	[[nodiscard]] static auto make_fixed_route_arg(
 		StateMap const &states,
-		conflux::http::RequestView const &req
+		conflux::http::RequestView const &req,
+		RequestContext const *ctx
 #if CONFLUX_HAS_JSON
 		,
 		AppJsonOptions const &json_options,
@@ -1837,7 +1875,8 @@ public:
 		} else {
 			return make_handler_arg<Arg>(
 				states,
-				req
+				req,
+				ctx
 #if CONFLUX_HAS_JSON
 				,
 				json_options,
@@ -1863,7 +1902,8 @@ public:
 			return into_app_response(
 				fn(make_fixed_route_arg<Args, Is>(
 					states,
-					req
+					req,
+					nullptr
 #if CONFLUX_HAS_JSON
 					,
 					json_options,
@@ -1888,7 +1928,15 @@ public:
 #endif
 	) {
 		try {
-			auto result = std::apply([handler](auto &...args) { return (*handler)(args...); }, extracted_args);
+			auto result = [&]() {
+				if constexpr (detail::TupleAllCopyConstructibleV<ExtractedArgs>) {
+					return std::apply([handler](auto &...args) { return (*handler)(args...); }, extracted_args);
+				} else {
+					return std::apply(
+						[handler](auto &...args) { return (*handler)(detail::move_if_move_only(args)...); },
+						extracted_args);
+				}
+			}();
 #if CONFLUX_HAS_JSON
 			co_return into_app_response(co_await std::move(result), json_options);
 #else
@@ -1920,6 +1968,7 @@ public:
 		StateMap const &states,
 		Fn &fn,
 		conflux::http::RequestView req,
+		RequestContext const &ctx,
 		std::index_sequence<Is...>
 #if CONFLUX_HAS_JSON
 		,
@@ -1936,9 +1985,10 @@ public:
 			auto extracted_args = std::make_tuple(
 				make_fixed_route_arg<Args, Is>(
 					states,
-					req
+					req,
+					std::addressof(ctx)
 #if CONFLUX_HAS_JSON
-					,
+						,
 					json_options,
 					max_body_size
 #endif
@@ -1998,17 +2048,21 @@ public:
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
-			router_.add_context_with_timeout(
-				method,
-				Path.view(),
-				policy.timeout,
+			auto add_context = [&](auto handler_fn) {
+				if constexpr (detail::has_upload_body_arg<Args>()) {
+					router_.add_upload_context_with_timeout(method, Path.view(), policy.timeout, std::move(handler_fn));
+				} else {
+					router_.add_context_with_timeout(method, Path.view(), policy.timeout, std::move(handler_fn));
+				}
+			};
+			add_context(
 				[states = states_, policy, fn = Fn(std::forward<F>(handler))](
 					conflux::http::RequestView const &req,
 					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					conflux::http::Router::ContextHandler inner =
 						[states, policy, &fn](
 							conflux::http::RequestView const &inner_req,
-							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+							RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
 						if (auto failed = route_prelude_failure(policy, inner_req)) {
 							co_return *std::move(failed);
 						}
@@ -2017,6 +2071,7 @@ public:
 							*states,
 							fn,
 							inner_req,
+							inner_ctx,
 							std::make_index_sequence<std::tuple_size_v<Args>>{}
 #if CONFLUX_HAS_JSON
 							,
@@ -2033,6 +2088,9 @@ public:
 						std::move(inner));
 				});
 		} else {
+			static_assert(
+				!detail::has_upload_body_arg<Args>(),
+				"http::UploadBody requires an async handler returning conflux::work::Task<http::Response>");
 			auto make_inner = [states = states_, policy, fn = Fn(std::forward<F>(handler))]() mutable {
 				return conflux::http::Router::Handler{
 					[states, policy, &fn](conflux::http::RequestView const &inner_req) mutable {
@@ -2098,7 +2156,8 @@ public:
 			return into_app_response(
 				fn(make_handler_arg<std::tuple_element_t<Is, Args>>(
 					states,
-					req
+					req,
+					nullptr
 #if CONFLUX_HAS_JSON
 					,
 					json_options,
@@ -2118,6 +2177,7 @@ public:
 		StateMap const &states,
 		Fn &fn,
 		conflux::http::RequestView req,
+		RequestContext const &ctx,
 		std::index_sequence<Is...>
 #if CONFLUX_HAS_JSON
 		,
@@ -2129,9 +2189,10 @@ public:
 			auto extracted_args = std::make_tuple(
 				make_handler_arg<std::tuple_element_t<Is, Args>>(
 					states,
-					req
+					req,
+					std::addressof(ctx)
 #if CONFLUX_HAS_JSON
-					,
+						,
 					json_options,
 					max_body_size
 #endif
@@ -2172,17 +2233,21 @@ public:
 		using Indices = std::make_index_sequence<std::tuple_size_v<Args>>;
 		using Result = typename ExtractedInvokeResult<Fn, Args, Indices>::type;
 		if constexpr (detail::IsTaskResultV<Result>) {
-			router_.add_context_with_timeout(
-				method,
-				path,
-				policy.timeout,
+			auto add_context = [&](auto handler_fn) {
+				if constexpr (detail::has_upload_body_arg<Args>()) {
+					router_.add_upload_context_with_timeout(method, path, policy.timeout, std::move(handler_fn));
+				} else {
+					router_.add_context_with_timeout(method, path, policy.timeout, std::move(handler_fn));
+				}
+			};
+			add_context(
 				[states = states_, policy, fn = Fn(std::forward<F>(handler))](
 					conflux::http::RequestView const &req,
 					RequestContext const &ctx) mutable -> conflux::work::root::Task<Response> {
 					conflux::http::Router::ContextHandler inner =
 						[states, policy, &fn](
 							conflux::http::RequestView const &inner_req,
-							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
+							RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
 						if (auto failed = route_prelude_failure(policy, inner_req)) {
 							co_return *std::move(failed);
 						}
@@ -2191,6 +2256,7 @@ public:
 							*states,
 							fn,
 							inner_req,
+							inner_ctx,
 							std::make_index_sequence<std::tuple_size_v<Args>>{}
 #if CONFLUX_HAS_JSON
 							,
@@ -2207,6 +2273,9 @@ public:
 						std::move(inner));
 				});
 		} else {
+			static_assert(
+				!detail::has_upload_body_arg<Args>(),
+				"http::UploadBody requires an async handler returning conflux::work::Task<http::Response>");
 			auto make_inner = [states = states_, policy, fn = Fn(std::forward<F>(handler))]() mutable {
 				return conflux::http::Router::Handler{
 					[states, policy, &fn](conflux::http::RequestView const &inner_req) mutable {
@@ -2268,7 +2337,7 @@ public:
 		} else if constexpr (detail::RawJsonBodyArg<Clean, Body>) {
 			return body.value;
 		} else {
-			return make_handler_arg<Arg>(states, req, AppJsonOptions{}, 0);
+			return make_handler_arg<Arg>(states, req, nullptr, AppJsonOptions{}, 0);
 		}
 	}
 
