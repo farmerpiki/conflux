@@ -419,7 +419,23 @@ int Ring::h2_on_data_chunk_cb(
 				if (!pushed) {
 					{
 						std::scoped_lock lk{ctx->ring->metrics_mu_};
-						++ctx->ring->upload_counters_.queue_backpressure_events;
+						switch (pushed.error().kind) {
+						case conflux::http::UploadErrorKind::body_too_large:
+							++ctx->ring->upload_counters_.body_too_large;
+							break;
+						case conflux::http::UploadErrorKind::content_length_mismatch:
+							++ctx->ring->upload_counters_.content_length_mismatch;
+							break;
+						case conflux::http::UploadErrorKind::disconnected:
+							++ctx->ring->upload_counters_.disconnected;
+							break;
+						case conflux::http::UploadErrorKind::io_error:
+							++ctx->ring->upload_counters_.queue_backpressure_events;
+							break;
+						case conflux::http::UploadErrorKind::malformed_body:
+						case conflux::http::UploadErrorKind::timeout:
+						case conflux::http::UploadErrorKind::cancelled     : break;
+						}
 					}
 					stream.upload_body->fail(std::move(pushed).error());
 					h2_reject_stream(session, stream, stream_id, NGHTTP2_CANCEL);
