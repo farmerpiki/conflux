@@ -566,7 +566,15 @@ void install_response_state(
 		std::scoped_lock lk{ring.metrics_mu_};
 		++ring.upload_counters_.streams_started;
 	}
+	bool const send_expect_continue =
+		expect_state == conflux::http::ExpectState::continue_100 && resp.is_deferred() && !conn.expect_continue_sent;
 	install_response_state(conn, std::move(resp), ring, upload_req, std::move(storage), {});
+	if (send_expect_continue) {
+		conn.http1_continue_final_close_after_send = conn.close_after_send;
+		queue_expect_continue_response(conn);
+		conn.close_after_send = false;
+		conn.request_bytes = body_start;
+	}
 	feed_http1_upload(conn, ring);
 	return true;
 }

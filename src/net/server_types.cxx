@@ -1,4 +1,5 @@
 module;
+#include <cerrno>
 #include <fcntl.h>
 
 export module conflux.net.http.server_types;
@@ -312,13 +313,6 @@ public:
 	[[nodiscard]] conflux::work::root::Task<std::expected<UploadSaveResult, UploadError>> save_to(
 		std::filesystem::path path,
 		UploadSaveOptions opts = {}) {
-		if (opts.create_parent_dirs) {
-			co_return std::unexpected{
-				UploadError{
-							.kind = UploadErrorKind::io_error,
-							.detail = "UploadBody::save_to does not create parent directories; create them explicitly first"}
-            };
-		}
 		auto *reader = conflux::file_io::current_file_reader();
 		if (reader == nullptr) {
 			co_return std::unexpected{
@@ -326,6 +320,37 @@ public:
 							.kind = UploadErrorKind::io_error,
 							.detail = "UploadBody::save_to requires an active async file reader"}
             };
+		}
+		if (opts.create_parent_dirs) {
+			auto const parent = path.parent_path();
+			if (!parent.empty()) {
+				std::filesystem::path current;
+				try {
+					for (auto const &part: parent) {
+						current /= part;
+						if (current == parent.root_path()) {
+							continue;
+						}
+						try {
+							co_await reader->async_mkdir(current.string(), 0755);
+						} catch (conflux::IoError const &e) {
+							if (e.errnum() != EEXIST) {
+								throw;
+							}
+						}
+					}
+				} catch (std::exception const &e) {
+					co_return std::unexpected{
+						UploadError{.kind = UploadErrorKind::io_error, .detail = e.what()}
+                    };
+				} catch (...) {
+					co_return std::unexpected{
+						UploadError{
+									.kind = UploadErrorKind::io_error,
+									.detail = "UploadBody::save_to failed to create parent directories"}
+                    };
+				}
+			}
 		}
 		auto path_text = path.string();
 		auto cleanup_partial = [&]() -> conflux::work::root::Task<void> {
@@ -362,7 +387,9 @@ public:
                     };
 				}
 				while (!chunk.empty()) {
-					auto wrote = co_await reader->write_into(file, bytes_written, chunk);
+					auto const write_size =
+						opts.buffer_size == 0 ? chunk.size() : std::min(chunk.size(), opts.buffer_size);
+					auto wrote = co_await reader->write_into(file, bytes_written, chunk.first(write_size));
 					if (wrote == 0) {
 						co_await cleanup_partial();
 						co_return std::unexpected{
