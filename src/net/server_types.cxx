@@ -1,10 +1,12 @@
 module;
+#include <fcntl.h>
 
 export module conflux.net.http.server_types;
 
 import std;
 import conflux.types;
 import conflux.net.http.types;
+import conflux.file_io;
 import conflux.work.root;
 
 // ---------------------------------------------------------------------------
@@ -222,6 +224,13 @@ public:
 			complete_pending(std::move(pending), std::move(*ready));
 		}
 	}
+
+	void abandon_consumer() {
+		fail(
+			UploadError{
+				.kind = UploadErrorKind::cancelled,
+				.detail = "upload body was destroyed before it was consumed or discarded"});
+	}
 };
 
 } // namespace detail
@@ -234,11 +243,26 @@ public:
 	explicit UploadBody(
 		std::shared_ptr<detail::UploadBodyState> state) noexcept
 		: state_{std::move(state)} {}
-	UploadBody(UploadBody &&) noexcept = default;
-	UploadBody &operator =(UploadBody &&) noexcept = default;
+	UploadBody(
+		UploadBody &&other) noexcept
+		: state_{std::exchange(other.state_, {})} {}
+	UploadBody &operator =(
+		UploadBody &&other) noexcept {
+		if (this != &other) {
+			if (state_) {
+				state_->abandon_consumer();
+			}
+			state_ = std::exchange(other.state_, {});
+		}
+		return *this;
+	}
 	UploadBody(UploadBody const &) = delete;
 	UploadBody &operator =(UploadBody const &) = delete;
-	~UploadBody() = default;
+	~UploadBody() {
+		if (state_) {
+			state_->abandon_consumer();
+		}
+	}
 
 	[[nodiscard]] explicit operator bool() const noexcept { return state_ != nullptr; }
 	[[nodiscard]] conflux::work::root::Task<UploadReadResult> read() {
@@ -265,11 +289,78 @@ public:
 		}
 	}
 	[[nodiscard]] conflux::work::root::Task<std::expected<UploadSaveResult, UploadError>> save_to(
-		std::filesystem::path,
-		UploadSaveOptions = {}) {
-		co_return std::unexpected{
-			UploadError{.kind = UploadErrorKind::io_error, .detail = "UploadBody::save_to is not implemented"}
-        };
+		std::filesystem::path path,
+		UploadSaveOptions opts = {}) {
+		if (opts.create_parent_dirs) {
+			co_return std::unexpected{
+				UploadError{
+							.kind = UploadErrorKind::io_error,
+							.detail = "UploadBody::save_to does not create parent directories; create them explicitly first"}
+            };
+		}
+		auto *reader = conflux::file_io::current_file_reader();
+		if (reader == nullptr) {
+			co_return std::unexpected{
+				UploadError{
+							.kind = UploadErrorKind::io_error,
+							.detail = "UploadBody::save_to requires an active async file reader"}
+            };
+		}
+		auto path_text = path.string();
+		auto cleanup_partial = [&]() -> conflux::work::root::Task<void> {
+			try {
+				co_await reader->async_unlink(AT_FDCWD, path_text);
+			} catch (...) {}
+		};
+		std::uint64_t bytes_written{};
+		bool opened{};
+		std::optional<UploadError> caught_error;
+		try {
+			auto flags = O_WRONLY | O_CREAT;
+			flags |= opts.overwrite ? O_TRUNC : O_EXCL;
+			auto file = co_await reader->async_open(AT_FDCWD, path_text, flags, 0644);
+			opened = true;
+			while (true) {
+				auto next = co_await read();
+				if (!next) {
+					if (opened) {
+						co_await cleanup_partial();
+					}
+					co_return std::unexpected{std::move(next).error()};
+				}
+				if (!*next) {
+					co_return UploadSaveResult{.path = std::move(path), .bytes_written = bytes_written};
+				}
+				auto chunk = (*next)->bytes();
+				if (opts.max_bytes && chunk.size() > *opts.max_bytes - std::min(bytes_written, *opts.max_bytes)) {
+					co_await cleanup_partial();
+					co_return std::unexpected{
+						UploadError{
+									.kind = UploadErrorKind::body_too_large,
+									.detail = "upload exceeds save_to max_bytes"}
+                    };
+				}
+				while (!chunk.empty()) {
+					auto wrote = co_await reader->write_into(file, bytes_written, chunk);
+					if (wrote == 0) {
+						co_await cleanup_partial();
+						co_return std::unexpected{
+							UploadError{.kind = UploadErrorKind::io_error, .detail = "file write made no progress"}
+                        };
+					}
+					bytes_written += wrote;
+					chunk = chunk.subspan(wrote);
+				}
+			}
+		} catch (std::exception const &e) {
+			caught_error = UploadError{.kind = UploadErrorKind::io_error, .detail = e.what()};
+		} catch (...) {
+			caught_error = UploadError{.kind = UploadErrorKind::io_error, .detail = "UploadBody::save_to failed"};
+		}
+		if (opened) {
+			co_await cleanup_partial();
+		}
+		co_return std::unexpected{std::move(*caught_error)};
 	}
 };
 

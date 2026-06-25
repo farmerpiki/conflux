@@ -1211,6 +1211,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: upload body rejects buffered body extractors",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/bad-upload", [](http::UploadBody body, http::BodyBytes bytes) -> conflux::work::Task<http::Response> {
+		(void)body;
+		(void)bytes;
+		co_return http::text("bad");
+	});
+
+	auto report = app.validate();
+	REQUIRE(!report.ok());
+	CHECK(
+		report.detailed_summary().find("UploadBody cannot be combined with buffered body extractor BodyBytes")
+		!= std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: app handlers can receive multipart extractor",
 	"[http.facade]") {
 	auto app = http::app();

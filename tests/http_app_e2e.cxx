@@ -201,6 +201,45 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"upload body handlers see streaming body instead of buffered request body") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post(
+		"/stream-upload",
+		[](chttp::RequestView req, chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+			std::string payload;
+			while (true) {
+				auto read = co_await body.read();
+				if (!read) {
+					co_return chttp::upload_error_response(read.error());
+				}
+				if (!*read) {
+					break;
+				}
+				payload += (*read)->text_view();
+			}
+			co_return chttp::text(
+				std::format("{}:{}:{}:{}", req.body.empty(), req.form.size(), req.files.size(), payload));
+		});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp =
+		conflux::tests::http_post_on((*server)->port(), "/stream-upload", "application/x-www-form-urlencoded", "a=b");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "true:0:0:a=b");
+}
+
+TEST_CASE(
 	"async context route timeout returns gateway timeout and cancels handler with deadline") {
 	namespace root = conflux::work::root;
 
