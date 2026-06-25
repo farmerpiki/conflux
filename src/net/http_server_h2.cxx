@@ -600,6 +600,19 @@ ssize_t Ring::h2_read_cb(
 	if (resp.is_deferred()) {
 		auto deferred_response = resp.deferred_response_ptr();
 		deferred_response->keep_alive(request_lease);
+		if (auto ready = deferred_response->take_ready()) {
+			if (ready->status >= 400 && stream.upload_body && !stream.end_stream_seen) {
+				stream.upload_body->abandon_consumer();
+				stream.upload_body.reset();
+				stream.rejected = true;
+				{
+					std::scoped_lock lk{metrics_mu_};
+					++upload_counters_.canceled_by_handler;
+				}
+			}
+			h2_submit_response(conn, stream_id, std::move(*ready));
+			return true;
+		}
 		stream.deferred_efd = deferred_response->eventfd_fd();
 		queue_deferred_wait(conn.fd, stream.deferred_efd, resp.take_deferred_response(), stream_id);
 		return true;
@@ -831,6 +844,10 @@ int Ring::h2_on_frame_recv_cb(
 	if (resp.is_deferred()) {
 		auto deferred_response = resp.deferred_response_ptr();
 		deferred_response->keep_alive(request_lease);
+		if (auto ready = deferred_response->take_ready()) {
+			h2_submit_response(conn, frame->hd.stream_id, std::move(*ready));
+			return 0;
+		}
 		stream.deferred_efd = deferred_response->eventfd_fd();
 		ctx->ring
 			->queue_deferred_wait(ctx->fd, stream.deferred_efd, resp.take_deferred_response(), frame->hd.stream_id);
