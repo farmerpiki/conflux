@@ -13,6 +13,7 @@ import conflux.work.root;
 import conflux.file_map.types;
 export import conflux.utils;
 import conflux.net.http.types;
+import conflux.net.http.server_types;
 import conflux.net.http.realtime;
 
 export namespace conflux::http::detail {
@@ -690,6 +691,26 @@ struct Response {
 		headers["Vary"] = std::format("{}, {}", current, token);
 	}
 };
+
+[[nodiscard]] Response upload_error_response(
+	UploadError const &error) {
+	switch (error.kind) {
+	case UploadErrorKind::body_too_large: return Response::content_too_large();
+	case UploadErrorKind::timeout:
+		return Response::html(response_html_error_body(408, "Request Timeout", error.detail), 408);
+	case UploadErrorKind::malformed_body:
+	case UploadErrorKind::content_length_mismatch: return Response::bad_request(error.detail);
+	case UploadErrorKind::disconnected:
+	case UploadErrorKind::cancelled:
+		{
+			auto response = Response::bad_request(error.detail);
+			response.headers["Connection"] = "close";
+			return response;
+		}
+	case UploadErrorKind::io_error: return Response::internal_error(error.detail);
+	}
+	return Response::internal_error(error.detail);
+}
 
 class DeferredResponse {
 	int efd_{-1};

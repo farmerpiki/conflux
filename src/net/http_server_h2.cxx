@@ -616,7 +616,17 @@ int Ring::h2_on_frame_recv_cb(
 
 	conflux::http::Response resp;
 	try {
-		resp = ctx->ring->dispatch(req);
+		auto upload_body = std::make_shared<conflux::http::detail::UploadBodyState>(
+			stream.seen_content_length ? std::optional<std::uint64_t>{stream.expected_body_size} : std::nullopt);
+		if (!body.empty()) {
+			upload_body->push(std::string{body});
+		}
+		upload_body->finish();
+		if (auto async = ctx->ring->try_dispatch_context(req, std::move(upload_body))) {
+			resp = std::move(*async);
+		} else {
+			resp = ctx->ring->dispatch(req);
+		}
 	} catch (std::exception const &e) { resp = conflux::http::Response::internal_error(e.what()); } catch (...) {
 		resp = conflux::http::Response::internal_error();
 	}

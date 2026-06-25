@@ -135,14 +135,17 @@ Ring::~Ring() {
 }
 
 [[nodiscard]] std::optional<conflux::http::Response> Ring::try_dispatch_context(
-	conflux::http::RequestView const &req) const {
+	conflux::http::RequestView const &req,
+	std::shared_ptr<conflux::http::detail::UploadBodyState> upload_body) const {
 	if (!client_task_ring_) {
 		return std::nullopt;
 	}
 	if (!has_context_routes()) {
 		return std::nullopt;
 	}
-	conflux::http::RequestContext const ctx{conflux::http::RequestRingRef{*client_task_ring_}};
+	conflux::http::RequestContext const ctx{
+		.ring = conflux::http::RequestRingRef{*client_task_ring_},
+		.upload_body = std::move(upload_body)};
 	if (vhost_router != nullptr) {
 		return vhost_router->dispatch_context(req, ctx);
 	}

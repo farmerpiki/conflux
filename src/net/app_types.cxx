@@ -678,6 +678,26 @@ struct Multipart {
 	}
 };
 
+enum class BodyMode : std::uint8_t {
+	none,
+	buffered_raw,
+	buffered_multipart,
+	streaming_raw,
+	streaming_multipart,
+};
+
+[[nodiscard]] constexpr std::string_view body_mode_name(
+	BodyMode mode) noexcept {
+	switch (mode) {
+	case BodyMode::none               : return "none";
+	case BodyMode::buffered_raw       : return "buffered_raw";
+	case BodyMode::buffered_multipart : return "buffered_multipart";
+	case BodyMode::streaming_raw      : return "streaming_raw";
+	case BodyMode::streaming_multipart: return "streaming_multipart";
+	}
+	return "none";
+}
+
 struct RequestId {
 	std::string_view value{};
 
@@ -846,6 +866,7 @@ struct AppRouteInfo {
 	std::string bearer_token_policy;
 	std::string openapi_summary;
 	bool allow_get_body{};
+	BodyMode body_mode{BodyMode::none};
 };
 
 struct AppStaticMountInfo {

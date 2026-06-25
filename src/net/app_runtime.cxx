@@ -38,7 +38,8 @@ std::vector<AppRouteInfo> App::routes() const {
 			.rate_limit = route.rate_limit->name,
 			.bearer_token_policy = *route.bearer_token_policy,
 			.openapi_summary = route.openapi_summary,
-			.allow_get_body = route.allow_get_body};
+			.allow_get_body = route.allow_get_body,
+			.body_mode = route.body_mode};
 	});
 	return out;
 }
@@ -89,6 +90,9 @@ std::string App::route_table() const {
 				}
 				out += route.extractors[i];
 			}
+		}
+		if (route.body_mode != BodyMode::none) {
+			out += std::format(" body_mode={}", body_mode_name(route.body_mode));
 		}
 	}
 	for (auto const &mount: static_mounts_) {
@@ -313,6 +317,16 @@ void App::validate_route_extractors_and_body_policy(
 			report.issues.push_back(
 				ValidationIssue{
 					.message = "body extractor used on GET route",
+					.method = route.method,
+					.path = route.path,
+					.source_file = route.source_file,
+					.source_line = route.source_line});
+		}
+		auto const has_upload_body = std::ranges::contains(route.extractors, "UploadBody");
+		if (has_upload_body && route.handler_kind != "app") {
+			report.issues.push_back(
+				ValidationIssue{
+					.message = "UploadBody extractor requires an app async handler",
 					.method = route.method,
 					.path = route.path,
 					.source_file = route.source_file,

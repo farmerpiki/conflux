@@ -67,6 +67,8 @@ template<class Arg>
 		return "BodyBytes";
 	} else if constexpr (OwnedBodyBytesArg<Clean>) {
 		return "OwnedBodyBytes";
+	} else if constexpr (UploadBodyArg<Clean>) {
+		return "UploadBody";
 #if CONFLUX_HAS_JSON
 	} else if constexpr (JsonDocumentArg<Clean>) {
 		return "JsonDocument";
@@ -175,6 +177,7 @@ template<class Args, std::size_t... Is>
 		|| (BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
 			|| OwnedBodyBytesArg<std::tuple_element_t<Is, Args>>
+			|| UploadBodyArg<std::tuple_element_t<Is, Args>>
 #if CONFLUX_HAS_JSON
 			|| FormParamsArg<std::tuple_element_t<Is, Args>>
 			|| JsonDocumentArg<std::tuple_element_t<Is, Args>>
