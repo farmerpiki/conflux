@@ -1211,6 +1211,34 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: upload body route-local content length limit rejects before handler",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post(
+		   "/upload-stream",
+		   [](http::UploadBody body) -> conflux::work::Task<http::Response> {
+			   auto discarded = co_await body.discard();
+			   if (!discarded) {
+				   co_return http::upload_error_response(discarded.error());
+			   }
+			   co_return http::text("unexpected");
+		   })
+		.max_body_size(3);
+
+	http::OwnedRequest req;
+	req.method = "POST";
+	req.path = "/upload-stream";
+	req.headers.set("content-length", "6");
+	auto upload = std::make_shared<http::detail::UploadBodyState>(std::uint64_t{6});
+	auto dispatched = http::router(app).dispatch_context(req, http::RequestContext{.upload_body = std::move(upload)});
+	REQUIRE(dispatched.has_value());
+	REQUIRE(dispatched->is_deferred());
+	auto ready = dispatched->deferred_response_ptr()->take_ready();
+	REQUIRE(ready.has_value());
+	CHECK(ready->status == http::kHttpRequestEntityTooLarge);
+}
+
+TEST_CASE(
 	"http facade: upload body rejects buffered body extractors",
 	"[http.facade]") {
 	auto app = http::app();

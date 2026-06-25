@@ -90,6 +90,8 @@ class UploadBodyState : public std::enable_shared_from_this<UploadBodyState> {
 	std::optional<PendingReadSource> pending_read_{};
 	std::optional<std::uint64_t> content_length_{};
 	std::uint64_t bytes_read_{};
+	std::uint64_t bytes_received_{};
+	std::size_t body_limit_{};
 	std::size_t queue_capacity_{16};
 	bool consumer_abandoned_{};
 
@@ -140,22 +142,31 @@ public:
 	[[nodiscard]] conflux::work::root::Task<UploadReadResult> read() {
 		std::optional<UploadReadResult> immediate;
 		std::optional<conflux::work::root::Task<UploadReadResult>> task;
+		std::optional<UploadReadResult> pending_ready;
+		std::optional<PendingReadSource> pending;
 		{
 			std::scoped_lock const lk{mutex_};
 			if (terminal_error_ || !chunks_.empty() || eof_) {
 				immediate = locked_next_result();
 			} else if (read_pending_) {
-				immediate = std::unexpected{
-					UploadError{
-								.kind = UploadErrorKind::cancelled,
-								.detail = "concurrent UploadBody::read() is not allowed"}
-                };
+				terminal_error_ = UploadError{
+					.kind = UploadErrorKind::cancelled,
+					.detail = "concurrent UploadBody::read() is not allowed"};
+				consumer_abandoned_ = true;
+				chunks_.clear();
+				active_chunk_.clear();
+				pending_ready = std::unexpected{*terminal_error_};
+				pending = take_pending_locked();
+				immediate = std::unexpected{*terminal_error_};
 			} else {
 				auto [read_task, source] = conflux::work::root::make_task_source<UploadReadResult>();
 				pending_read_ = std::move(source);
 				read_pending_ = true;
 				task = std::move(read_task);
 			}
+		}
+		if (pending_ready) {
+			complete_pending(std::move(pending), std::move(*pending_ready));
 		}
 		if (immediate) {
 			co_return std::move(*immediate);
@@ -171,29 +182,52 @@ public:
 		std::scoped_lock const lk{mutex_};
 		return bytes_read_;
 	}
+	void set_body_limit(
+		std::size_t limit) noexcept {
+		std::scoped_lock const lk{mutex_};
+		body_limit_ = limit;
+	}
 
 	[[nodiscard]] std::expected<void, UploadError> push(
 		std::string chunk) {
 		std::optional<UploadReadResult> ready;
 		std::optional<PendingReadSource> pending;
+		std::optional<UploadError> rejected;
 		{
 			std::scoped_lock const lk{mutex_};
 			if (terminal_error_ || eof_) {
 				return {};
 			}
-			if (!read_pending_ && chunks_.size() >= queue_capacity_) {
-				return std::unexpected{
-					UploadError{.kind = UploadErrorKind::io_error, .detail = "upload stream queue is full"}
-                };
+			if (body_limit_ != 0 && (chunk.size() > body_limit_ || bytes_received_ > body_limit_ - chunk.size())) {
+				terminal_error_ =
+					UploadError{.kind = UploadErrorKind::body_too_large, .detail = "upload exceeds body limit"};
+				chunks_.clear();
+				active_chunk_.clear();
+				if (read_pending_) {
+					ready = std::unexpected{*terminal_error_};
+					pending = take_pending_locked();
+				}
+				rejected = *terminal_error_;
 			}
-			chunks_.push_back(std::move(chunk));
-			if (read_pending_) {
-				ready = locked_next_result();
-				pending = take_pending_locked();
+			if (!rejected) {
+				bytes_received_ += chunk.size();
+				if (!read_pending_ && chunks_.size() >= queue_capacity_) {
+					return std::unexpected{
+						UploadError{.kind = UploadErrorKind::io_error, .detail = "upload stream queue is full"}
+                    };
+				}
+				chunks_.push_back(std::move(chunk));
+				if (read_pending_) {
+					ready = locked_next_result();
+					pending = take_pending_locked();
+				}
 			}
 		}
 		if (ready) {
 			complete_pending(std::move(pending), std::move(*ready));
+		}
+		if (rejected) {
+			return std::unexpected{std::move(*rejected)};
 		}
 		return {};
 	}
