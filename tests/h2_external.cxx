@@ -546,6 +546,29 @@ TEST_CASE(
 	CHECK(metrics.uploads.queue_backpressure_events == 0);
 }
 TEST_CASE(
+	"h2: route-local upload content-length limit rejects before handler") {
+	auto handler_started = std::make_shared<std::atomic<bool>>(false);
+	auto app = conflux::http::App::default_server();
+	app.post(
+		   "/stream-upload",
+		   [handler_started](conflux::http::UploadBody body) -> conflux::work::Task<conflux::http::Response> {
+			   handler_started->store(true, std::memory_order_release);
+			   auto discarded = co_await body.discard();
+			   if (!discarded) {
+				   co_return conflux::http::upload_error_response(discarded.error());
+			   }
+			   co_return conflux::http::Response::text("unexpected");
+		   })
+		.max_body_size(3);
+	REQUIRE(app.validate().ok());
+	conflux::tests::HttpsServerFixture const fx{std::move(conflux::http::router(app))};
+	H2Client client{fx.port()};
+	auto resp = client.post_with_content_length("/stream-upload", "", 6);
+	REQUIRE(resp.closed);
+	CHECK(resp.status == conflux::http::kHttpRequestEntityTooLarge);
+	CHECK_FALSE(handler_started->load(std::memory_order_acquire));
+}
+TEST_CASE(
 	"h2: content-length over max body resets stream") {
 	conflux::http::Config cfg = conflux::http::Config::test();
 	cfg.max_body_size = 8;
