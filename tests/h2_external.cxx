@@ -491,10 +491,26 @@ TEST_CASE(
 		"a=b",
 		{
 			{"content-type", "application/x-www-form-urlencoded"}
-		},
+    },
 		1);
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.body == "true:0:0:a=b");
+}
+TEST_CASE(
+	"h2: streaming upload early response cancels remaining DATA") {
+	conflux::http::Router router;
+	router.add_upload_context_with_timeout(
+		"POST",
+		"/stream-upload",
+		nullptr,
+		[](conflux::http::RequestView, conflux::http::RequestContext const &)
+			-> conflux::work::Task<conflux::http::Response> { co_return conflux::http::Response::text("done"); });
+	conflux::tests::HttpsServerFixture const fx{std::move(router)};
+	H2Client client{fx.port()};
+	std::string body(64 * 1024, 'x');
+	auto resp = client.post_with_frame_size("/stream-upload", body, 1024);
+	REQUIRE(resp.closed);
+	CHECK(resp.error_code == NGHTTP2_CANCEL);
 }
 TEST_CASE(
 	"h2: content-length over max body resets stream") {

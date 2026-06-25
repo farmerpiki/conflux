@@ -312,6 +312,7 @@ struct alignas(
 	std::chrono::steady_clock::time_point request_started{};
 	bool request_in_progress = false;
 	bool expect_continue_sent = false;
+	bool http1_continue_final_close_after_send = false;
 	std::string remote_addr{}; // peer IP, set on accept
 	conflux::http::ChunkedDecodeState chunked_decode{};
 	std::shared_ptr<conflux::http::detail::UploadBodyState> http1_upload_body{};

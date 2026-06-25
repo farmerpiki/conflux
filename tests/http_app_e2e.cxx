@@ -368,6 +368,100 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"upload body handler sends HTTP/1 100 Continue before streaming body") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/stream-upload", [](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		std::string payload;
+		while (true) {
+			auto read = co_await body.read();
+			if (!read) {
+				co_return chttp::upload_error_response(read.error());
+			}
+			if (!*read) {
+				break;
+			}
+			payload += (*read)->text_view();
+		}
+		co_return chttp::text(payload);
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	conflux::tests::LocalTcpClient client{(*server)->port()};
+	client.set_recv_timeout(std::chrono::seconds{5});
+	std::string_view const body = "abcdef";
+	auto sent = client.send(
+		std::format(
+			"POST /stream-upload HTTP/1.1\r\n"
+			"Host: localhost\r\n"
+			"Content-Length: {}\r\n"
+			"Expect: 100-continue\r\n"
+			"Connection: close\r\n\r\n",
+			body.size()));
+	REQUIRE(sent > 0);
+	auto interim = client.read_headers();
+	REQUIRE(interim.starts_with("HTTP/1.1 100 Continue"));
+	sent = client.send(body);
+	REQUIRE(sent == static_cast<ssize_t>(body.size()));
+	auto resp = client.read_until_close();
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == body);
+}
+
+TEST_CASE(
+	"upload body save_to creates parent directories and writes bounded chunks") {
+	auto root = std::filesystem::temp_directory_path()
+			  / std::format("conflux-upload-save-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+	auto path = root / "nested" / "payload.txt";
+	auto cleanup = std::unique_ptr<void, void (*)(void *)>{&root, +[](void *p) {
+															   auto const &dir =
+																   *static_cast<std::filesystem::path const *>(p);
+															   std::error_code ec;
+															   std::filesystem::remove_all(dir, ec);
+														   }};
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/save", [path](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		auto saved = co_await body.save_to(
+			path,
+			chttp::UploadSaveOptions{.overwrite = false, .create_parent_dirs = true, .buffer_size = 2});
+		if (!saved) {
+			co_return chttp::upload_error_response(saved.error());
+		}
+		co_return chttp::text(std::format("{}", saved->bytes_written));
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/save", "application/octet-stream", "abcdef");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "6");
+	REQUIRE(std::filesystem::exists(path));
+	std::ifstream in{path};
+	std::string saved{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+	REQUIRE(saved == "abcdef");
+}
+
+TEST_CASE(
 	"async context route timeout returns gateway timeout and cancels handler with deadline") {
 	namespace root = conflux::work::root;
 

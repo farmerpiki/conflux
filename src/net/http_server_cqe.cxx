@@ -195,6 +195,10 @@ void Ring::install_http1_deferred_response(
 		ready.head_only = true;
 	}
 	conn.deferred_head_only = false;
+	if (conn.http1_continue_final_close_after_send) {
+		conn.close_after_send = true;
+		conn.http1_continue_final_close_after_send = false;
+	}
 	if (ready.is_mapped_file()) {
 		conn.own_response = conflux::http::format_response(ready, alt_svc_header, conn.close_after_send);
 		if (ready.head_only) {

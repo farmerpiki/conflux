@@ -601,6 +601,15 @@ void Ring::h2_submit_response(
 		return;
 	}
 	auto &stream = it->second;
+	bool const cancel_upload = stream.upload_body != nullptr && !stream.end_stream_seen;
+	if (cancel_upload) {
+		stream.upload_body->abandon_consumer();
+		stream.upload_body.reset();
+		{
+			std::scoped_lock lk{conn.h2_ctx->ring->metrics_mu_};
+			++conn.h2_ctx->ring->upload_counters_.canceled_by_handler;
+		}
+	}
 
 	if (resp.is_deferred()) {
 		resp = conflux::http::Response::internal_error("nested deferred responses unsupported over HTTP/2");
@@ -666,6 +675,9 @@ void Ring::h2_submit_response(
 		nva.data(),
 		nva.size(),
 		(stream.response_body.empty() && !is_sse_resp) ? nullptr : &prd);
+	if (cancel_upload) {
+		h2_reject_stream(conn.h2_session, stream, stream_id, NGHTTP2_CANCEL);
+	}
 }
 
 int Ring::h2_on_frame_recv_cb(
