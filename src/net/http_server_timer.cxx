@@ -161,6 +161,25 @@ void Ring::handle_request_timeout(
 		if (incomplete_h1_headers(conn)) {
 			reason = conflux::http::HttpRejectReason::header_timeout;
 		}
+		if (conn.http1_upload_body && reason == conflux::http::HttpRejectReason::body_timeout) {
+			conn.http1_upload_body->fail(
+				conflux::http::UploadError{
+					.kind = conflux::http::UploadErrorKind::timeout,
+					.detail = "HTTP/1 upload body was not received before the timeout"});
+			conn.http1_upload_body.reset();
+			conn.http1_upload_request_storage.reset();
+			conn.http1_upload_content_length.reset();
+			conn.http1_upload_line.clear();
+			conn.http1_upload_chunk_phase = Http1UploadChunkPhase::done;
+			if (conn.deferred_efd >= 0) {
+				deferred_waits.erase(conn.deferred_efd);
+			}
+			conn.is_deferred = false;
+			conn.deferred_efd = -1;
+			conn.deferred_response.reset();
+			conn.deferred_request_storage.reset();
+			conn.deferred_request_files.reset();
+		}
 		invalidate_recv_if_armed(fd);
 		emit_timeout_rejection(conn, *this, reason);
 		start_response_send(fd, conn);
@@ -178,6 +197,16 @@ void Ring::handle_connection_timer(
 		return;
 	}
 	if (close_if_shutdown_send_deadline(conn, now) || conn.is_sse) {
+		return;
+	}
+	if (conn.http1_upload_body) {
+		handle_request_timeout(conn, now, req_limit);
+		if (conn.send_queued) {
+			return;
+		}
+		if (conn.deferred_response) {
+			conn.deferred_response->expire_if_past_deadline(now);
+		}
 		return;
 	}
 	if (conn.is_deferred) {

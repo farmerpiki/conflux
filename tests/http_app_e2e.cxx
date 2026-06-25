@@ -441,6 +441,145 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"upload body route-local chunked limit fails pending HTTP/1 read") {
+	auto observed = std::make_shared<std::atomic<int>>(-1);
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.config().direct_accept = false;
+	app.config().fixed_buffer_slabs = 0;
+	app.config().send_buffer_slabs = 0;
+	app.post(
+		   "/stream-upload",
+		   [observed](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+			   while (true) {
+				   auto read = co_await body.read();
+				   if (!read) {
+					   observed->store(static_cast<int>(read.error().kind), std::memory_order_release);
+					   co_return chttp::upload_error_response(read.error());
+				   }
+				   if (!*read) {
+					   break;
+				   }
+			   }
+			   co_return chttp::text("unexpected");
+		   })
+		.max_body_size(3);
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	conflux::tests::LocalTcpClient client{(*server)->port()};
+	client.set_recv_timeout(std::chrono::seconds{5});
+	auto sent = client.send(
+		"POST /stream-upload HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Transfer-Encoding: chunked\r\n"
+		"Connection: close\r\n\r\n"
+		"2\r\nab\r\n");
+	REQUIRE(sent > 0);
+	sent = client.send("4\r\ncdef\r\n0\r\n\r\n");
+	REQUIRE(sent > 0);
+	for (int i = 0;
+		 i != 200
+		 && observed->load(std::memory_order_acquire) != static_cast<int>(chttp::UploadErrorKind::body_too_large);
+		 ++i) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(observed->load(std::memory_order_acquire) == static_cast<int>(chttp::UploadErrorKind::body_too_large));
+}
+
+TEST_CASE(
+	"upload body concurrent reads fail both HTTP/1 reads terminally") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/stream-upload", [](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		auto first = body.read();
+		auto second = body.read();
+		auto second_read = co_await std::move(second);
+		auto first_read = co_await std::move(first);
+		if (!first_read
+			&& !second_read
+			&& first_read.error().kind == chttp::UploadErrorKind::cancelled
+			&& second_read.error().kind == chttp::UploadErrorKind::cancelled) {
+			auto later = co_await body.read();
+			if (!later && later.error().kind == chttp::UploadErrorKind::cancelled) {
+				co_return chttp::text("cancelled");
+			}
+		}
+		co_return chttp::text("unexpected");
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/stream-upload", "application/octet-stream", "abc");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "cancelled");
+}
+
+TEST_CASE(
+	"upload body pending HTTP/1 read completes with timeout") {
+	auto observed = std::make_shared<std::atomic<int>>(-1);
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.config().request_timeout_ms = 1000;
+	app.config().tls_sniff_timeout_ms = 0;
+	app.config().direct_accept = false;
+	app.config().fixed_buffer_slabs = 0;
+	app.config().send_buffer_slabs = 0;
+	app.post("/stream-upload", [observed](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		auto read = co_await body.read();
+		if (!read) {
+			observed->store(static_cast<int>(read.error().kind), std::memory_order_release);
+			co_return chttp::upload_error_response(read.error());
+		}
+		co_return chttp::text("unexpected");
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	conflux::tests::LocalTcpClient client{(*server)->port()};
+	client.set_recv_timeout(std::chrono::seconds{5});
+	auto sent = client.send(
+		"POST /stream-upload HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Content-Length: 6\r\n"
+		"Connection: close\r\n\r\n");
+	REQUIRE(sent > 0);
+	for (int i = 0;
+		 i != 200 && observed->load(std::memory_order_acquire) != static_cast<int>(chttp::UploadErrorKind::timeout);
+		 ++i) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(observed->load(std::memory_order_acquire) == static_cast<int>(chttp::UploadErrorKind::timeout));
+}
+
+TEST_CASE(
 	"upload body save_to creates parent directories and writes bounded chunks") {
 	TempTreeCleanup cleanup{.root = unique_upload_temp_root()};
 	auto path = cleanup.root / "nested" / "payload.txt";

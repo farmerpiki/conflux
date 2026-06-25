@@ -18,6 +18,7 @@ import conflux.types;
 import conflux.net.config;
 import conflux.net.auth;
 import conflux.net.http.types;
+import conflux.net.http.parse_helpers;
 import conflux.net.http.server_types;
 import conflux.net.http_server;
 import conflux.net.path;
@@ -311,19 +312,41 @@ class App : public detail::AppRouteVerbAccessors {
 
 	[[nodiscard]] static std::optional<Response> route_prelude_failure(
 		CapturedRoutePolicy const &policy,
-		conflux::http::RequestView const &req) {
+		conflux::http::RequestView const &req,
+		RequestContext const *ctx = nullptr) {
+		auto const limit = route_body_limit(policy);
+		if (ctx != nullptr && ctx->upload_body) {
+			ctx->upload_body->set_body_limit(limit);
+		}
+		auto fail = [](Response response) -> std::optional<Response> {
+			return std::optional<Response>{std::move(response)};
+		};
 		if (auto denied = detail::route_auth_failure(*policy.bearer_token_policy, req)) {
-			return denied;
+			return fail(*std::move(denied));
 		}
 		if (auto limited = detail::route_rate_limit_failure(*policy.rate_limit, req)) {
-			return limited;
+			return fail(*std::move(limited));
 		}
-		auto const limit = route_body_limit(policy);
+		if (limit != 0 && ctx != nullptr && ctx->upload_body) {
+			if (auto content_length = req.header("content-length"); !content_length.empty()) {
+				auto parsed = parse_content_length_limited(content_length, limit);
+				if (!parsed) {
+					if (parsed.error() == ContentLengthParseError::malformed) {
+						return fail(Response::bad_request("Content-Length is not a valid decimal length"));
+					}
+#if CONFLUX_HAS_JSON
+					return fail(detail::json_body_too_large_problem());
+#else
+					return fail(Response::content_too_large());
+#endif
+				}
+			}
+		}
 		if (limit != 0 && req.body.size() > limit) {
 #if CONFLUX_HAS_JSON
-			return detail::json_body_too_large_problem();
+			return fail(detail::json_body_too_large_problem());
 #else
-			return Response::content_too_large();
+			return fail(Response::content_too_large());
 #endif
 		}
 		return std::nullopt;
@@ -652,8 +675,8 @@ public:
 					conflux::http::Router::ContextHandler inner =
 						[policy, &fn](
 							conflux::http::RequestView const &inner_req,
-							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
-						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
+						if (auto failed = route_prelude_failure(policy, inner_req, &inner_ctx)) {
 							co_return *std::move(failed);
 						}
 						co_return co_await fn(inner_req);
@@ -681,8 +704,8 @@ public:
 					conflux::http::Router::ContextHandler inner =
 						[policy, &fn](
 							conflux::http::RequestView const &inner_req,
-							RequestContext const &) mutable -> conflux::work::root::Task<Response> {
-						if (auto failed = route_prelude_failure(policy, inner_req)) {
+							RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
+						if (auto failed = route_prelude_failure(policy, inner_req, &inner_ctx)) {
 							co_return *std::move(failed);
 						}
 						auto owned = inner_req.to_owned();
@@ -1347,7 +1370,7 @@ public:
 					[policy, &fn](
 						conflux::http::RequestView const &inner_req,
 						RequestContext const &inner_ctx) -> conflux::work::root::Task<Response> {
-					if (auto failed = route_prelude_failure(policy, inner_req)) {
+					if (auto failed = route_prelude_failure(policy, inner_req, &inner_ctx)) {
 						co_return *std::move(failed);
 					}
 					co_return co_await fn(inner_req, inner_ctx);
@@ -2063,7 +2086,7 @@ public:
 						[states, policy, &fn](
 							conflux::http::RequestView const &inner_req,
 							RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
-						if (auto failed = route_prelude_failure(policy, inner_req)) {
+						if (auto failed = route_prelude_failure(policy, inner_req, &inner_ctx)) {
 							co_return *std::move(failed);
 						}
 						auto const body_limit = route_body_limit(policy);
@@ -2248,7 +2271,7 @@ public:
 						[states, policy, &fn](
 							conflux::http::RequestView const &inner_req,
 							RequestContext const &inner_ctx) mutable -> conflux::work::root::Task<Response> {
-						if (auto failed = route_prelude_failure(policy, inner_req)) {
+						if (auto failed = route_prelude_failure(policy, inner_req, &inner_ctx)) {
 							co_return *std::move(failed);
 						}
 						auto const body_limit = route_body_limit(policy);

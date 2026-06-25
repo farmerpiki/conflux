@@ -554,6 +554,7 @@ void install_response_state(
 	conn.http1_upload_request_storage = storage;
 	conn.http1_upload_body = upload_body;
 	conn.http1_upload_content_length = content_length;
+	conn.request_in_progress = true;
 	conn.http1_upload_received = 0;
 	conn.http1_upload_body_start = body_start;
 	conn.http1_upload_chunk_remaining = 0;
@@ -566,9 +567,34 @@ void install_response_state(
 		std::scoped_lock lk{ring.metrics_mu_};
 		++ring.upload_counters_.streams_started;
 	}
+	bool const cancel_upload_for_final_response = !resp.is_deferred();
+	if (cancel_upload_for_final_response) {
+		upload_body->abandon_consumer();
+	}
 	bool const send_expect_continue =
 		expect_state == conflux::http::ExpectState::continue_100 && resp.is_deferred() && !conn.expect_continue_sent;
 	install_response_state(conn, std::move(resp), ring, upload_req, std::move(storage), {});
+	if (conn.is_deferred && conn.deferred_response) {
+		if (auto ready = conn.deferred_response->take_ready()) {
+			ring.install_http1_deferred_response(conn.fd, conn, std::move(*ready));
+			return true;
+		}
+	}
+	if (cancel_upload_for_final_response) {
+		{
+			std::scoped_lock lk{ring.metrics_mu_};
+			++ring.upload_counters_.canceled_by_handler;
+		}
+		conn.close_after_send = true;
+		conn.partial.clear();
+		conn.http1_upload_body.reset();
+		conn.http1_upload_request_storage.reset();
+		conn.http1_upload_content_length.reset();
+		conn.http1_upload_line.clear();
+		conn.http1_upload_chunk_phase = Http1UploadChunkPhase::done;
+		ring.start_response_send(conn.fd, conn);
+		return true;
+	}
 	if (send_expect_continue) {
 		conn.http1_continue_final_close_after_send = conn.close_after_send;
 		queue_expect_continue_response(conn);
@@ -844,9 +870,12 @@ void fail_http1_upload(
 	Ring &ring,
 	conflux::http::UploadError error) {
 	auto const kind = error.kind;
+	auto response = conflux::http::upload_error_response(error);
 	if (conn.http1_upload_body) {
 		conn.http1_upload_body->fail(std::move(error));
 	}
+	conn.own_response = conflux::http::format_response(response, ring.alt_svc_header, true);
+	conn.has_response = true;
 	conn.close_after_send = true;
 	conn.http1_upload_body.reset();
 	conn.http1_upload_request_storage.reset();

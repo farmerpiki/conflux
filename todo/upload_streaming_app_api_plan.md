@@ -6,7 +6,7 @@ Expected follow-up lane: implement raw upload first; land multipart streaming an
 
 ## Summary
 
-Add an ergonomic typed-extractor upload API aligned with existing `App` extractors. The first implementation lands raw `http::UploadBody`, route body-mode metadata, bounded backpressure, explicit error/early-return semantics, and `save_to()` using explicit async/offload file I/O. `http::MultipartUpload` remains a follow-up design for the streaming counterpart to `Multipart`; it is not part of the raw upload landing.
+Add an ergonomic typed-extractor upload API aligned with existing `App` extractors. The first implementation lands raw `http::UploadBody`, route body-mode metadata, bounded queue rejection for unread uploads, explicit error/early-return semantics, and `save_to()` using explicit async/offload file I/O. `http::MultipartUpload` remains a follow-up design for the streaming counterpart to `Multipart`; it is not part of the raw upload landing.
 
 ## Public API
 
@@ -118,8 +118,8 @@ using MultipartUploadReadResult = std::expected<std::optional<MultipartUploadEve
 - Add `BodyMode { none, buffered_raw, buffered_multipart, streaming_raw, streaming_multipart }` to route metadata. Validation rejects mixed buffered/streaming body extractors, streaming extractors in sync handlers, and streaming body on GET unless explicitly allowed.
 - Known length: reject `Content-Length > limit` before handler start. Unknown/chunked: start handler after prelude and enforce cumulative bytes. Multipart: enforce total body limit plus bounded part-header limits. `UploadBody` defaults OpenAPI `consumes` to `application/octet-stream`; `MultipartUpload` defaults to `multipart/form-data`.
 - Add router lookup for headers-only route selection so transports can identify streaming routes before buffering the body.
-- Add an internal bounded single-consumer upload stream using `TaskSource` for waiters, with EOF, error, cancellation, disconnect, and backpressure states.
-- Upload stream queue capacity comes from `Config` upload defaults; route-level override can follow after the core API lands.
+- Add an internal bounded single-consumer upload stream using `TaskSource` for waiters, with EOF, error, cancellation, disconnect, and queue-full rejection states.
+- Upload stream queue capacity comes from `Config` upload defaults; route-level override can follow after the core API lands. Queue overflow is rejected and counted rather than silently buffering or blocking the ring.
 - HTTP/1 and HTTP/2 are required for raw `UploadBody` landing. HTTP/3 keeps a protocol-neutral public API, but H3 conformance is a separate acceptance gate if local H3 async/context dispatch is not mature enough.
 - Add upload metrics/rejections: streams started, bytes received, bytes consumed, backpressure events, canceled by handler, disconnected, body too large, content-length mismatch, and multipart parse errors. Collapse transport-internal flow-control failures to `io_error`; the raw landing does not expose a public flow-control error kind.
 - `MultipartUpload` design keeps `MultipartUpload` as the name. Part names, filenames, content types, and headers are borrowed until the next `read()` unless explicitly copied; part headers have separate size/count limits.
