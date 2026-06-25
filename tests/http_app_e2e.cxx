@@ -52,6 +52,26 @@ std::string extract_body(
 	return std::string{resp.substr(pos + 4)};
 }
 
+struct TempTreeCleanup {
+	std::filesystem::path root;
+
+	~TempTreeCleanup() {
+		std::error_code ec;
+		auto _ = std::filesystem::remove_all(root, ec);
+	}
+};
+
+[[nodiscard]] std::filesystem::path unique_upload_temp_root() {
+	return std::filesystem::temp_directory_path()
+		 / std::format("conflux-upload-save-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+}
+
+[[nodiscard]] std::string read_text_file(
+	std::filesystem::path const &path) {
+	std::ifstream in{path};
+	return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+}
+
 } // namespace
 
 TEST_CASE(
@@ -357,6 +377,7 @@ TEST_CASE(
 		"Connection: keep-alive\r\n\r\n");
 	REQUIRE(sent > 0);
 	auto resp = client.read_until_close();
+	auto metrics = (*server)->metrics();
 	auto report = (*server)->drain();
 	if (thread.joinable()) {
 		thread.join();
@@ -365,6 +386,7 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(resp.find("Connection: close\r\n") != std::string::npos);
 	REQUIRE(extract_body(resp) == "done");
+	CHECK(metrics.uploads.canceled_by_handler == 1);
 }
 
 TEST_CASE(
@@ -420,15 +442,8 @@ TEST_CASE(
 
 TEST_CASE(
 	"upload body save_to creates parent directories and writes bounded chunks") {
-	auto root = std::filesystem::temp_directory_path()
-			  / std::format("conflux-upload-save-{}", std::chrono::steady_clock::now().time_since_epoch().count());
-	auto path = root / "nested" / "payload.txt";
-	auto cleanup = std::unique_ptr<void, void (*)(void *)>{&root, +[](void *p) {
-															   auto const &dir =
-																   *static_cast<std::filesystem::path const *>(p);
-															   std::error_code ec;
-															   std::filesystem::remove_all(dir, ec);
-														   }};
+	TempTreeCleanup cleanup{.root = unique_upload_temp_root()};
+	auto path = cleanup.root / "nested" / "payload.txt";
 	auto app = chttp::App::default_server();
 	app.config().rings = 1;
 	app.config().ring_entries = 64;
@@ -456,9 +471,116 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == "6");
 	REQUIRE(std::filesystem::exists(path));
-	std::ifstream in{path};
-	std::string saved{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-	REQUIRE(saved == "abcdef");
+	REQUIRE(read_text_file(path) == "abcdef");
+}
+
+TEST_CASE(
+	"upload body save_to refuses overwrite without touching existing file") {
+	TempTreeCleanup cleanup{.root = unique_upload_temp_root()};
+	REQUIRE(std::filesystem::create_directories(cleanup.root));
+	auto path = cleanup.root / "payload.txt";
+	{
+		std::ofstream out{path};
+		out << "original";
+	}
+	REQUIRE(read_text_file(path) == "original");
+
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/save", [path](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		auto saved = co_await body.save_to(path, chttp::UploadSaveOptions{.overwrite = false});
+		if (!saved) {
+			co_return chttp::upload_error_response(saved.error());
+		}
+		co_return chttp::text(std::format("{}", saved->bytes_written));
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/save", "application/octet-stream", "new");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 500 Internal Server Error"));
+	REQUIRE(read_text_file(path) == "original");
+}
+
+TEST_CASE(
+	"upload body save_to max_bytes removes partial file") {
+	TempTreeCleanup cleanup{.root = unique_upload_temp_root()};
+	auto path = cleanup.root / "nested" / "payload.txt";
+
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/save", [path](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		auto saved = co_await body.save_to(
+			path,
+			chttp::UploadSaveOptions{.create_parent_dirs = true, .max_bytes = 3, .buffer_size = 2});
+		if (!saved) {
+			co_return chttp::upload_error_response(saved.error());
+		}
+		co_return chttp::text(std::format("{}", saved->bytes_written));
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/save", "application/octet-stream", "abcdef");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 413 "));
+	REQUIRE_FALSE(std::filesystem::exists(path));
+}
+
+TEST_CASE(
+	"upload body metrics track HTTP/1 streaming lifecycle") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/stream-upload", [](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		std::uint64_t total{};
+		while (true) {
+			auto read = co_await body.read();
+			if (!read) {
+				co_return chttp::upload_error_response(read.error());
+			}
+			if (!*read) {
+				break;
+			}
+			total += (*read)->bytes().size();
+		}
+		co_return chttp::text(std::format("{}", total));
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_post_on((*server)->port(), "/stream-upload", "application/octet-stream", "abcdef");
+	auto metrics = (*server)->metrics();
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "6");
+	CHECK(metrics.uploads.streams_started == 1);
+	CHECK(metrics.uploads.bytes_received == 6);
+	CHECK(metrics.uploads.bytes_consumed == 6);
 }
 
 TEST_CASE(
