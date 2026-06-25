@@ -247,3 +247,21 @@ TEST_CASE(
 	REQUIRE(completed.has_value());
 	CHECK(completed->status == 401);
 }
+
+TEST_CASE(
+	"router: upload context probe does not fall back to buffered routes") {
+	conflux::http::Router router;
+	router.get_context(
+		"/context",
+		[](conflux::http::RequestView const &, conflux::http::RequestContext const &)
+			-> conflux::work::Task<conflux::http::Response> { co_return conflux::http::Response::text("context"); });
+	router.post("/buffered", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("sync"); });
+
+	conflux::http::OwnedRequest req;
+	req.method = "POST";
+	req.path = "/buffered";
+	auto upload = std::make_shared<conflux::http::detail::UploadBodyState>();
+	conflux::http::RequestContext const ctx{.upload_body = std::move(upload)};
+	auto resp = router.dispatch_context(req, ctx);
+	CHECK(!resp.has_value());
+}
