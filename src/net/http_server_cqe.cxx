@@ -165,38 +165,59 @@ void Ring::handle_deferred_poll(
 		return;
 	}
 
+	install_http1_deferred_response(fd, conn, std::move(*ready));
+}
+
+void Ring::install_http1_deferred_response(
+	int fd,
+	Conn &conn,
+	conflux::http::Response &&ready) {
+	if (conn.http1_upload_body) {
+		conn.http1_upload_body->abandon_consumer();
+		conn.http1_upload_body.reset();
+		conn.http1_upload_request_storage.reset();
+		conn.http1_upload_content_length.reset();
+		conn.http1_upload_line.clear();
+		conn.http1_upload_chunk_phase = Http1UploadChunkPhase::done;
+		conn.close_after_send = true;
+		std::scoped_lock lk{metrics_mu_};
+		++upload_counters_.canceled_by_handler;
+	}
+	if (conn.deferred_efd >= 0) {
+		deferred_waits.erase(conn.deferred_efd);
+	}
 	conn.is_deferred = false;
 	conn.deferred_efd = -1;
 	conn.deferred_response.reset();
 	conn.deferred_request_storage.reset();
 	conn.deferred_request_files.reset();
 	if (conn.deferred_head_only) {
-		ready->head_only = true;
+		ready.head_only = true;
 	}
 	conn.deferred_head_only = false;
-	if (ready->is_mapped_file()) {
-		conn.own_response = conflux::http::format_response(*ready, alt_svc_header, conn.close_after_send);
-		if (ready->head_only) {
+	if (ready.is_mapped_file()) {
+		conn.own_response = conflux::http::format_response(ready, alt_svc_header, conn.close_after_send);
+		if (ready.head_only) {
 			conn.has_response = true;
 		} else {
-			conn.mapped_file = ready->take_mapped_file();
+			conn.mapped_file = ready.take_mapped_file();
 			conn.mapped_total = conn.own_response.size() + conn.mapped_file->window().size();
 			conn.mapped_delivered = 0;
 			conn.has_response = false;
 		}
-	} else if (ready->is_streamed_file()) {
-		conn.own_response = conflux::http::format_response(*ready, alt_svc_header, conn.close_after_send);
-		if (ready->head_only) {
+	} else if (ready.is_streamed_file()) {
+		conn.own_response = conflux::http::format_response(ready, alt_svc_header, conn.close_after_send);
+		if (ready.head_only) {
 			conn.has_response = true;
 		} else {
-			conn.streamed_file = ready->take_streamed_file();
+			conn.streamed_file = ready.take_streamed_file();
 			conn.streamed_headers_sent = false;
 			conn.streamed_delivered = 0;
 			conn.streamed_splice_in_flight = false;
 			conn.has_response = true;
 		}
 	} else {
-		conn.own_response = conflux::http::format_response(*ready, alt_svc_header, conn.close_after_send);
+		conn.own_response = conflux::http::format_response(ready, alt_svc_header, conn.close_after_send);
 		conn.has_response = true;
 	}
 	conn.written = 0;

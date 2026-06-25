@@ -197,6 +197,14 @@ struct RequestBufferPool {
 };
 inline constexpr std::size_t FD_TABLE_RESERVE = 4096;
 inline constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
+enum class Http1UploadChunkPhase : std::uint8_t {
+	size_line,
+	data,
+	data_cr,
+	data_lf,
+	trailer_line,
+	done,
+};
 #if CONFLUX_HAS_HTTP2
 struct Ring; // forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
 struct H2Stream {
@@ -248,6 +256,7 @@ void dispatch_request(
 	std::vector<std::string> const &https_redirect_hosts,
 	conflux::http::ParserLimits const &limits,
 	std::shared_ptr<std::string> request_storage = {});
+void feed_http1_upload(Conn &conn, Ring &ring);
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): field order mirrors connection state-machine phases.
 struct alignas(
 	64) Conn {
@@ -305,6 +314,17 @@ struct alignas(
 	bool expect_continue_sent = false;
 	std::string remote_addr{}; // peer IP, set on accept
 	conflux::http::ChunkedDecodeState chunked_decode{};
+	std::shared_ptr<conflux::http::detail::UploadBodyState> http1_upload_body{};
+	std::shared_ptr<std::string> http1_upload_request_storage{};
+	std::optional<std::size_t> http1_upload_content_length{};
+	std::uint64_t http1_upload_received{};
+	std::size_t http1_upload_body_start{};
+	std::size_t http1_upload_chunk_remaining{};
+	std::size_t http1_upload_chunk_count{};
+	std::size_t http1_upload_trailer_lines{};
+	std::size_t http1_upload_trailer_bytes{};
+	std::string http1_upload_line{};
+	Http1UploadChunkPhase http1_upload_chunk_phase{Http1UploadChunkPhase::size_line};
 	// mmap path: non-null when current response has a zero-copy file region
 	std::shared_ptr<conflux::file_map::MappedBody> mapped_file{};
 	std::size_t mapped_total{}; // own_response.size() + mapped_file->size
@@ -458,6 +478,7 @@ struct Ring {
 	SendZcCounters zc_counters_{};
 	conflux::http::HttpRejectionMetrics rejection_counters_{};
 	conflux::http::HttpServerMetrics::StaticFileMetrics static_file_counters_{};
+	conflux::http::HttpServerMetrics::UploadMetrics upload_counters_{};
 	conflux::http::HttpPressureMetrics pressure_counters_{};
 	mutable std::mutex metrics_mu_{};
 	std::shared_ptr<std::atomic<std::uint64_t>> ws_pressure_counter_{std::make_shared<std::atomic<std::uint64_t>>(0)};
@@ -467,6 +488,7 @@ struct Ring {
 	std::uint64_t recv_bundle_slices_{};
 	std::uint64_t recv_bundle_bytes_{};
 	std::size_t max_body_size = std::size_t{1024} * 1024; // set from Config before run_loop()
+	std::size_t upload_stream_queue_capacity = 16;
 	std::uint32_t request_timeout_ms = 30000; // set from Config before run_loop(); 0 = disabled
 	std::uint32_t tls_sniff_timeout_ms = 10000; // set from Config before run_loop(); 0 = disabled
 	bool slow_handler_diagnostics = false; // set from Config before run_loop()
@@ -537,6 +559,7 @@ struct Ring {
 		int deferred_efd,
 		std::shared_ptr<conflux::http::DeferredResponse> response,
 		std::int32_t stream_id = -1);
+	void install_http1_deferred_response(int fd, Conn &conn, conflux::http::Response &&ready);
 #if CONFLUX_HAS_TLS
 	static void tls_flush_wbio(Conn &conn);
 	static bool tls_feed_rbio(Conn &conn);

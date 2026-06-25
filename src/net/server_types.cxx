@@ -89,6 +89,8 @@ class UploadBodyState : public std::enable_shared_from_this<UploadBodyState> {
 	std::optional<PendingReadSource> pending_read_{};
 	std::optional<std::uint64_t> content_length_{};
 	std::uint64_t bytes_read_{};
+	std::size_t queue_capacity_{16};
+	bool consumer_abandoned_{};
 
 	[[nodiscard]] UploadReadResult locked_next_result() {
 		if (terminal_error_) {
@@ -125,8 +127,10 @@ class UploadBodyState : public std::enable_shared_from_this<UploadBodyState> {
 public:
 	UploadBodyState() = default;
 	explicit UploadBodyState(
-		std::optional<std::uint64_t> content_length) noexcept
-		: content_length_{content_length} {}
+		std::optional<std::uint64_t> content_length,
+		std::size_t queue_capacity = 16) noexcept
+		: content_length_{content_length}
+		, queue_capacity_{queue_capacity == 0 ? 1 : queue_capacity} {}
 	UploadBodyState(UploadBodyState const &) = delete;
 	UploadBodyState &operator =(UploadBodyState const &) = delete;
 	UploadBodyState(UploadBodyState &&) = delete;
@@ -167,14 +171,19 @@ public:
 		return bytes_read_;
 	}
 
-	void push(
+	[[nodiscard]] std::expected<void, UploadError> push(
 		std::string chunk) {
 		std::optional<UploadReadResult> ready;
 		std::optional<PendingReadSource> pending;
 		{
 			std::scoped_lock const lk{mutex_};
 			if (terminal_error_ || eof_) {
-				return;
+				return {};
+			}
+			if (!read_pending_ && chunks_.size() >= queue_capacity_) {
+				return std::unexpected{
+					UploadError{.kind = UploadErrorKind::io_error, .detail = "upload stream queue is full"}
+                };
 			}
 			chunks_.push_back(std::move(chunk));
 			if (read_pending_) {
@@ -185,6 +194,7 @@ public:
 		if (ready) {
 			complete_pending(std::move(pending), std::move(*ready));
 		}
+		return {};
 	}
 
 	void finish() {
@@ -226,10 +236,25 @@ public:
 	}
 
 	void abandon_consumer() {
+		{
+			std::scoped_lock const lk{mutex_};
+			consumer_abandoned_ = true;
+		}
 		fail(
 			UploadError{
 				.kind = UploadErrorKind::cancelled,
 				.detail = "upload body was destroyed before it was consumed or discarded"});
+	}
+	[[nodiscard]] std::optional<UploadErrorKind> terminal_error_kind() const noexcept {
+		std::scoped_lock const lk{mutex_};
+		if (!terminal_error_) {
+			return std::nullopt;
+		}
+		return terminal_error_->kind;
+	}
+	[[nodiscard]] bool consumer_abandoned() const noexcept {
+		std::scoped_lock const lk{mutex_};
+		return consumer_abandoned_;
 	}
 };
 
@@ -258,11 +283,7 @@ public:
 	}
 	UploadBody(UploadBody const &) = delete;
 	UploadBody &operator =(UploadBody const &) = delete;
-	~UploadBody() {
-		if (state_) {
-			state_->abandon_consumer();
-		}
-	}
+	~UploadBody() = default;
 
 	[[nodiscard]] explicit operator bool() const noexcept { return state_ != nullptr; }
 	[[nodiscard]] conflux::work::root::Task<UploadReadResult> read() {
@@ -693,6 +714,17 @@ struct HttpServerMetrics {
 	std::uint64_t recv_bundle_bytes{};
 	SendZcMetrics send_zc{};
 	HttpRejectionMetrics rejections{};
+	struct UploadMetrics {
+		std::uint64_t streams_started{};
+		std::uint64_t bytes_received{};
+		std::uint64_t bytes_consumed{};
+		std::uint64_t queue_backpressure_events{};
+		std::uint64_t canceled_by_handler{};
+		std::uint64_t disconnected{};
+		std::uint64_t body_too_large{};
+		std::uint64_t content_length_mismatch{};
+		std::uint64_t multipart_parse_errors{};
+	} uploads{};
 	struct StaticFileMetrics {
 		std::uint64_t mapped_responses{};
 		std::uint64_t streamed_responses{};

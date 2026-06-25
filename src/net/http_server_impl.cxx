@@ -101,6 +101,15 @@ void add_metrics(
 	dst.rejections.expectation_failed += src.rejections.expectation_failed;
 	dst.rejections.header_timeout += src.rejections.header_timeout;
 	dst.rejections.body_timeout += src.rejections.body_timeout;
+	dst.uploads.streams_started += src.uploads.streams_started;
+	dst.uploads.bytes_received += src.uploads.bytes_received;
+	dst.uploads.bytes_consumed += src.uploads.bytes_consumed;
+	dst.uploads.queue_backpressure_events += src.uploads.queue_backpressure_events;
+	dst.uploads.canceled_by_handler += src.uploads.canceled_by_handler;
+	dst.uploads.disconnected += src.uploads.disconnected;
+	dst.uploads.body_too_large += src.uploads.body_too_large;
+	dst.uploads.content_length_mismatch += src.uploads.content_length_mismatch;
+	dst.uploads.multipart_parse_errors += src.uploads.multipart_parse_errors;
 	dst.static_files.mapped_responses += src.static_files.mapped_responses;
 	dst.static_files.streamed_responses += src.static_files.streamed_responses;
 	dst.static_files.splice_submits += src.static_files.splice_submits;
@@ -190,6 +199,7 @@ void configure_ring_from_server(
 	r.shutdown_efd = shutdown_efd;
 	r.drain_control = drain_control;
 	r.max_body_size = cfg.max_body_size;
+	r.upload_stream_queue_capacity = cfg.upload_stream_queue_capacity;
 	r.request_timeout_ms = cfg.request_timeout_ms;
 	r.tls_sniff_timeout_ms = cfg.tls_sniff_timeout_ms;
 	r.slow_handler_diagnostics = cfg.slow_handler_diagnostics;

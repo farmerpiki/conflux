@@ -51,7 +51,7 @@ export [[nodiscard]] std::expected<std::size_t, ContentLengthParseError> parse_c
 	return parsed;
 }
 
-[[nodiscard]] bool parse_chunk_size_line(
+export [[nodiscard]] bool parse_chunk_size_line(
 	std::string_view size_line_raw,
 	std::size_t &chunk_size) {
 	if (size_line_raw.size() > kMaxChunkSizeLineBytes) {
@@ -83,7 +83,7 @@ export [[nodiscard]] std::expected<std::size_t, ContentLengthParseError> parse_c
 	return true;
 }
 
-[[nodiscard]] bool accept_chunk_trailer_line(
+export [[nodiscard]] bool accept_chunk_trailer_line(
 	std::size_t line_bytes,
 	std::size_t &trailer_lines,
 	std::size_t &trailer_bytes) {

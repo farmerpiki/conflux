@@ -385,17 +385,45 @@ int Ring::h2_on_data_chunk_cb(
 			return 0;
 		}
 		if (len > ctx->ring->max_body_size || stream.body_received > ctx->ring->max_body_size - len) {
+			if (stream.upload_body) {
+				stream.upload_body->fail(
+					conflux::http::UploadError{
+						.kind = conflux::http::UploadErrorKind::body_too_large,
+						.detail = "HTTP/2 upload exceeds configured body limit"});
+				std::scoped_lock lk{ctx->ring->metrics_mu_};
+				++ctx->ring->upload_counters_.body_too_large;
+			}
 			h2_reject_stream(session, stream, stream_id, NGHTTP2_CANCEL);
 			return 0;
 		}
 		if (stream.seen_content_length && len > stream.expected_body_size - stream.body_received) {
+			if (stream.upload_body) {
+				stream.upload_body->fail(
+					conflux::http::UploadError{
+						.kind = conflux::http::UploadErrorKind::content_length_mismatch,
+						.detail = "HTTP/2 upload exceeds content-length"});
+				std::scoped_lock lk{ctx->ring->metrics_mu_};
+				++ctx->ring->upload_counters_.content_length_mismatch;
+			}
 			h2_reject_stream(session, stream, stream_id, NGHTTP2_PROTOCOL_ERROR);
 			return 0;
 		}
 		stream.body_received += len;
 		if (stream.upload_body) {
+			{
+				std::scoped_lock lk{ctx->ring->metrics_mu_};
+				ctx->ring->upload_counters_.bytes_received += len;
+			}
 			if (len > 0) {
-				stream.upload_body->push(std::string{reinterpret_cast<char const *>(data), len});
+				auto pushed = stream.upload_body->push(std::string{reinterpret_cast<char const *>(data), len});
+				if (!pushed) {
+					{
+						std::scoped_lock lk{ctx->ring->metrics_mu_};
+						++ctx->ring->upload_counters_.queue_backpressure_events;
+					}
+					stream.upload_body->fail(std::move(pushed).error());
+					h2_reject_stream(session, stream, stream_id, NGHTTP2_CANCEL);
+				}
 			}
 			return 0;
 		}
@@ -526,7 +554,12 @@ ssize_t Ring::h2_read_cb(
 		{}};
 
 	auto upload_body = std::make_shared<conflux::http::detail::UploadBodyState>(
-		stream.seen_content_length ? std::optional<std::uint64_t>{stream.expected_body_size} : std::nullopt);
+		stream.seen_content_length ? std::optional<std::uint64_t>{stream.expected_body_size} : std::nullopt,
+		upload_stream_queue_capacity);
+	{
+		std::scoped_lock lk{metrics_mu_};
+		++upload_counters_.streams_started;
+	}
 	conflux::http::Response resp;
 	try {
 		auto dispatched = try_dispatch_context(upload_req, upload_body);
@@ -540,6 +573,14 @@ ssize_t Ring::h2_read_cb(
 
 	stream.upload_body = std::move(upload_body);
 	stream.upload_dispatched = true;
+	if (stream.upload_body->consumer_abandoned()) {
+		{
+			std::scoped_lock lk{metrics_mu_};
+			++upload_counters_.canceled_by_handler;
+		}
+		h2_reject_stream(session, stream, stream_id, NGHTTP2_CANCEL);
+		return true;
+	}
 	if (resp.is_deferred()) {
 		auto deferred_response = resp.deferred_response_ptr();
 		deferred_response->keep_alive(request_lease);
@@ -672,8 +713,16 @@ int Ring::h2_on_frame_recv_cb(
 				conflux::http::UploadError{
 					.kind = conflux::http::UploadErrorKind::content_length_mismatch,
 					.detail = "HTTP/2 upload content-length mismatch"});
+			{
+				std::scoped_lock lk{ctx->ring->metrics_mu_};
+				++ctx->ring->upload_counters_.content_length_mismatch;
+			}
 			h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 			return 0;
+		}
+		{
+			std::scoped_lock lk{ctx->ring->metrics_mu_};
+			ctx->ring->upload_counters_.bytes_consumed += stream.upload_body->bytes_read();
 		}
 		stream.upload_body->finish();
 		return 0;
@@ -736,9 +785,10 @@ int Ring::h2_on_frame_recv_cb(
 	conflux::http::Response resp;
 	try {
 		auto upload_body = std::make_shared<conflux::http::detail::UploadBodyState>(
-			stream.seen_content_length ? std::optional<std::uint64_t>{stream.expected_body_size} : std::nullopt);
+			stream.seen_content_length ? std::optional<std::uint64_t>{stream.expected_body_size} : std::nullopt,
+			ctx->ring->upload_stream_queue_capacity);
 		if (!body.empty()) {
-			upload_body->push(std::string{body});
+			auto _ = upload_body->push(std::string{body});
 		}
 		upload_body->finish();
 		if (auto async = ctx->ring->try_dispatch_context(upload_req, std::move(upload_body))) {
@@ -797,6 +847,8 @@ int Ring::h2_on_stream_close_cb(
 				conflux::http::UploadError{
 					.kind = conflux::http::UploadErrorKind::disconnected,
 					.detail = "HTTP/2 upload stream closed before END_STREAM"});
+			std::scoped_lock lk{ctx->ring->metrics_mu_};
+			++ctx->ring->upload_counters_.disconnected;
 		}
 		ctx->ring->clear_deferred_wait(it->second.deferred_efd);
 	}
