@@ -166,6 +166,7 @@ struct Config {
 	unsigned rings = 0; // 0 = hardware_concurrency
 	unsigned ring_entries = kConfigDefaultRingEntries; // SQ/CQ depth per ring
 	std::size_t max_body_size = kConfigDefaultMaxBodySize; // std::max Content-Length before 413
+	std::size_t upload_stream_queue_capacity = 16;
 	std::uint32_t request_timeout_ms = kConfigDefaultRequestTimeoutMs; // 0 = disabled
 	std::uint32_t tls_sniff_timeout_ms = kConfigDefaultTlsSniffTimeoutMs; // 0 = disabled
 	// Emit a warning when a synchronous handler blocks on the ring std::thread past
@@ -496,9 +497,10 @@ bool apply_server_key(
 	if (apply_config_member_table(cfg, key, val, kUint32Keys, parse_uint<std::uint32_t>)) {
 		return true;
 	}
-	static constexpr std::array<std::pair<std::string_view, std::size_t Config::*>, 6> kSizeKeys{
+	static constexpr std::array<std::pair<std::string_view, std::size_t Config::*>, 7> kSizeKeys{
 		{
          {"max_body_size", &Config::max_body_size},
+         {"upload_stream_queue_capacity", &Config::upload_stream_queue_capacity},
          {"fixed_buffer_slabs", &Config::fixed_buffer_slabs},
          {"fixed_buffer_bytes", &Config::fixed_buffer_bytes},
          {"splice_pipe_pairs", &Config::splice_pipe_pairs},

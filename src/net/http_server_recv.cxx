@@ -415,7 +415,7 @@ void Ring::phase1_copy_recv_bufs() {
 			continue;
 		}
 		auto &conn = fd_table[ufd];
-		if (conn.close_after_send) [[unlikely]] {
+		if (conn.close_after_send && !conn.http1_upload_body) [[unlikely]] {
 			auto const orig_flags = rc.flags;
 			discard_closing_recv_completion(rc, orig_flags);
 			continue;
@@ -508,7 +508,9 @@ void Ring::phase2_build_responses() {
 		}
 #endif
 		// Skip SSE/WS connections — their I/O is driven by separate loops.
-		if (!conn.has_response && conn.request_bytes == 0 && !conn.is_deferred && !conn.is_sse && !conn.is_ws) {
+		if (conn.http1_upload_body) {
+			feed_http1_upload(conn, *this);
+		} else if (!conn.has_response && conn.request_bytes == 0 && !conn.is_deferred && !conn.is_sse && !conn.is_ws) {
 			dispatch_request(
 				conn,
 				conn.partial.view(),
@@ -534,6 +536,14 @@ void Ring::phase3_dispatch() {
 		}
 		auto &conn = fd_table[ufd];
 		if (rc.res <= 0) {
+			if (conn.http1_upload_body) {
+				conn.http1_upload_body->fail(
+					conflux::http::UploadError{
+						.kind = conflux::http::UploadErrorKind::disconnected,
+						.detail = "HTTP/1 upload connection closed before request body completed"});
+				std::scoped_lock lk{metrics_mu_};
+				++upload_counters_.disconnected;
+			}
 			if (!conn.send_queued) {
 				queue_close(rc.fd);
 			}
@@ -543,6 +553,11 @@ void Ring::phase3_dispatch() {
 			queue_close(rc.fd);
 		} else if (response_send_ready(conn)) {
 			start_response_send(rc.fd, conn);
+		} else if (conn.http1_upload_body && conn.is_deferred && !conn.send_queued) {
+			queue_deferred_wait(rc.fd);
+			if (!conn.recv_armed) {
+				queue_multishot_recv(rc.fd);
+			}
 		} else if (conn.is_deferred && !conn.send_queued) {
 			queue_deferred_wait(rc.fd);
 		} else if (

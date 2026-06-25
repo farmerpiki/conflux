@@ -104,6 +104,7 @@ void Ring::note_recv_payload(
 		m.recv_bundle_bytes = recv_bundle_bytes_;
 		m.send_zc = zc_counters_.snapshot();
 		m.rejections = rejection_counters_;
+		m.uploads = upload_counters_;
 		m.static_files = static_file_counters_;
 		m.pressure = pressure_counters_;
 	}

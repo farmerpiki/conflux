@@ -240,6 +240,134 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"upload body handler starts before HTTP/1 content-length body completes") {
+	auto handler_started = std::make_shared<std::atomic_bool>(false);
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/stream-upload", [handler_started](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		handler_started->store(true, std::memory_order_release);
+		std::string payload;
+		while (true) {
+			auto read = co_await body.read();
+			if (!read) {
+				co_return chttp::upload_error_response(read.error());
+			}
+			if (!*read) {
+				break;
+			}
+			payload += (*read)->text_view();
+		}
+		co_return chttp::text(payload);
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	conflux::tests::LocalTcpClient client{(*server)->port()};
+	auto sent = client.send(
+		"POST /stream-upload HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Content-Length: 6\r\n"
+		"Connection: close\r\n\r\n");
+	REQUIRE(sent > 0);
+	auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+	while (!handler_started->load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{5});
+	}
+	REQUIRE(handler_started->load(std::memory_order_acquire));
+	sent = client.send("abcdef");
+	REQUIRE(sent == 6);
+	auto resp = client.read_until_close();
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "abcdef");
+}
+
+TEST_CASE(
+	"upload body handler streams HTTP/1 chunked request body") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/stream-upload", [](chttp::UploadBody body) -> conflux::work::Task<chttp::Response> {
+		std::string payload;
+		while (true) {
+			auto read = co_await body.read();
+			if (!read) {
+				co_return chttp::upload_error_response(read.error());
+			}
+			if (!*read) {
+				break;
+			}
+			payload += (*read)->text_view();
+		}
+		co_return chttp::text(payload);
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	conflux::tests::LocalTcpClient client{(*server)->port()};
+	auto sent = client.send(
+		"POST /stream-upload HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Transfer-Encoding: chunked\r\n"
+		"Connection: close\r\n\r\n"
+		"2\r\nab\r\n");
+	REQUIRE(sent > 0);
+	sent = client.send("4\r\ncdef\r\n0\r\n\r\n");
+	REQUIRE(sent > 0);
+	auto resp = client.read_until_close();
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "abcdef");
+}
+
+TEST_CASE(
+	"upload body handler early return cancels HTTP/1 upload and closes connection") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.post("/stream-upload", [](chttp::UploadBody) -> conflux::work::Task<chttp::Response> {
+		co_return chttp::text("done");
+	});
+	REQUIRE(app.validate().ok());
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	conflux::tests::LocalTcpClient client{(*server)->port()};
+	auto sent = client.send(
+		"POST /stream-upload HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Content-Length: 100\r\n"
+		"Connection: keep-alive\r\n\r\n");
+	REQUIRE(sent > 0);
+	auto resp = client.read_until_close();
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	auto _ = report;
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(resp.find("Connection: close\r\n") != std::string::npos);
+	REQUIRE(extract_body(resp) == "done");
+}
+
+TEST_CASE(
 	"async context route timeout returns gateway timeout and cancels handler with deadline") {
 	namespace root = conflux::work::root;
 

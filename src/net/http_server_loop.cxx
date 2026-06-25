@@ -178,6 +178,11 @@ void Ring::queue_deferred_wait(
 	if (deferred_efd < 0 || !response) {
 		return;
 	}
+	auto const conn_gen = conn_for(conn_fd).gen;
+	auto const ud = pack(Op::DeferredPoll, conn_gen, deferred_efd);
+	if (deferred_waits.contains(deferred_efd) && in_flight_read_bufs.contains(ud)) {
+		return;
+	}
 	auto *sqe = get_sqe();
 	if (sqe == nullptr) {
 		defer_op([this, conn_fd, deferred_efd, response, stream_id]() mutable {
@@ -191,8 +196,6 @@ void Ring::queue_deferred_wait(
 	wait.stream_id = stream_id;
 	wait.response = std::move(response);
 
-	auto const conn_gen = conn_for(conn_fd).gen;
-	auto const ud = pack(Op::DeferredPoll, conn_gen, deferred_efd);
 	auto buf = std::make_unique<std::uint64_t>(0);
 	conflux::uring::Sqe{sqe}
 		.prep_read(conflux::uring::SqeFd{deferred_efd}, buf.get(), sizeof(std::uint64_t), 0)

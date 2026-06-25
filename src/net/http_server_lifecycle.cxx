@@ -106,6 +106,17 @@ void Ring::conn_erase(
 	conn.ws_upgrade.reset();
 	conn.partial.clear();
 	conn.chunked_decode.reset();
+	conn.http1_upload_body.reset();
+	conn.http1_upload_request_storage.reset();
+	conn.http1_upload_content_length.reset();
+	conn.http1_upload_received = 0;
+	conn.http1_upload_body_start = 0;
+	conn.http1_upload_chunk_remaining = 0;
+	conn.http1_upload_chunk_count = 0;
+	conn.http1_upload_trailer_lines = 0;
+	conn.http1_upload_trailer_bytes = 0;
+	conn.http1_upload_line.clear();
+	conn.http1_upload_chunk_phase = Http1UploadChunkPhase::size_line;
 	conn.mapped_file.reset();
 	conn.mapped_total = 0;
 	conn.mapped_delivered = 0;
