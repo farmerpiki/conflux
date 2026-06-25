@@ -153,6 +153,13 @@ struct H2Client {
 		std::string_view path,
 		std::string_view body_data,
 		std::size_t frame_size) {
+		return post_with_headers_and_frame_size(path, body_data, {}, frame_size);
+	}
+	H2Response post_with_headers_and_frame_size(
+		std::string_view path,
+		std::string_view body_data,
+		std::vector<std::pair<std::string, std::string>> extra_headers,
+		std::size_t frame_size) {
 		auto rb =
 			std::make_unique<ReqBody>(ReqBody{.data = std::string{body_data}, .off = 0, .frame_size = frame_size});
 		ReqBody *rb_ptr = rb.get();
@@ -160,7 +167,7 @@ struct H2Client {
 		prd.read_callback = read_cb;
 		prd.source.ptr = rb_ptr;
 
-		std::int32_t const sid = submit_request("POST", path, &prd);
+		std::int32_t const sid = submit_request("POST", path, &prd, std::move(extra_headers));
 		req_bodies_.emplace(sid, std::move(rb));
 		pump_until_closed(sid);
 		return responses_[sid];
@@ -452,6 +459,42 @@ TEST_CASE(
 	auto resp = client.post_with_frame_size("/echo", body, 1);
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.body == body);
+}
+TEST_CASE(
+	"h2: streaming upload body reads DATA frames without buffered request body") {
+	conflux::http::Router router;
+	router.add_upload_context_with_timeout(
+		"POST",
+		"/stream-upload",
+		nullptr,
+		[](conflux::http::RequestView req,
+		   conflux::http::RequestContext const &ctx) -> conflux::work::Task<conflux::http::Response> {
+			conflux::http::UploadBody body{ctx.upload_body};
+			std::string payload;
+			while (true) {
+				auto read = co_await body.read();
+				if (!read) {
+					co_return conflux::http::upload_error_response(read.error());
+				}
+				if (!*read) {
+					break;
+				}
+				payload += (*read)->text_view();
+			}
+			co_return conflux::http::Response::text(
+				std::format("{}:{}:{}:{}", req.body.empty(), req.form.size(), req.files.size(), payload));
+		});
+	conflux::tests::HttpsServerFixture const fx{std::move(router)};
+	H2Client client{fx.port()};
+	auto resp = client.post_with_headers_and_frame_size(
+		"/stream-upload",
+		"a=b",
+		{
+			{"content-type", "application/x-www-form-urlencoded"}
+		},
+		1);
+	REQUIRE(resp.status == 200);
+	REQUIRE(resp.body == "true:0:0:a=b");
 }
 TEST_CASE(
 	"h2: content-length over max body resets stream") {

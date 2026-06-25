@@ -75,6 +75,16 @@ struct H2RequestLease {
 	std::vector<conflux::http::UploadedFile> files{};
 };
 
+[[nodiscard]] bool h2_request_pseudo_headers_complete(
+	H2Stream const &stream) noexcept {
+	return stream.seen_method
+		&& stream.seen_path
+		&& stream.seen_scheme
+		&& !stream.method.empty()
+		&& !stream.path.empty()
+		&& !stream.scheme.empty();
+}
+
 static void h2_queue_raw_rst_stream(
 	Conn &conn,
 	std::int32_t stream_id,
@@ -359,7 +369,6 @@ int Ring::h2_on_header_cb(
 	return 0;
 }
 
-// Accumulate DATA frame body bytes into stream.body.
 int Ring::h2_on_data_chunk_cb(
 	nghttp2_session *session,
 	std::uint8_t /*unused*/,
@@ -375,12 +384,19 @@ int Ring::h2_on_data_chunk_cb(
 		if (stream.rejected) {
 			return 0;
 		}
-		if (len > ctx->ring->max_body_size || stream.body.size() > ctx->ring->max_body_size - len) {
+		if (len > ctx->ring->max_body_size || stream.body_received > ctx->ring->max_body_size - len) {
 			h2_reject_stream(session, stream, stream_id, NGHTTP2_CANCEL);
 			return 0;
 		}
-		if (stream.seen_content_length && len > stream.expected_body_size - stream.body.size()) {
+		if (stream.seen_content_length && len > stream.expected_body_size - stream.body_received) {
 			h2_reject_stream(session, stream, stream_id, NGHTTP2_PROTOCOL_ERROR);
+			return 0;
+		}
+		stream.body_received += len;
+		if (stream.upload_body) {
+			if (len > 0) {
+				stream.upload_body->push(std::string{reinterpret_cast<char const *>(data), len});
+			}
 			return 0;
 		}
 		if (!stream.body_reserved && stream.expected_body_size > 0) {
@@ -461,6 +477,80 @@ ssize_t Ring::h2_read_cb(
 	return static_cast<ssize_t>(to_copy);
 }
 
+[[nodiscard]] bool Ring::h2_try_start_upload_request(
+	Conn &conn,
+	H2Stream &stream,
+	std::int32_t stream_id,
+	nghttp2_session *session) {
+	if (stream.upload_dispatched || stream.upload_body || stream.rejected) {
+		return stream.upload_body != nullptr;
+	}
+	if (!h2_request_pseudo_headers_complete(stream)) {
+		h2_reject_stream(session, stream, stream_id, NGHTTP2_PROTOCOL_ERROR);
+		return false;
+	}
+
+	auto request_lease = std::make_shared<H2RequestLease>();
+	request_lease->method = stream.method;
+	request_lease->path = stream.path;
+	request_lease->headers = stream.headers;
+
+	std::string_view const method = request_lease->method;
+	auto const target = conflux::http::split_path_query(request_lease->path);
+	std::string_view const path = target.path;
+	std::string_view const version = "HTTP/2";
+	conflux::http::HttpFieldsView const params;
+	std::string_view const body;
+	conflux::http::populate_request_parts(
+		target,
+		request_lease->headers,
+		body,
+		request_lease->query,
+		request_lease->form,
+		request_lease->cookies,
+		request_lease->files);
+	conflux::http::HttpFieldsView upload_form;
+	std::span<conflux::http::UploadedFile const> upload_files;
+	conflux::http::RequestView const upload_req{
+		method,
+		path,
+		version,
+		conn.remote_addr,
+		true,
+		params,
+		request_lease->headers,
+		request_lease->query,
+		upload_form,
+		request_lease->cookies,
+		upload_files,
+		{}};
+
+	auto upload_body = std::make_shared<conflux::http::detail::UploadBodyState>(
+		stream.seen_content_length ? std::optional<std::uint64_t>{stream.expected_body_size} : std::nullopt);
+	conflux::http::Response resp;
+	try {
+		auto dispatched = try_dispatch_context(upload_req, upload_body);
+		if (!dispatched) {
+			return false;
+		}
+		resp = std::move(*dispatched);
+	} catch (std::exception const &e) { resp = conflux::http::Response::internal_error(e.what()); } catch (...) {
+		resp = conflux::http::Response::internal_error();
+	}
+
+	stream.upload_body = std::move(upload_body);
+	stream.upload_dispatched = true;
+	if (resp.is_deferred()) {
+		auto deferred_response = resp.deferred_response_ptr();
+		deferred_response->keep_alive(request_lease);
+		stream.deferred_efd = deferred_response->eventfd_fd();
+		queue_deferred_wait(conn.fd, stream.deferred_efd, resp.take_deferred_response(), stream_id);
+		return true;
+	}
+	h2_submit_response(conn, stream_id, std::move(resp));
+	return true;
+}
+
 void Ring::h2_submit_response(
 	Conn &conn,
 	std::int32_t stream_id,
@@ -537,16 +627,10 @@ void Ring::h2_submit_response(
 		(stream.response_body.empty() && !is_sse_resp) ? nullptr : &prd);
 }
 
-// A frame is fully received.  On END_STREAM, dispatch to the router and
-// submit the HTTP/2 response via nghttp2_submit_response.
 int Ring::h2_on_frame_recv_cb(
 	nghttp2_session *session,
 	nghttp2_frame const *frame,
 	void *user_data) {
-	// Only act on request streams that are now complete.
-	if ((frame->hd.flags & NGHTTP2_FLAG_END_STREAM) == 0) {
-		return 0;
-	}
 	if (frame->hd.type != NGHTTP2_HEADERS && frame->hd.type != NGHTTP2_DATA) {
 		return 0;
 	}
@@ -561,20 +645,40 @@ int Ring::h2_on_frame_recv_cb(
 	if (stream.rejected) {
 		return 0;
 	}
+	if (frame->hd.type == NGHTTP2_HEADERS && !stream.upload_dispatched) {
+		auto const started = ctx->ring->h2_try_start_upload_request(conn, stream, frame->hd.stream_id, session);
+		if (started && conn.h2_sse_pending_wait) {
+			conn.h2_sse_pending_wait = false;
+			ctx->ring->queue_sse_wait(ctx->fd);
+		}
+		if (started) {
+			ctx->ring->h2_do_send(conn);
+		}
+	}
+	if ((frame->hd.flags & NGHTTP2_FLAG_END_STREAM) == 0) {
+		return 0;
+	}
 	if (stream.end_stream_seen) {
 		return 0;
 	}
 	stream.end_stream_seen = true;
-	if (!stream.seen_method
-		|| !stream.seen_path
-		|| !stream.seen_scheme
-		|| stream.method.empty()
-		|| stream.path.empty()
-		|| stream.scheme.empty()) {
+	if (!h2_request_pseudo_headers_complete(stream)) {
 		h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 		return 0;
 	}
-	if (stream.seen_content_length && stream.body.size() != stream.expected_body_size) {
+	if (stream.upload_body) {
+		if (stream.seen_content_length && stream.body_received != stream.expected_body_size) {
+			stream.upload_body->fail(
+				conflux::http::UploadError{
+					.kind = conflux::http::UploadErrorKind::content_length_mismatch,
+					.detail = "HTTP/2 upload content-length mismatch"});
+			h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
+			return 0;
+		}
+		stream.upload_body->finish();
+		return 0;
+	}
+	if (stream.seen_content_length && stream.body_received != stream.expected_body_size) {
 		h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 		return 0;
 	}
@@ -688,6 +792,12 @@ int Ring::h2_on_stream_close_cb(
 	auto *ctx = static_cast<H2ConnCtx *>(user_data);
 	auto &conn = ctx->ring->conn_for(ctx->fd);
 	if (auto it = conn.h2_streams.find(stream_id); it != conn.h2_streams.end()) {
+		if (it->second.upload_body && !it->second.end_stream_seen) {
+			it->second.upload_body->fail(
+				conflux::http::UploadError{
+					.kind = conflux::http::UploadErrorKind::disconnected,
+					.detail = "HTTP/2 upload stream closed before END_STREAM"});
+		}
 		ctx->ring->clear_deferred_wait(it->second.deferred_efd);
 	}
 	conn.h2_closed_streams.insert(stream_id);

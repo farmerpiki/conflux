@@ -456,6 +456,31 @@ template<typename ImplT>
 }
 
 template<typename ImplT>
+[[nodiscard]] bool has_matching_context_route(
+	ImplT const &impl,
+	conflux::http::RequestView const &req,
+	conflux::http::RequestContext const &ctx,
+	std::string_view path_sv,
+	bool is_head) {
+	auto routes =
+		selected_request_routes(impl.context_routes, impl.context_route_indexes, req.method, path_sv, is_head);
+	for (auto const &route: routes) {
+		if (route.streaming_upload != static_cast<bool>(ctx.upload_body)) {
+			continue;
+		}
+		conflux::http::HttpFieldsView matched_params;
+		if (route.has_exact_path) {
+			if (route.exact_path == path_sv) {
+				return true;
+			}
+		} else if (conflux::http::detail::match_segments(route.pattern, path_sv, matched_params)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+template<typename ImplT>
 [[nodiscard]] conflux::work::root::Task<Response> dispatch_router_context_task(
 	ImplT const &impl,
 	conflux::http::RequestView req,
@@ -827,6 +852,11 @@ Router &Router::serve_static(
 [[nodiscard]] std::optional<Response> Router::dispatch_context(
 	conflux::http::RequestView const &req,
 	conflux::http::RequestContext const &ctx) const {
+	bool const is_head = (req.method == "HEAD");
+	std::string_view const path_sv = conflux::http::path_without_query(req.path);
+	if (ctx.upload_body && !has_matching_context_route(*impl_, req, ctx, path_sv, is_head)) {
+		return std::nullopt;
+	}
 	if (!impl_->middlewares.empty()) {
 		Handler inner = [this, ctx](conflux::http::RequestView const &r) -> Response {
 			bool const is_head = (r.method == "HEAD");
@@ -842,8 +872,6 @@ Router &Router::serve_static(
 		};
 		return run_middlewares(req, inner);
 	}
-	bool const is_head = (req.method == "HEAD");
-	std::string_view const path_sv = conflux::http::path_without_query(req.path);
 	if (!impl_->context_middlewares.empty()) {
 		return defer_http_task(
 			dispatch_router_context_task(*impl_, conflux::http::RequestView{req}, ctx, path_sv, is_head));

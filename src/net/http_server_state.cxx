@@ -206,10 +206,13 @@ struct H2Stream {
 	std::string authority{};
 	conflux::http::HttpFields headers{};
 	std::string body{};
+	std::shared_ptr<conflux::http::detail::UploadBodyState> upload_body{};
 	std::size_t expected_body_size{};
+	std::size_t body_received{};
 	bool body_reserved{};
 	bool end_stream_seen{};
 	bool rejected{};
+	bool upload_dispatched{};
 	bool regular_header_seen{};
 	bool seen_method{};
 	bool seen_path{};
@@ -591,8 +594,8 @@ struct Ring {
 		nghttp2_data_source *source,
 		void * /*user_data*/);
 	static void h2_submit_response(Conn &conn, std::int32_t stream_id, conflux::http::Response resp);
-	// A frame is fully received.  On END_STREAM, dispatch to the router and
-	// submit the HTTP/2 response via nghttp2_submit_response.
+	[[nodiscard]] bool
+	h2_try_start_upload_request(Conn &conn, H2Stream &stream, std::int32_t stream_id, nghttp2_session *session);
 	static int h2_on_frame_recv_cb(nghttp2_session *session, nghttp2_frame const *frame, void *user_data);
 	static int h2_on_invalid_frame_recv_cb(
 		nghttp2_session *session,
