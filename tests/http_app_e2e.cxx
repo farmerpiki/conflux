@@ -488,12 +488,15 @@ TEST_CASE(
 		 ++i) {
 		std::this_thread::sleep_for(std::chrono::milliseconds{10});
 	}
+	auto metrics = (*server)->metrics();
 	auto report = (*server)->drain();
 	if (thread.joinable()) {
 		thread.join();
 	}
 	auto _ = report;
 	REQUIRE(observed->load(std::memory_order_acquire) == static_cast<int>(chttp::UploadErrorKind::body_too_large));
+	CHECK(metrics.uploads.body_too_large == 1);
+	CHECK(metrics.uploads.queue_backpressure_events == 0);
 }
 
 TEST_CASE(

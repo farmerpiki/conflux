@@ -129,6 +129,7 @@ public:
 		}
 	}
 	[[gnu::pure]] [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+	[[nodiscard]] conflux::http::HttpServerMetrics metrics() const noexcept { return server_->metrics(); }
 	[[nodiscard]] std::pair<int, std::string> curl_https(
 		std::string_view path) const {
 		return run_cmd_retry(std::format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}{}", port_, path));

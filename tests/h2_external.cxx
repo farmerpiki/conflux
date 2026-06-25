@@ -15,6 +15,7 @@
 
 import std;
 import conflux.types;
+import conflux.net.app;
 import conflux.net.config;
 import conflux.net.http.realtime;
 import conflux.net.http_server;
@@ -511,6 +512,38 @@ TEST_CASE(
 	auto resp = client.post_with_frame_size("/stream-upload", body, 1024);
 	REQUIRE(resp.closed);
 	CHECK(resp.error_code == NGHTTP2_CANCEL);
+}
+TEST_CASE(
+	"h2: route-local upload body limit increments body-too-large metric") {
+	auto observed = std::make_shared<std::atomic<int>>(-1);
+	auto app = conflux::http::App::default_server();
+	app.post(
+		   "/stream-upload",
+		   [observed](conflux::http::UploadBody body) -> conflux::work::Task<conflux::http::Response> {
+			   while (true) {
+				   auto read = co_await body.read();
+				   if (!read) {
+					   observed->store(static_cast<int>(read.error().kind), std::memory_order_release);
+					   co_return conflux::http::upload_error_response(read.error());
+				   }
+				   if (!*read) {
+					   break;
+				   }
+			   }
+			   co_return conflux::http::Response::text("unexpected");
+		   })
+		.max_body_size(3);
+	REQUIRE(app.validate().ok());
+	conflux::tests::HttpsServerFixture const fx{std::move(conflux::http::router(app))};
+	H2Client client{fx.port()};
+	auto resp = client.post_with_frame_size("/stream-upload", "abcdef", 2);
+	REQUIRE(resp.closed);
+	CHECK(resp.error_code == NGHTTP2_CANCEL);
+	CHECK(
+		observed->load(std::memory_order_acquire) == static_cast<int>(conflux::http::UploadErrorKind::body_too_large));
+	auto const metrics = fx.metrics();
+	CHECK(metrics.uploads.body_too_large == 1);
+	CHECK(metrics.uploads.queue_backpressure_events == 0);
 }
 TEST_CASE(
 	"h2: content-length over max body resets stream") {

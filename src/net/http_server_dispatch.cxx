@@ -904,7 +904,7 @@ void fail_http1_upload(
 	}
 	auto pushed = conn.http1_upload_body->push(std::move(chunk));
 	if (!pushed) {
-		{
+		if (pushed.error().kind == conflux::http::UploadErrorKind::io_error) {
 			std::scoped_lock lk{ring.metrics_mu_};
 			++ring.upload_counters_.queue_backpressure_events;
 		}
