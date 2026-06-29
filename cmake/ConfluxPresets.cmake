@@ -80,7 +80,7 @@ set(CONFLUX_BUILD_PROCESS       "AUTO" CACHE STRING "Build child process managem
 set(CONFLUX_BUILD_CRYPTO        "AUTO" CACHE STRING "Build AES/hashing/base64")
 
 set(CONFLUX_BUILD_JSON          "AUTO" CACHE STRING "Build JSON parser/DOM/SAX/NDJSON")
-set(CONFLUX_BUILD_JSON_FILE     "OFF"  CACHE STRING "Build sync JSON file convenience helpers")
+set(CONFLUX_BUILD_JSON_FILE     "AUTO" CACHE STRING "Build sync JSON file convenience helpers")
 
 set(CONFLUX_BUILD_TEMPLATES     "AUTO" CACHE STRING "Build template engine")
 set(CONFLUX_BUILD_TEMPLATES_WATCH "AUTO" CACHE STRING "Build template hot-reload")
@@ -316,6 +316,7 @@ macro(conflux_apply_preset)
         set(_d_PROCESS TRUE)
         set(_d_CRYPTO TRUE)
         set(_d_JSON TRUE)
+        set(_d_JSON_FILE TRUE)
         set(_d_TEMPLATES TRUE)
         set(_d_TEMPLATES_WATCH TRUE)
         set(_d_HTTP_CORE TRUE)
