@@ -31,7 +31,7 @@ aggregate import/include surface selected by `import conflux;` and
 | `http-api-full` | API service with observability/spec output | `http-api` + observability + OpenAPI |
 | `web-server` | static/template/realtime web serving | HTTP server, static files, compression, realtime, templates |
 | `http-server-complete` | full HTTP stack without DB/SMTP/process/file-watch extras | HTTP server/client/proxy/vhost/policy/auth/observability/OpenAPI |
-| `complete` | aggregate validation and local experimentation | HTTP, runtime, JSON, DB, SMTP, process, file-watch; JSON file/reflection remain opt-in |
+| `complete` | aggregate validation and local experimentation | HTTP, runtime, JSON, JSON file, DB, SMTP, process, file-watch; JSON reflection remains opt-in |
 
 For first-contact public use, prefer `core`, `json`, `http-minimal`, `http-api`,
 and `pg` when PostgreSQL support is included in the release evidence. Use
@@ -74,7 +74,7 @@ consumers request the package component and link the exported target.
 |---|---|---|---|---|
 | `import conflux;` | `conflux` | `umbrella` | `conflux::conflux` (`conflux::umbrella` alias) | Built when the aggregate target is enabled. |
 | `import conflux.json;` | `conflux_json` | `json` | `conflux::json` | Built by the `json` feature bundle and HTTP bundles that need JSON. |
-| `import conflux.json.file;` | `conflux_json_file` | `json_file` | `conflux::json_file` | Opt-in JSON file helper; depends on `json` and `file_io_sync`. |
+| `import conflux.json.file;` | `conflux_json_file` | `json_file` | `conflux::json_file` | Built by the `complete` feature bundle; depends on `json` and `file_io_sync`. |
 | `import conflux.file_io_sync;` | `conflux_file_io_sync` | `file_io_sync` | `conflux::file_io_sync` | Liburing-free sync file helpers. |
 | `import conflux.http;` | `conflux_net_http` | `http` | `conflux::http` | Built by HTTP feature bundles. |
 | `import conflux.net.http_server;` | `conflux_http_server` | `http_server` | `conflux::http_server` | Built by HTTP server feature bundles. |
