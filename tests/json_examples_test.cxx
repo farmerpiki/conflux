@@ -205,7 +205,7 @@ TEST_CASE(
 		auto doc = parse(R"({"required_val": 1, "optional_val": null, "nullable_val": null})");
 		REQUIRE(doc.has_value());
 		auto r = decode<ThreeFieldModel>(doc->root());
-		CHECK_FALSE(r.has_value());
-		CHECK(r.error().code == JsonIssueCode::wrong_kind);
+		REQUIRE(r.has_value());
+		CHECK_FALSE(r->optional_val.has_value());
 	}
 }

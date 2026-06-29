@@ -239,6 +239,23 @@ struct direct_writable<std::unordered_map<std::string, T, Hash, KeyEqual, Alloc>
 template<class T>
 	requires has_members_spec<T>::value
 struct direct_writable<T> : std::true_type {};
+template<class T>
+	requires(
+		has_codec_spec<T>::value
+		&& !std::same_as<T, bool>
+		&& !direct_writable_number_v<T>
+		&& !is_basic_string_of_char_v<T>
+		&& !std::same_as<T, std::string_view>
+		&& !is_optional<T>::value
+		&& !is_nullable_type<T>::value
+		&& !is_vector_of_v<T>
+		&& !is_std_array_v<T>
+		&& !is_pair_v<T>
+		&& !is_tuple_of_v<T>
+		&& !is_map_type_v<T>
+		&& !is_unordered_map_type_v<T>
+		&& !has_members_spec<T>::value)
+struct direct_writable<T> : std::true_type {};
 
 } // namespace detail
 
@@ -1055,6 +1072,9 @@ std::expected<std::optional<T>, JsonError> ObjectView::optional(
 	if (!node) {
 		return std::optional<T>{};
 	}
+	if (node->is_null()) {
+		return std::optional<T>{};
+	}
 	auto value = decode<T>(*node, opts);
 	if (!value) {
 		return std::unexpected(std::move(value).error());
@@ -1181,16 +1201,8 @@ struct JsonCodec<std::optional<T>> {
 					return std::unexpected(std::move(v).error());
 				}
 				return std::optional<T>{std::move(*v)};
-			} else {
-				return std::unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::wrong_kind,
-						.expected_kind = JsonKind::null,
-						.actual_kind = JsonKind::null,
-						.message = "explicit JSON null is not accepted for std::optional<T>; use Nullable<T> for "
-								   "nullable fields"});
 			}
+			return std::optional<T>{};
 		}
 		auto v = conflux::json::decode<T>(n);
 		if (!v) {
@@ -5679,6 +5691,22 @@ std::expected<void, JsonError> direct_write_value(
 		return direct_write_map_like(out, value, opts, depth);
 	} else if constexpr (has_members_spec<Raw>::value) {
 		return direct_write_members(out, value, opts, depth);
+	} else if constexpr (has_codec_spec<Raw>::value) {
+		auto builder = value_builder();
+		auto encoded = encode_dispatch<Raw>(builder, value);
+		if (!encoded) {
+			return std::unexpected(std::move(encoded).error());
+		}
+		auto doc = std::move(builder).finish();
+		if (!doc) {
+			return std::unexpected(std::move(doc).error());
+		}
+		auto dumped = doc->dump(opts);
+		if (!dumped) {
+			return std::unexpected(std::move(dumped).error());
+		}
+		out.append(*dumped);
+		return {};
 	} else {
 		static_assert(!std::same_as<Raw, Raw>, "No direct JSON writer support for type");
 	}

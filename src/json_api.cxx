@@ -2381,6 +2381,7 @@ public:
 	NodeRef(NodeRef &&) noexcept = default;
 	NodeRef &operator =(NodeRef const &) = default;
 	NodeRef &operator =(NodeRef &&) noexcept = default;
+	[[nodiscard]] bool is_valid() const noexcept { return storage_ != nullptr; }
 	[[nodiscard]] JsonKind kind() const noexcept;
 	[[nodiscard]] bool is_null() const noexcept { return rec().kind == NodeKind::null_; }
 	[[nodiscard]] std::expected<ObjectView, JsonError> as_object() const;

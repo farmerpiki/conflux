@@ -29,6 +29,14 @@ TEST_CASE(
 	REQUIRE(missing.has_value());
 	CHECK_FALSE(missing->has_value());
 
+	auto doc_with_null = parse(R"({"count": null})");
+	REQUIRE(doc_with_null.has_value());
+	auto obj_with_null = doc_with_null->root().as_object();
+	REQUIRE(obj_with_null.has_value());
+	auto null_count = obj_with_null->optional<std::uint64_t>("count");
+	REQUIRE(null_count.has_value());
+	CHECK_FALSE(null_count->has_value());
+
 	auto node = obj->member("id");
 	REQUIRE(node.has_value());
 	auto direct = node->as<std::uint64_t>();

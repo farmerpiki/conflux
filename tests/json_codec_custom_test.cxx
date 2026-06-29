@@ -82,3 +82,15 @@ TEST_CASE(
 	"[json][codec]") {
 	CHECK(has_json_codec<Color>);
 }
+
+TEST_CASE(
+	"json: dump_direct writes custom JsonCodec values",
+	"[json][codec][direct]") {
+	std::vector<Color> colors{Color::red, Color::blue};
+	static_assert(JsonDirectWritable<Color>);
+	static_assert(JsonDirectWritable<decltype(colors)>);
+
+	auto dumped = dump_direct(colors);
+	REQUIRE(dumped.has_value());
+	CHECK(*dumped == R"(["red","blue"])");
+}
