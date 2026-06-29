@@ -305,9 +305,11 @@ objects.
 ### NodeRef
 
 Lightweight handle to a node inside a `Document`. Default-constructed handles
-are null (kind `null`, all accessors return `wrong_kind`).
+are invalid; call `is_valid()` before using a stored handle that may not have
+come from a `Document`.
 
 ```cpp
+bool     is_valid() const noexcept;
 JsonKind kind()    const noexcept;
 bool     is_null() const noexcept;
 

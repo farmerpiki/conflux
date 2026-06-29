@@ -8,6 +8,18 @@ import conflux.json.native_provider;
 using namespace conflux::json;
 
 TEST_CASE(
+	"json: default NodeRef is invalid",
+	"[json][noderef]") {
+	NodeRef node;
+	CHECK_FALSE(node.is_valid());
+
+	auto doc = parse("null");
+	REQUIRE(doc.has_value());
+	CHECK(doc->root().is_valid());
+	CHECK(doc->root().is_null());
+}
+
+TEST_CASE(
 	"json: is_same_node — same document, same node",
 	"[json][noderef]") {
 	auto doc = parse("[1,2]");

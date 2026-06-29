@@ -103,13 +103,13 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<std::optional<std::int64_t>> — null yields error",
+	"json: decode<std::optional<std::int64_t>> — null yields nullopt",
 	"[json][codec]") {
 	auto doc = parse("null");
 	REQUIRE(doc.has_value());
 	auto r = decode<std::optional<std::int64_t>>(doc->root());
-	CHECK_FALSE(r.has_value());
-	CHECK(r.error().code == JsonIssueCode::wrong_kind);
+	REQUIRE(r.has_value());
+	CHECK(!r->has_value());
 }
 
 TEST_CASE(
