@@ -254,29 +254,41 @@ auto doc2 = *make_object({{"role", "user"sv}, {"content", body}});
 and any type with a `conflux::json::JsonCodec<T>` specialization. Character types (`char`,
 `wchar_t`, etc.) and enums without a codec are excluded.
 
-### `ValueBuilder` — incremental construction
+### Writer Helpers — Dynamic Construction
 
-Use `ValueBuilder` when the structure is dynamic or contains nested sub-trees.
+Use `object(...)` and `array(...)` when the structure is dynamic or contains
+nested sub-trees and you want nested builders committed automatically.
+
+```cpp
+auto doc = *object([](auto& obj) {
+    obj("key", "value");
+    obj("n", 42);
+    obj("maybe", std::nullopt);
+    obj.object("nested", [](auto& nested) {
+        nested("flag", true);
+    });
+    obj.array("tags", [](auto& tags) {
+        tags("admin");
+        tags("user");
+    });
+});
+```
+
+### `ValueBuilder` — Low-Level Incremental Construction
+
+Use `ValueBuilder` directly when a codec must attach a value to a builder it was
+given, or when rollback of an uncommitted child builder is the behavior you need.
 
 ```cpp
 ValueBuilder vb;
-
-// Scalar:
-*vb.set_string("hello");
-auto doc = *std::move(vb).finish();
-
-// Nested object:
-ValueBuilder vb2;
-auto ob = *vb2.begin_object();
+auto ob = *vb.begin_object();
 *ob.insert_string("key", "value");
 *ob.insert_i64("n", 42);
-{
-    auto inner = *ob.insert_object("nested");
-    *inner.insert_bool("flag", true);
-    std::move(inner).commit();
-}
+auto inner = *ob.insert_object("nested");
+*inner.insert_bool("flag", true);
+std::move(inner).commit();
 std::move(ob).commit();
-auto doc2 = *std::move(vb2).finish();
+auto doc = *std::move(vb).finish();
 ```
 
 `commit()` is `&&`-qualified and `noexcept`. Call it exactly once per builder.

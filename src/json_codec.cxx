@@ -998,6 +998,8 @@ template<class Traits, class Alloc>
 struct JsonCodec<std::basic_string<char, Traits, Alloc>>;
 template<>
 struct JsonCodec<std::string_view>;
+template<>
+struct JsonCodec<std::nullopt_t>;
 template<class T>
 struct JsonCodec<std::optional<T>>;
 template<class T>
@@ -1189,6 +1191,28 @@ struct JsonCodec<std::string_view> {
 		return b.set_string(v);
 	}
 	static constexpr std::string_view type_name() { return "std::string_view"; }
+};
+template<>
+struct JsonCodec<std::nullopt_t> {
+	static std::expected<std::nullopt_t, JsonError> decode(
+		NodeRef n) {
+		if (n.is_null()) {
+			return std::nullopt;
+		}
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::wrong_kind,
+				.expected_kind = JsonKind::null,
+				.actual_kind = n.kind(),
+				.message = "expected JSON null"});
+	}
+	static std::expected<void, JsonError> encode(
+		ValueBuilder &b,
+		std::nullopt_t) {
+		return b.set_null();
+	}
+	static constexpr std::string_view type_name() { return "std::nullopt_t"; }
 };
 template<class T>
 struct JsonCodec<std::optional<T>> {

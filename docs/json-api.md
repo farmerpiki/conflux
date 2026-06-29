@@ -573,8 +573,36 @@ auto doc = conflux::json::object([](auto& obj) {
 });
 ```
 
-The helper returns `expected<Document, JsonError>`. Ignored insert/append errors
-are captured by the writer and returned by the outer helper.
+The helpers return `expected<Document, JsonError>`. Ignored insert/append errors
+are captured by the writer and returned by the outer helper. Nested
+`object(...)` and `array(...)` writer callbacks auto-commit when the callback
+returns without a writer error.
+
+```cpp
+class ObjectWriter {
+    template<class T>
+    expected<void, JsonError> operator()(string_view name, T const& value);
+
+    template<class F>
+    expected<void, JsonError> object(string_view name, F&& fn);
+
+    template<class F>
+    expected<void, JsonError> array(string_view name, F&& fn);
+};
+
+class ArrayWriter {
+    template<class T>
+    expected<void, JsonError> operator()(T const& value);
+
+    template<class F>
+    expected<void, JsonError> object(F&& fn);
+
+    template<class F>
+    expected<void, JsonError> array(F&& fn);
+};
+```
+
+Use `std::nullopt` when a writer helper should emit explicit JSON `null`.
 
 ---
 

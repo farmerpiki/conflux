@@ -35,6 +35,29 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"json: builder writes std::nullopt as null",
+	"[json][builder]") {
+	auto root_null = value_builder();
+	REQUIRE(root_null.set(std::nullopt).has_value());
+	auto root_doc = std::move(root_null).finish();
+	REQUIRE(root_doc.has_value());
+	CHECK(root_doc->root().is_null());
+
+	auto object_doc = object([](auto &obj) {
+		obj("name", "alice");
+		obj("middle", std::nullopt);
+		obj.array("values", [](auto &arr) {
+			arr(1);
+			arr(std::nullopt);
+		});
+	});
+	REQUIRE(object_doc.has_value());
+	auto dumped = object_doc->dump();
+	REQUIRE(dumped.has_value());
+	CHECK(*dumped == R"({"name":"alice","middle":null,"values":[1,null]})");
+}
+
+TEST_CASE(
 	"json: builder set_bool",
 	"[json][builder]") {
 	auto b = value_builder();
