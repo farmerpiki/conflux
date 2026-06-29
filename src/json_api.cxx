@@ -2335,6 +2335,18 @@ public:
 	void reset() noexcept;
 };
 // ---------------------------------------------------------------------------
+// Dump options
+// ---------------------------------------------------------------------------
+
+struct JsonDumpOptions {
+	bool pretty{false};
+	unsigned indent{2};
+	bool sort_object_keys{false};
+	bool ascii_only{false};
+	char indent_char{' '};
+	std::optional<std::size_t> truncate_depth{};
+};
+// ---------------------------------------------------------------------------
 // NodeRef
 // ---------------------------------------------------------------------------
 
@@ -2383,6 +2395,7 @@ public:
 	[[nodiscard]] std::expected<T, JsonError> as(JsonDecodeOptions const &opts = {}) const;
 	[[nodiscard]] std::expected<NodeRef, JsonError> at(JsonPath const &path) const;
 	[[nodiscard]] std::expected<NodeRef, JsonError> at_pointer(std::string_view pointer) const;
+	[[nodiscard]] std::expected<std::string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
 };
 // ---------------------------------------------------------------------------
 // ObjectMember (after NodeRef — NodeRef used by value)
@@ -2709,14 +2722,6 @@ struct NodeIdentityEqual {
 // Document
 // ---------------------------------------------------------------------------
 
-struct JsonDumpOptions {
-	bool pretty{false};
-	unsigned indent{2};
-	bool sort_object_keys{false};
-	bool ascii_only{false};
-	char indent_char{' '};
-	std::optional<std::size_t> truncate_depth{};
-};
 struct WarmIndexOptions {
 	std::size_t max_objects{SIZE_MAX};
 	std::size_t max_extra_bytes{SIZE_MAX};

@@ -514,6 +514,26 @@ TEST_CASE(
 	CHECK(resp.error_code == NGHTTP2_CANCEL);
 }
 TEST_CASE(
+	"h2: streaming upload immediate handler error cancels remaining DATA") {
+	conflux::http::Router router;
+	router.add_upload_context_with_timeout(
+		"POST",
+		"/stream-upload",
+		nullptr,
+		[](conflux::http::RequestView,
+		   conflux::http::RequestContext const &) -> conflux::work::Task<conflux::http::Response> {
+			co_return conflux::http::Response::content_too_large();
+		});
+	conflux::tests::HttpsServerFixture const fx{std::move(router)};
+	H2Client client{fx.port()};
+	std::string body(64 * 1024, 'x');
+	auto resp = client.post_with_frame_size("/stream-upload", body, 1024);
+	REQUIRE(resp.closed);
+	CHECK(resp.error_code == NGHTTP2_CANCEL);
+	auto const metrics = fx.metrics();
+	CHECK(metrics.uploads.canceled_by_handler == 1);
+}
+TEST_CASE(
 	"h2: route-local upload body limit increments body-too-large metric") {
 	auto observed = std::make_shared<std::atomic<int>>(-1);
 	auto app = conflux::http::App::default_server();
@@ -567,6 +587,8 @@ TEST_CASE(
 	REQUIRE(resp.closed);
 	CHECK(resp.status == conflux::http::kHttpRequestEntityTooLarge);
 	CHECK_FALSE(handler_started->load(std::memory_order_acquire));
+	auto const metrics = fx.metrics();
+	CHECK(metrics.uploads.canceled_by_handler == 0);
 }
 TEST_CASE(
 	"h2: content-length over max body resets stream") {

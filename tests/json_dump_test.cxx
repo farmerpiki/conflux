@@ -55,6 +55,38 @@ TEST_CASE(
 	REQUIRE(d.has_value());
 	CHECK(*d == R"({"a":1,"m":2,"z":3})");
 }
+TEST_CASE(
+	"json: NodeRef::dump serializes a subtree",
+	"[json][dump]") {
+	auto doc = parse(R"({"type":"event","payload":{"name":"example","nested":[1,true,null]}})");
+	REQUIRE(doc.has_value());
+	auto root = doc->root().as_object();
+	REQUIRE(root.has_value());
+	auto payload = root->member("payload");
+	REQUIRE(payload.has_value());
+	auto dumped = payload->dump();
+	REQUIRE(dumped.has_value());
+	CHECK(*dumped == R"({"name":"example","nested":[1,true,null]})");
+	auto reparsed = parse(*dumped);
+	REQUIRE(reparsed.has_value());
+	auto name = reparsed->root().as_object()->member("name");
+	REQUIRE(name.has_value());
+	CHECK(*name->as_string() == "example");
+}
+TEST_CASE(
+	"json: NodeRef::dump honors dump options",
+	"[json][dump]") {
+	auto doc = parse(R"({"payload":{"z":"café","a":1}})");
+	REQUIRE(doc.has_value());
+	auto payload = doc->root().as_object()->member("payload");
+	REQUIRE(payload.has_value());
+	JsonDumpOptions opts;
+	opts.sort_object_keys = true;
+	opts.ascii_only = true;
+	auto dumped = payload->dump(opts);
+	REQUIRE(dumped.has_value());
+	CHECK(*dumped == R"({"a":1,"z":"caf\u00e9"})");
+}
 
 TEST_CASE(
 	"json: dump ascii_only escapes non-ASCII code points",

@@ -276,7 +276,7 @@ inline std::expected<PathParts, IoError> split_contained_path(
 	}
 	if (path.starts_with('/')) {
 		return std::unexpected{
-			IoError{EINVAL, "file_io_sync: absolute path"}
+			IoError{EINVAL, "file_io_sync: contained path must be relative"}
         };
 	}
 	if (path.contains('\0')) {

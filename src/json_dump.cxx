@@ -358,6 +358,13 @@ std::expected<std::string, JsonError> Document::dump(
 	dump_node(*storage_, storage_->root_node, opts, 0, out);
 	return out;
 }
+std::expected<std::string, JsonError> NodeRef::dump(
+	JsonDumpOptions const &opts) const {
+	std::string out;
+	out.reserve(storage_->input_view.size() + storage_->string_arena.size() + 32);
+	dump_node(*storage_, idx_, opts, 0, out);
+	return out;
+}
 std::expected<std::string, JsonError> ArenaDocument::dump(
 	JsonDumpOptions const &opts) const {
 	check_live();

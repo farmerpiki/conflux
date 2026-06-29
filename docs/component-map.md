@@ -65,6 +65,27 @@ target_link_libraries(my_app PRIVATE
 installed. Prefer narrow component targets for new examples and docs so optional
 protocol/storage dependencies stay visible.
 
+### Import-To-Target Quick Map
+
+In source-tree builds, examples and tests link the build target. Installed
+consumers request the package component and link the exported target.
+
+| Import | Build-tree target | Package component | Installed target | Availability |
+|---|---|---|---|---|
+| `import conflux;` | `conflux` | `umbrella` | `conflux::conflux` (`conflux::umbrella` alias) | Built when the aggregate target is enabled. |
+| `import conflux.json;` | `conflux_json` | `json` | `conflux::json` | Built by the `json` feature bundle and HTTP bundles that need JSON. |
+| `import conflux.json.file;` | `conflux_json_file` | `json_file` | `conflux::json_file` | Opt-in JSON file helper; depends on `json` and `file_io_sync`. |
+| `import conflux.file_io_sync;` | `conflux_file_io_sync` | `file_io_sync` | `conflux::file_io_sync` | Liburing-free sync file helpers. |
+| `import conflux.http;` | `conflux_net_http` | `http` | `conflux::http` | Built by HTTP feature bundles. |
+| `import conflux.net.http_server;` | `conflux_http_server` | `http_server` | `conflux::http_server` | Built by HTTP server feature bundles. |
+| `import conflux.net.app;` | `conflux_http_app` | `http_app` | `conflux::http_app` | Built by HTTP app/server feature bundles. |
+| `import conflux.work;` | `conflux_work` | `work` | `conflux::work` | Runtime feature bundles; requires runtime support. |
+| `import conflux.uring;` | `conflux_uring` | `uring` | `conflux::uring` | Runtime feature bundles; requires liburing. |
+| `import conflux.pg;` | `conflux_pg` | `pg` | `conflux::pg` | Built when DB support is enabled and release evidence includes PG. |
+
+The full component reference below is the broader import-to-target map. The
+machine-readable source of truth is `cmake/ConfluxComponentRegistry.cmake`.
+
 Validate an install tree with:
 
 ```sh

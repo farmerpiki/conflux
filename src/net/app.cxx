@@ -318,7 +318,10 @@ class App : public detail::AppRouteVerbAccessors {
 		if (ctx != nullptr && ctx->upload_body) {
 			ctx->upload_body->set_body_limit(limit);
 		}
-		auto fail = [](Response response) -> std::optional<Response> {
+		auto fail = [ctx](Response response) -> std::optional<Response> {
+			if (ctx != nullptr && ctx->upload_body) {
+				ctx->upload_body->mark_prelude_rejected();
+			}
 			return std::optional<Response>{std::move(response)};
 		};
 		if (auto denied = detail::route_auth_failure(*policy.bearer_token_policy, req)) {

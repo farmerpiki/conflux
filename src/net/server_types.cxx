@@ -94,6 +94,7 @@ class UploadBodyState : public std::enable_shared_from_this<UploadBodyState> {
 	std::size_t body_limit_{};
 	std::size_t queue_capacity_{16};
 	bool consumer_abandoned_{};
+	bool prelude_rejected_{};
 
 	[[nodiscard]] UploadReadResult locked_next_result() {
 		if (terminal_error_) {
@@ -186,6 +187,10 @@ public:
 		std::size_t limit) noexcept {
 		std::scoped_lock const lk{mutex_};
 		body_limit_ = limit;
+	}
+	void mark_prelude_rejected() noexcept {
+		std::scoped_lock const lk{mutex_};
+		prelude_rejected_ = true;
 	}
 
 	[[nodiscard]] std::expected<void, UploadError> push(
@@ -290,6 +295,10 @@ public:
 	[[nodiscard]] bool consumer_abandoned() const noexcept {
 		std::scoped_lock const lk{mutex_};
 		return consumer_abandoned_;
+	}
+	[[nodiscard]] bool prelude_rejected() const noexcept {
+		std::scoped_lock const lk{mutex_};
+		return prelude_rejected_;
 	}
 };
 
