@@ -601,14 +601,10 @@ ssize_t Ring::h2_read_cb(
 		auto deferred_response = resp.deferred_response_ptr();
 		deferred_response->keep_alive(request_lease);
 		if (auto ready = deferred_response->take_ready()) {
-			if (ready->status >= 400 && stream.upload_body && !stream.end_stream_seen) {
+			if (stream.upload_body && stream.upload_body->prelude_rejected() && !stream.end_stream_seen) {
 				stream.upload_body->abandon_consumer();
 				stream.upload_body.reset();
 				stream.rejected = true;
-				{
-					std::scoped_lock lk{metrics_mu_};
-					++upload_counters_.canceled_by_handler;
-				}
 			}
 			h2_submit_response(conn, stream_id, std::move(*ready));
 			return true;

@@ -201,7 +201,7 @@ expected<Document, JsonFileError> blocking_parse_file_at(
     string_view contained_relative_path,
     JsonParseOptions const& opts = {});
 expected<Document, JsonFileError> blocking_parse_file(
-    string_view contained_relative_path,
+    string_view path,
     JsonParseOptions const& opts = {});
 ```
 
@@ -209,6 +209,11 @@ expected<Document, JsonFileError> blocking_parse_file(
 `parse_copy(std::string&&)`, so the returned `Document` owns the bytes. The read
 limit mirrors `JsonParseOptions::max_input_size`: default 128 MiB, explicit bound
 when supplied, or unbounded only when `max_input_size = no_limit`.
+
+`blocking_parse_file_at` is a contained-path helper: `contained_relative_path`
+must be relative to `root_fd` and must not escape it. `blocking_parse_file` is
+the generic convenience helper and accepts the same absolute or cwd-relative
+paths as `conflux::file_io_sync::blocking_read_text_file`.
 
 The preview API advertises `blocking_parse_file_at` and
 `blocking_parse_file` for file-backed parsing.
@@ -313,7 +318,13 @@ expected<string_view,    JsonError> as_string()  const;
 expected<JsonNumberView, JsonError> as_number()  const;
 
 expected<NodeRef, JsonError> at(JsonPath const& path) const;
+expected<string, JsonError> dump(JsonDumpOptions const& opts = {}) const;
 ```
+
+`NodeRef::dump()` serializes that node and its descendants as a JSON subtree.
+It uses the same `JsonDumpOptions` contract as `Document::dump()`: formatting is
+regenerated, original whitespace is not preserved, and number lexemes follow the
+dumper's existing round-trip behavior.
 
 ### JsonKind
 

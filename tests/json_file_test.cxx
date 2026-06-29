@@ -101,15 +101,29 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json_file: blocking parse aliases read and parse via explicit component",
+	"json_file: blocking_parse_file reads absolute paths",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
 	auto wr = conflux::file_io_sync::blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":43})");
 	REQUIRE(wr.has_value());
 
-	auto doc = blocking_parse_file_at(dir.fd, "config.json");
+	auto doc = blocking_parse_file(std::format("{}/{}", dir.path, "config.json"));
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
 	CHECK(*obj->member("answer")->as_number()->to_i64() == 43LL);
+}
+
+TEST_CASE(
+	"json_file: blocking_parse_file_at keeps contained relative path contract",
+	"[json_file][unit]") {
+	auto dir = TempDir::create();
+	auto wr = conflux::file_io_sync::blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":44})");
+	REQUIRE(wr.has_value());
+
+	auto doc = blocking_parse_file_at(dir.fd, std::format("{}/{}", dir.path, "config.json"));
+	REQUIRE_FALSE(doc.has_value());
+	CHECK(doc.error().is_file_error());
+	CHECK(doc.error().file_errno == EINVAL);
+	CHECK(doc.error().message.find("contained path must be relative") != std::string::npos);
 }

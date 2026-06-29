@@ -1,6 +1,3 @@
-module;
-#include <fcntl.h>
-
 export module conflux.json.file;
 
 import std;
@@ -81,9 +78,18 @@ export namespace conflux::json {
 }
 
 [[nodiscard]] std::expected<Document, JsonFileError> blocking_parse_file(
-	std::string_view contained_relative_path,
+	std::string_view path,
 	JsonParseOptions const &opts = {}) {
-	return blocking_parse_file_at(AT_FDCWD, contained_relative_path, opts);
+	auto bytes = conflux::file_io_sync::blocking_read_text_file(path, json_file_read_limit(opts));
+	if (!bytes) {
+		return std::unexpected{make_file_error(bytes.error())};
+	}
+
+	auto doc = parse_copy(std::move(*bytes), opts);
+	if (!doc) {
+		return std::unexpected{make_parse_error(std::move(doc.error()))};
+	}
+	return std::move(*doc);
 }
 
 } // namespace conflux::json
