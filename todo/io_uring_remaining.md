@@ -7,9 +7,16 @@ implementation.
 
 ## Open
 
-- Perf/evidence-gated: poll-first recv benchmark/evidence follow-up.
-- Deferred: RECV_ZC waits until kernel support is mature enough to justify a narrow
-  implementation branch.
-- Perf/evidence-gated: HTTP/static IOPOLL adoption; do not wire storage-only IOPOLL
-  into HTTP static paths without same-machine evidence.
-- Profiling-gated: ring layout/padding only.
+- Deferred: RECV_ZC production backend. Capability probing and reserved payload
+  ownership shape exist, but no production `IORING_OP_RECV_ZC` SQE path is wired.
+- Perf/evidence-gated: HTTP/static IOPOLL adoption. Storage-only IOPOLL exists
+  in `conflux.file_io.iopoll`; do not wire it into HTTP static paths without
+  same-machine evidence that the storage-read bottleneck justifies the extra
+  ring and fixed-buffer constraints.
+- Profiling-gated: ring hot/cold layout or padding changes only.
+
+## Verified Done
+
+- Poll-first recv policy support is implemented and covered by policy tests;
+  future work here is benchmark/evidence capture, not initial implementation.
+- Storage-only IOPOLL primitive, tests, and storage-read benchmark gate exist.

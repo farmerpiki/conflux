@@ -11,6 +11,7 @@ boundary.
   architectural cost.
 - Toolchain-gated: replace `strtod_l` / `CLocaleHolder` only after libstdc++ `from_chars<double>`
   handles overflow/underflow correctly on supported toolchains.
-- [x] Compile-time JSON literal parsing: design return type and `decode<T>`
-  integration before implementation.
-- [x] `debug-p2996-clang` preset for the local reflection-capable Clang lane.
+- Deferred: implement/export the compile-time JSON literal API only if a real
+  preview user or docs path needs it. The return type and `decode<T>`
+  integration design is already documented; no exported literal API exists in
+  the current preview.
