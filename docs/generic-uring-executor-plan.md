@@ -1,18 +1,24 @@
 # Generic io_uring Executor Plan
 
-Status: Draft under adversarial review.
+Status: core executor landed; historical rationale with deferred domain
+adapters.
 
 Branch: `friction-fixes`.
 
 ## Goal
 
-Add a generic execution-layer facility for keeping one `io_uring` owner thread alive and running Conflux `root::Task<T>` coroutines on that owner. The facility is work/execution infrastructure, not HTTP, socket, DNS, file, or database API.
+The generic execution-layer facility exists for keeping one `io_uring` owner
+thread alive and running Conflux `root::Task<T>` coroutines on that owner. The
+facility is work/execution infrastructure, not HTTP, socket, DNS, file, or
+database API.
 
-The first public shape must be explicit and low-level enough for runtime users without leaking raw `io_uring` into the extended `conflux.work` aggregate.
+Keep this document as the rationale and acceptance checklist for the landed
+core executor. Future work should be domain adapters or focused fixes, not a
+new broad executor branch.
 
 ## Placement And Surface
 
-Add a new complete-only runtime component:
+Landed as a complete-only runtime component:
 
 - CMake component: `work_uring_executor`
 - CMake target: `conflux_work_uring_executor`
@@ -29,7 +35,7 @@ Rationale:
 - Raw `io_uring`, socket/file async I/O, and low-level runtime escape hatches are complete-only.
 - The executor context must expose `conflux::uring::RingRef`, `CompletionTable`, and `UserDataFn`; therefore the new module must stay out of the extended aggregate unless the API-surface policy is intentionally changed.
 
-Documentation and metadata updates required when implemented:
+Documentation and metadata updated with the implementation:
 
 - `cmake/components/RuntimeTargets.cmake`
 - `cmake/ConfluxComponentRegistry.cmake` with an `EXPLICIT|ADVANCED` entry if the target is exported
@@ -49,7 +55,7 @@ Documentation and metadata updates required when implemented:
 
 ## Public API
 
-Add to `conflux.work.uring_executor`:
+Landed in `conflux.work.uring_executor`:
 
 ```cpp
 namespace conflux::work {
@@ -306,7 +312,7 @@ Database follow-up:
 
 ## Tests
 
-Add focused runtime/work tests:
+Focused runtime/work tests cover:
 
 - Factory returns `std::unexpected` for invalid options such as `max_submission_queue == 0`.
 - Factory handles `io_uring_queue_init_params` failure on unsupported hosts with a clear error path.
@@ -327,20 +333,20 @@ Add focused runtime/work tests:
 
 ## Acceptance Checks
 
-- [ ] The executor is in a work/execution component, not HTTP or socket I/O.
-- [ ] The executor is complete-only or explicit-only; raw `io_uring` types do not leak into the extended `conflux.work` aggregate.
-- [ ] `async_submit` accepts `[](UringExecutorContext&) -> root::Task<T>` without explicit template arguments, overload casts, or tag arguments.
-- [ ] Owner-thread startup uses `io_uring_queue_init_params`, checks every return value, requests `SINGLE_ISSUER`, and publishes readiness only after `RingLane` owner adoption.
-- [ ] Submitted work runs only on the ring owner thread.
-- [ ] Admission has a bounded queue contract and deterministic failed-task behavior for full/stopped executors.
-- [ ] Executor wake CQEs use reserved slot `UINT32_MAX`; `CompletionTable` CQEs retain the existing slot/generation encoding and cannot allocate the reserved slot, enforced by a concrete `CompletionTable` guard.
-- [ ] The task bridge uses `TaskJoinHandle`, `set_on_ready_or_run`, `join_ready`, and child cancellation binding; it never uses `blocking_join` in the owner loop.
-- [ ] Pre-admission cancellation does not invoke the caller callable.
-- [ ] Post-admission cancellation propagates to the child task through the existing `root::Task` cancellation model.
-- [ ] Shutdown rejects new work, cancels queued work, requests child cancellation, drains provider-owned completions cooperatively, and joins without generic force-completion.
-- [ ] Focused runtime tests cover startup, multi-producer admission, cancellation, CQE routing, shutdown, import surface, and package surface.
-- [ ] `docs/component-map.md`, `docs/public-api-map.md`, API-surface docs/manifest, and work API docs are updated if the API is implemented.
-- [ ] Large verbatim code moves use `mv` or `.span-edit/scripts/span_edit.py`; no hand-retyped moves over 10 lines.
+- [x] The executor is in a work/execution component, not HTTP or socket I/O.
+- [x] The executor is complete-only or explicit-only; raw `io_uring` types do not leak into the extended `conflux.work` aggregate.
+- [x] `async_submit` accepts `[](UringExecutorContext&) -> root::Task<T>` without explicit template arguments, overload casts, or tag arguments.
+- [x] Owner-thread startup uses `io_uring_queue_init_params`, checks every return value, requests `SINGLE_ISSUER`, and publishes readiness only after `RingLane` owner adoption.
+- [x] Submitted work runs only on the ring owner thread.
+- [x] Admission has a bounded queue contract and deterministic failed-task behavior for full/stopped executors.
+- [x] Executor wake CQEs use reserved slot `UINT32_MAX`; `CompletionTable` CQEs retain the existing slot/generation encoding and cannot allocate the reserved slot, enforced by a concrete `CompletionTable` guard.
+- [x] The task bridge uses `TaskJoinHandle`, `set_on_ready_or_run`, `join_ready`, and child cancellation binding; it never uses `blocking_join` in the owner loop.
+- [x] Pre-admission cancellation does not invoke the caller callable.
+- [x] Post-admission cancellation propagates to the child task through the existing `root::Task` cancellation model.
+- [x] Shutdown rejects new work, cancels queued work, requests child cancellation, drains provider-owned completions cooperatively, and joins without generic force-completion.
+- [x] Focused runtime tests cover startup, multi-producer admission, cancellation, CQE routing, shutdown, import surface, and package surface.
+- [x] `docs/component-map.md`, `docs/public-api-map.md`, API-surface docs/manifest, and work API docs are updated.
+- [x] The landed executor patch did not require large verbatim code moves.
 
 ## Non-Goals
 
@@ -353,4 +359,7 @@ Add focused runtime/work tests:
 
 ## Expected Follow-Up Lane
 
-After the generic executor lands, add an HTTP async client convenience layer that adapts `UringExecutorContext` to `SocketTaskRing`. Keep that follow-up in the HTTP async client component. A later DB lane should only use this executor for true ring-backed async work; blocking libpq or CPU-bound work stays on `WorkPool`.
+The one-shot HTTP async client convenience layer landed. A persistent HTTP
+client reactor remains a separate design in `docs/http-client-reactor-plan.md`.
+A later DB lane should only use this executor for true ring-backed async work;
+blocking libpq or CPU-bound work stays on `WorkPool`.

@@ -7,13 +7,12 @@ future branches.
 
 ## Open
 
-- Deferred: HTTP streaming upload API. Multipart parsing and `http::Multipart`
-  extractors are implemented today, and HTTP/1 chunked framing plus HTTP/2 and
-  HTTP/3 DATA framing are stripped before request bodies are exposed. Handler
-  request bodies are still buffered in memory up to `max_body_size`. A future
-  upload API must add bounded application-visible streaming with backpressure
-  and optional spill-to-file; large uploads must not be solved by raising
-  `max_body_size` toward unbounded sizes.
+- Deferred: streaming multipart upload API. Raw `http::UploadBody` is
+  implemented for application-visible bounded streaming with backpressure and
+  `save_to()`. Buffered multipart parsing and `http::Multipart` extractors are
+  implemented today; `http::MultipartUpload` remains deferred until a caller
+  needs streaming multipart events. Large multipart uploads must not be solved
+  by raising `max_body_size` toward unbounded sizes.
 
 ## Verified Done
 
@@ -28,3 +27,6 @@ future branches.
   HTTP/2 DATA frames, and HTTP/3 DATA frames. The server stores/exposes decoded
   payload bytes rather than retaining encoded upload framing, with regression
   coverage for tiny chunk/DATA-frame uploads and HTTP/3 body-limit rejection.
+- Raw `http::UploadBody` streaming is implemented for HTTP/1 and HTTP/2 routes,
+  including bounded reads, error-aware EOF, early-return cancellation,
+  `Expect: 100-continue`, `discard()`, `save_to()`, and upload metrics.

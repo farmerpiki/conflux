@@ -1,16 +1,25 @@
 # Streaming Upload Application API Plan
 
-Status: Draft for review
+Status: raw `UploadBody` implementation landed; remaining TODO is deferred
+multipart streaming and any HTTP/3 parity gaps.
 Branch: `feature/http-upload-streaming-api`
-Expected follow-up lane: implement raw upload first; land multipart streaming and HTTP/3 parity as follow-ups if either would block the core API.
+Expected follow-up lane: split `MultipartUpload` into a new implementation plan
+only when a caller needs streaming multipart. Keep HTTP/3 parity as a separate
+transport conformance check.
 
 ## Summary
 
-Add an ergonomic typed-extractor upload API aligned with existing `App` extractors. The first implementation lands raw `http::UploadBody`, route body-mode metadata, bounded queue rejection for unread uploads, explicit error/early-return semantics, and `save_to()` using explicit async/offload file I/O. `http::MultipartUpload` remains a follow-up design for the streaming counterpart to `Multipart`; it is not part of the raw upload landing.
+Raw `http::UploadBody` landed as an ergonomic typed extractor aligned with
+existing `App` extractors. The landed surface includes route body-mode metadata,
+bounded queue rejection for unread uploads, explicit read/error/early-return
+semantics, HTTP/1 and HTTP/2 transport support, and `save_to()` using explicit
+async file I/O. `http::MultipartUpload` remains deferred as the streaming
+counterpart to buffered `Multipart`.
 
 ## Public API
 
-- Add move-only async-only `http::UploadBody`, the streaming counterpart to `BodyBytes`:
+- Landed: move-only async-only `http::UploadBody`, the streaming counterpart to
+  `BodyBytes`:
 
 ```cpp
 app.post("/upload", [](http::UploadBody body) -> conflux::work::Task<http::Response> {
@@ -91,7 +100,7 @@ struct UploadChunk {
 - `UploadBody` also exposes `content_length()`, `bytes_read()`, `[[nodiscard]] discard() -> Task<std::expected<void, UploadError>>`, and `[[nodiscard]] save_to(...) -> Task<std::expected<UploadSaveResult, UploadError>>`.
 - `save_to()` must not perform hidden blocking disk I/O on the ring thread. It uses existing async file I/O where available, or a clearly named explicit offload path. On error/cancel, incomplete destination files are removed unless options later add a deliberate keep-partial mode. Successful `save_to()` does not fsync and makes no durability guarantee beyond successful write/close; a future option may add fsync.
 - `save_to()` writes exactly the supplied path. It does not sanitize multipart filenames or other user input; applications must choose and canonicalize destination paths.
-- Follow-up design: add move-only async-only `http::MultipartUpload`, the streaming counterpart to `Multipart`.
+- Deferred follow-up: add move-only async-only `http::MultipartUpload`, the streaming counterpart to `Multipart`.
 - `MultipartUpload::read()` returns:
 
 ```cpp
@@ -113,28 +122,28 @@ using MultipartUploadReadResult = std::expected<std::optional<MultipartUploadEve
 - Concurrent reads are invalid. A second pending `UploadBody::read()` returns `UploadErrorKind::cancelled` with detail `concurrent UploadBody::read() is not allowed`.
 - `Expect: 100-continue`: match route and run auth, rate-limit, and known `Content-Length` limit checks before sending `100 Continue`; rejection sends only the final status.
 
-## Implementation Changes
+## Landed Implementation Shape
 
-- Add `BodyMode { none, buffered_raw, buffered_multipart, streaming_raw, streaming_multipart }` to route metadata. Validation rejects mixed buffered/streaming body extractors, streaming extractors in sync handlers, and streaming body on GET unless explicitly allowed.
+- `BodyMode { none, buffered_raw, buffered_multipart, streaming_raw, streaming_multipart }` exists in route metadata. Validation rejects mixed buffered/streaming body extractors, streaming extractors in sync handlers, and streaming body on GET unless explicitly allowed.
 - Known length: reject `Content-Length > limit` before handler start. Unknown/chunked: start handler after prelude and enforce cumulative bytes. Multipart: enforce total body limit plus bounded part-header limits. `UploadBody` defaults OpenAPI `consumes` to `application/octet-stream`; `MultipartUpload` defaults to `multipart/form-data`.
-- Add router lookup for headers-only route selection so transports can identify streaming routes before buffering the body.
-- Add an internal bounded single-consumer upload stream using `TaskSource` for waiters, with EOF, error, cancellation, disconnect, and queue-full rejection states.
-- Upload stream queue capacity comes from `Config` upload defaults; route-level override can follow after the core API lands. Queue overflow is rejected and counted rather than silently buffering or blocking the ring.
-- HTTP/1 and HTTP/2 are required for raw `UploadBody` landing. HTTP/3 keeps a protocol-neutral public API, but H3 conformance is a separate acceptance gate if local H3 async/context dispatch is not mature enough.
-- Add upload metrics/rejections: streams started, bytes received, bytes consumed, backpressure events, canceled by handler, disconnected, body too large, content-length mismatch, and multipart parse errors. Collapse transport-internal flow-control failures to `io_error`; the raw landing does not expose a public flow-control error kind.
+- Router lookup for headers-only route selection lets transports identify streaming routes before buffering the body.
+- The internal upload stream is bounded, single-consumer, and uses `TaskSource` for waiters, with EOF, error, cancellation, disconnect, and queue-full rejection states.
+- Upload stream queue capacity comes from `Config` upload defaults. Queue overflow is rejected and counted rather than silently buffering or blocking the ring.
+- HTTP/1 and HTTP/2 are covered for raw `UploadBody`. HTTP/3 keeps a protocol-neutral public API, but H3 conformance remains a separate acceptance gate if local H3 async/context dispatch is not mature enough.
+- Upload metrics/rejections cover streams started, bytes received, bytes consumed, backpressure events, canceled by handler, disconnected, body too large, and content-length mismatch. Multipart parse errors remain part of the deferred `MultipartUpload` lane. Collapse transport-internal flow-control failures to `io_error`; the raw landing does not expose a public flow-control error kind.
 - `MultipartUpload` design keeps `MultipartUpload` as the name. Part names, filenames, content types, and headers are borrowed until the next `read()` unless explicitly copied; part headers have separate size/count limits.
 
 ## Acceptance Checks
 
-- [ ] API/compile tests cover `UploadBody`, `UploadChunk`, `UploadError`, `upload_error_code`, `upload_error_response`, `UploadSaveOptions`, invalid sync-handler usage, and body-mode validation.
-- [ ] App/router tests cover route metadata, route table output, OpenAPI `consumes` defaults, body limits, GET body validation, and mutually exclusive extractors.
-- [ ] HTTP/1 tests cover content-length, chunked upload, `Expect: 100-continue`, early return, `discard()`, oversize, disconnect, and keep-alive eligibility.
-- [ ] HTTP/2 tests cover DATA streaming, content-length mismatch, stream reset, body-limit rejection, and flow-control backpressure.
-- [ ] `save_to()` tests cover successful write, overwrite refusal, max-bytes failure, cancellation cleanup, exact-path behavior, no fsync guarantee, and no ring-thread blocking path.
-- [ ] Upload metrics tests cover started streams, bytes received/consumed, backpressure events, handler cancellation, disconnect, body-too-large, content-length mismatch, and multipart parse errors.
+- [x] API/compile tests cover `UploadBody`, `UploadChunk`, `UploadError`, `upload_error_code`, `upload_error_response`, `UploadSaveOptions`, invalid sync-handler usage, and body-mode validation.
+- [x] App/router tests cover route metadata, route table output, OpenAPI `consumes` defaults, body limits, GET body validation, and mutually exclusive extractors.
+- [x] HTTP/1 tests cover content-length, chunked upload, `Expect: 100-continue`, early return, `discard()`, oversize, disconnect, and keep-alive eligibility.
+- [x] HTTP/2 tests cover DATA streaming, content-length mismatch, stream reset, body-limit rejection, and flow-control backpressure.
+- [x] `save_to()` tests cover successful write, overwrite refusal, max-bytes failure, cancellation cleanup, exact-path behavior, no fsync guarantee, and no ring-thread blocking path.
+- [x] Upload metrics tests cover started streams, bytes received/consumed, backpressure events, handler cancellation, disconnect, body-too-large, and content-length mismatch.
 - [ ] Multipart tests land with `MultipartUpload`: split boundaries, text fields, file data, event shape, metadata lifetimes, malformed boundaries, part-header limits, and parser error reporting.
 - [ ] HTTP/3 parity tests are required before marking H3 upload streaming complete.
-- [ ] Documentation explains lifetime rules, terminal read errors, concurrent-read rejection, early-return semantics, error response mapping, `save_to()` durability/path rules, and the buffered/streaming extractor split.
+- [x] Documentation explains lifetime rules, terminal read errors, concurrent-read rejection, early-return semantics, error response mapping, `save_to()` durability/path rules, and the buffered/streaming extractor split.
 
 ## Assumptions
 
