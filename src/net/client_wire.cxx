@@ -23,6 +23,53 @@ using namespace conflux::http;
 	return !is_request_controlled_header(name);
 }
 
+[[nodiscard]] bool valid_token_char(
+	char c) noexcept {
+	auto const u = static_cast<unsigned char>(c);
+	if (u >= 0x80U) {
+		return false;
+	}
+	return (c >= '0' && c <= '9')
+		|| (c >= 'a' && c <= 'z')
+		|| (c >= 'A' && c <= 'Z')
+		|| c == '!'
+		|| c == '#'
+		|| c == '$'
+		|| c == '%'
+		|| c == '&'
+		|| c == '\''
+		|| c == '*'
+		|| c == '+'
+		|| c == '-'
+		|| c == '.'
+		|| c == '^'
+		|| c == '_'
+		|| c == '`'
+		|| c == '|'
+		|| c == '~';
+}
+
+[[nodiscard]] bool valid_token(
+	std::string_view value) noexcept {
+	return !value.empty() && std::ranges::all_of(value, valid_token_char);
+}
+
+[[nodiscard]] bool valid_field_value(
+	std::string_view value) noexcept {
+	return std::ranges::none_of(value, [](char c) noexcept {
+		auto const u = static_cast<unsigned char>(c);
+		return (u < 0x20U && c != '\t') || u == 0x7FU;
+	});
+}
+
+[[nodiscard]] bool valid_request_target_part(
+	std::string_view value) noexcept {
+	return std::ranges::none_of(value, [](char c) noexcept {
+		auto const u = static_cast<unsigned char>(c);
+		return u <= 0x20U || u == 0x7FU;
+	});
+}
+
 [[nodiscard]] std::size_t decimal_size(
 	std::size_t value) noexcept {
 	std::size_t n = 1;
@@ -49,6 +96,34 @@ struct EffectiveRequestHeader {
 	bool default_header{};
 	bool emit{true};
 };
+
+[[nodiscard]] std::optional<HttpError> validate_request_wire_inputs(
+	ClientRequest const &req,
+	std::span<EffectiveRequestHeader const> effective_headers,
+	std::string_view caller_host) {
+	auto const &url = req.url();
+	if (!valid_token(req.method())) {
+		return HttpError{.kind = HttpErrorKind::protocol, .message = "invalid HTTP request method"};
+	}
+	if (!valid_request_target_part(url.path) || !valid_request_target_part(url.query)) {
+		return HttpError{.kind = HttpErrorKind::protocol, .message = "invalid HTTP request target"};
+	}
+	if (!caller_host.empty() && !valid_request_target_part(caller_host)) {
+		return HttpError{.kind = HttpErrorKind::protocol, .message = "invalid Host header"};
+	}
+	for (auto const &header: effective_headers) {
+		if (!header.emit) {
+			continue;
+		}
+		if (!valid_token(header.name)) {
+			return HttpError{.kind = HttpErrorKind::protocol, .message = "invalid HTTP header name"};
+		}
+		if (!valid_field_value(header.value)) {
+			return HttpError{.kind = HttpErrorKind::protocol, .message = "invalid HTTP header value"};
+		}
+	}
+	return std::nullopt;
+}
 
 [[nodiscard]] std::vector<EffectiveRequestHeader> make_effective_request_headers(
 	conflux::http::HttpFields const &defaults,
@@ -377,13 +452,16 @@ void accumulate_telemetry(
 	return parsed;
 }
 
-[[nodiscard]] std::string build_http1_request_wire(
+[[nodiscard]] std::expected<std::string, HttpError> build_http1_request_wire(
 	ClientRequest const &req,
 	conflux::http::HttpFields const &default_headers) {
 	using namespace client_wire_detail;
 	auto const &url = req.url();
 	auto const caller_host = req.headers()["host"];
 	auto const effective_headers = make_effective_request_headers(default_headers, req.headers());
+	if (auto invalid = validate_request_wire_inputs(req, effective_headers, caller_host); invalid) {
+		return std::unexpected(std::move(*invalid));
+	}
 	std::string wire;
 	wire.reserve(estimate_request_wire_size(req, effective_headers, caller_host));
 	wire += req.method();

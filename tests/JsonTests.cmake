@@ -28,6 +28,13 @@ add_executable(conflux_json_error_tests json_error_test.cxx)
 target_link_libraries(conflux_json_error_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 add_executable(conflux_json_input_model_tests json_input_model_test.cxx)
 target_link_libraries(conflux_json_input_model_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+conflux_add_compile_fail_test(
+    TARGET conflux_json_compile_fail_const_string_rvalue_parse
+    SOURCE json_compile_fail_const_string_rvalue_parse.cxx
+    TEST json/compile-fail-const-string-rvalue-parse
+    LINK conflux_json conflux_options
+    LABELS json compile-fail
+    EXPECT "call to deleted function 'parse'")
 add_executable(conflux_json_json5_tests json_json5_test.cxx)
 target_link_libraries(conflux_json_json5_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 add_executable(conflux_json_parse_container_tests json_parse_container_test.cxx)

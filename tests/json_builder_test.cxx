@@ -828,6 +828,36 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"json: parent object commit is ignored while child builder still active",
+	"[json][builder][phase3]") {
+	auto b = value_builder();
+	auto obj_res = b.begin_object();
+	REQUIRE(obj_res.has_value());
+	auto child_res = obj_res->insert_object("child");
+	REQUIRE(child_res.has_value());
+
+	std::move(*obj_res).commit();
+	auto doc = std::move(b).finish();
+	REQUIRE(!doc.has_value());
+	CHECK(doc.error().code == JsonIssueCode::constraint_violation);
+}
+
+TEST_CASE(
+	"json: parent array commit is ignored while child builder still active",
+	"[json][builder][phase3]") {
+	auto b = value_builder();
+	auto arr_res = b.begin_array();
+	REQUIRE(arr_res.has_value());
+	auto child_res = arr_res->append_array();
+	REQUIRE(child_res.has_value());
+
+	std::move(*arr_res).commit();
+	auto doc = std::move(b).finish();
+	REQUIRE(!doc.has_value());
+	CHECK(doc.error().code == JsonIssueCode::constraint_violation);
+}
+
+TEST_CASE(
 	"json: set<T> with JsonMembers type encodes as object",
 	"[json][builder][phase3][members]") {
 	auto b = value_builder();

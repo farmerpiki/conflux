@@ -179,7 +179,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"basic_auth: failed-attempt limit validates bad credentials before 429",
+	"basic_auth: failed-attempt limit rejects before validating credentials",
 	"[auth][security]") {
 	static std::uint16_t port = 0;
 	static std::once_flag flag;
@@ -207,7 +207,7 @@ TEST_CASE(
 	auto const before = calls.load();
 	auto second = http_get_on(port, "/", "Authorization: Basic YmFkOmNyZWRz\r\n");
 	REQUIRE(second.starts_with("HTTP/1.1 429"));
-	CHECK(calls.load() == before + 1);
+	CHECK(calls.load() == before);
 }
 
 TEST_CASE(
@@ -242,7 +242,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"basic_auth: valid credentials clear saturated failed-attempt bucket",
+	"basic_auth: valid credentials are gated while failed-attempt bucket is saturated",
 	"[auth][security]") {
 	conflux::http::Router router;
 	unsigned calls = 0;
@@ -267,10 +267,40 @@ TEST_CASE(
 
 	CHECK(router.dispatch(req).status == 401);
 	req.headers.set("Authorization", "Basic dGVzdHVzZXI6dGVzdHBhc3M=");
+	CHECK(router.dispatch(req).status == 429);
+	CHECK(calls == 1);
+}
+
+TEST_CASE(
+	"basic_auth: valid credentials clear unsaturated failed-attempt bucket",
+	"[auth][security]") {
+	conflux::http::Router router;
+	unsigned calls = 0;
+	router.use(
+		conflux::http::basic_auth_middleware(
+			[&calls](std::string_view u, std::string_view p) {
+				++calls;
+				return u == "testuser" && p == "testpass";
+			},
+			conflux::http::BasicAuthOptions{
+				.realm = "Limited",
+				.failed_attempts = 2,
+				.failed_window = std::chrono::seconds{60},
+			}));
+	router.get("/", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::text("x"); });
+
+	conflux::http::OwnedRequest req;
+	req.method = "GET";
+	req.path = "/";
+	req.remote_addr = "127.0.0.1";
+	req.headers.set("Authorization", "Basic YmFkOmNyZWRz");
+
+	CHECK(router.dispatch(req).status == 401);
+	req.headers.set("Authorization", "Basic dGVzdHVzZXI6dGVzdHBhc3M=");
 	CHECK(router.dispatch(req).status == conflux::http::kHttpOk);
 	req.headers.set("Authorization", "Basic YmFkOmNyZWRz");
 	CHECK(router.dispatch(req).status == 401);
-	CHECK(router.dispatch(req).status == 429);
+	CHECK(router.dispatch(req).status == 401);
 	CHECK(calls == 4);
 }
 

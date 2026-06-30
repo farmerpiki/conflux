@@ -1058,6 +1058,7 @@ enum class UrlErrorKind : std::uint8_t {
 	missing_host,
 	invalid_host,
 	invalid_port,
+	invalid_target,
 	too_long,
 };
 struct UrlError {
@@ -1260,6 +1261,14 @@ std::expected<Url, UrlError> Url::parse(
 			url.path = "/";
 		}
 		url.query = std::string{path_query.query};
+	}
+	auto const bad_target_byte = [](char c) noexcept {
+		auto const uc = static_cast<unsigned char>(c);
+		return uc <= 0x20U || uc == 0x7FU;
+	};
+	if (std::ranges::any_of(url.path, bad_target_byte) || std::ranges::any_of(url.query, bad_target_byte)) {
+		return std::unexpected(
+			UrlError{UrlErrorKind::invalid_target, "request target contains control or space bytes"});
 	}
 
 	return url;

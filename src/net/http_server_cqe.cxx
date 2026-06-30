@@ -172,6 +172,37 @@ void Ring::install_http1_deferred_response(
 	int fd,
 	Conn &conn,
 	conflux::http::Response &&ready) {
+	if (ready.is_deferred()) {
+		if (conn.deferred_efd >= 0) {
+			deferred_waits.erase(conn.deferred_efd);
+		}
+		conn.is_deferred = true;
+		conn.deferred_head_only = conn.deferred_head_only || ready.head_only;
+		auto nested = ready.take_deferred_response();
+		if (!nested) {
+			conn.deferred_efd = -1;
+			conn.deferred_response.reset();
+			install_http1_deferred_response(
+				fd,
+				conn,
+				conflux::http::Response::internal_error("empty nested deferred response"));
+			return;
+		}
+		if (conn.deferred_request_storage) {
+			nested->keep_alive(conn.deferred_request_storage);
+		}
+		if (conn.deferred_request_files) {
+			nested->keep_alive(conn.deferred_request_files);
+		}
+		conn.deferred_efd = nested->eventfd_fd();
+		conn.deferred_response = std::move(nested);
+		if (auto nested_ready = conn.deferred_response->take_ready()) {
+			install_http1_deferred_response(fd, conn, std::move(*nested_ready));
+			return;
+		}
+		queue_deferred_wait(fd);
+		return;
+	}
 	if (conn.http1_upload_body) {
 		conn.http1_upload_body->abandon_consumer();
 		conn.http1_upload_body.reset();

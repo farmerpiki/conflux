@@ -223,6 +223,33 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http client: rejects invalid request wire inputs") {
+	ensure_client_server();
+	HttpClient client{};
+	{
+		auto response = client.blocking_send(
+			chttp::ClientRequest::method("GE T", std::format("http://127.0.0.1:{}/api/ping", g_client_port)));
+		REQUIRE_FALSE(response.has_value());
+		CHECK(response.error().kind == HttpErrorKind::protocol);
+	}
+	{
+		auto response = client.blocking_send(
+			chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_client_port))
+				.header("X-Test-Header", "ok\r\nX-Injected: yes"));
+		REQUIRE_FALSE(response.has_value());
+		CHECK(response.error().kind == HttpErrorKind::protocol);
+	}
+	{
+		HttpClientOptions opts{};
+		opts.default_headers["Bad Header"] = "value";
+		auto response = HttpClient{opts}.blocking_send(
+			chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_client_port)));
+		REQUIRE_FALSE(response.has_value());
+		CHECK(response.error().kind == HttpErrorKind::protocol);
+	}
+}
+
+TEST_CASE(
 	"http client: convenience client POST sends body and content type") {
 	ensure_client_server();
 	HttpClient client{};

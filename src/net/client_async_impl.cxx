@@ -92,7 +92,8 @@ struct OneShotSocketRing {
 
 	try {
 		return conflux::socket_io::sync_wait_socket_task(
-			runtime.task_ring, async_send(client, runtime.task_ring, request));
+			runtime.task_ring,
+			async_send(client, runtime.task_ring, request));
 	} catch (wroot::CancelledError const &) {
 		return make_async_blocking_runtime_error("async HTTP client operation cancelled");
 	} catch (conflux::work::Cancelled const &) {
@@ -823,7 +824,11 @@ wroot::Task<ClientResult> do_async_request(
 			HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "TLS not compiled in"});
 	}
 #endif
-	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	auto wire_result = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	if (!wire_result) {
+		co_return std::unexpected(std::move(wire_result).error());
+	}
+	std::string const wire = std::move(*wire_result);
 	cancel->throw_if_cancelled();
 	if (auto write_error = co_await write_async_client_request(
 			stream,
@@ -936,18 +941,25 @@ wroot::Task<void> run_async_request_driver(
 } // namespace async_detail
 namespace conflux::http {
 
+[[nodiscard]] static conflux::work::root::Task<ClientResult> async_send_with_options(
+	SocketTaskRing &ring,
+	ClientRequest const &req,
+	HttpClientOptions const &options) {
+	namespace wroot = conflux::work::root;
+	auto [out, src] = wroot::make_shared_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto cancel =
+		std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay>{new conflux::net::detail::ActiveTaskCancelRelay()};
+	auto _ = src->install_cancel_hook([cancel](wroot::CancelReason) noexcept { cancel->cancel(); });
+	auto driver = async_detail::run_async_request_driver(ring, req, options, src, cancel);
+	std::move(driver).detach();
+	return std::move(out);
+}
+
 [[nodiscard]] conflux::work::root::Task<ClientResult> async_send(
 	HttpClient const &client,
 	SocketTaskRing &ring,
 	ClientRequest const &req) {
-	namespace wroot = conflux::work::root;
-	auto [out, src] = wroot::make_shared_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto cancel = std::shared_ptr<conflux::net::detail::ActiveTaskCancelRelay>{
-		new conflux::net::detail::ActiveTaskCancelRelay()};
-	auto _ = src->install_cancel_hook([cancel](wroot::CancelReason) noexcept { cancel->cancel(); });
-	auto driver = async_detail::run_async_request_driver(ring, req, client.options(), src, cancel);
-	std::move(driver).detach();
-	return std::move(out);
+	return async_send_with_options(ring, req, client.options());
 }
 
 [[nodiscard]] conflux::work::root::Task<ClientResult> async_send(
@@ -961,25 +973,27 @@ namespace conflux::http {
 	HttpClient const &client,
 	conflux::work::UringExecutor &executor,
 	ClientRequest const &req) {
-	return executor.async_submit([&client, request = ClientRequest{req}](
-									 conflux::work::UringExecutorContext &ctx) mutable -> conflux::work::root::Task<ClientResult> {
-		auto raw = ctx.ring();
-		auto *completions = &ctx.completions();
-		auto encode = ctx.user_data_encoder();
-		auto *lane = &ctx.lane();
-		SocketTaskRing *task_ring_ptr = nullptr;
-		conflux::socket_io::SocketTaskRingOptions ring_opts{
-			.submit_on_ring_owner = [lane, &task_ring_ptr](conflux::socket_io::RingOpFn fn) mutable {
-				return lane->enqueue([fn = std::move(fn), task_ring_ptr]() mutable { fn(*task_ring_ptr); });
-			}};
-		SocketTaskRing task_ring{
-			conflux::socket_io::SocketRawRing{raw},
-			*completions,
-			std::move(encode),
-			std::move(ring_opts)};
-		task_ring_ptr = &task_ring;
-		co_return co_await async_send(client, task_ring, request);
-	});
+	auto options = client.options();
+	return executor.async_submit(
+		[options = std::move(options), request = ClientRequest{req}](
+			conflux::work::UringExecutorContext &ctx) mutable -> conflux::work::root::Task<ClientResult> {
+			auto raw = ctx.ring();
+			auto *completions = &ctx.completions();
+			auto encode = ctx.user_data_encoder();
+			auto *lane = &ctx.lane();
+			SocketTaskRing *task_ring_ptr = nullptr;
+			conflux::socket_io::SocketTaskRingOptions ring_opts{
+				.submit_on_ring_owner = [lane, &task_ring_ptr](conflux::socket_io::RingOpFn fn) mutable {
+					return lane->enqueue([fn = std::move(fn), task_ring_ptr]() mutable { fn(*task_ring_ptr); });
+				}};
+			SocketTaskRing task_ring{
+				conflux::socket_io::SocketRawRing{raw},
+				*completions,
+				std::move(encode),
+				std::move(ring_opts)};
+			task_ring_ptr = &task_ring;
+			co_return co_await async_send_with_options(task_ring, request, options);
+		});
 }
 
 [[nodiscard]] ClientResult async_blocking_send(

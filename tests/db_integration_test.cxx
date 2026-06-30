@@ -553,6 +553,49 @@ TEST_CASE(
 	pool->close();
 }
 TEST_CASE(
+	"db: pool lease move assignment returns replaced connection",
+	"[db][integration][pressure]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	conflux::file_io::CurrentFileReaderScope const scope{&fx->reader};
+
+	PoolConfig cfg{
+		.conn = ConnectParams{.conninfo = *ci, .connect_deadline = std::chrono::seconds{10}},
+		.min_connections = 0,
+		.max_connections = 2,
+		.acquire_timeout = std::chrono::milliseconds{150},
+	};
+	auto pool = Pool::create(std::move(cfg));
+
+	std::optional<Pool::Lease> first{conflux::file_io::block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(first);
+	CHECK(pool->total() == 1);
+	CHECK(pool->idle() == 0);
+
+	Pool::Lease second = conflux::file_io::block_on(fx->reader, pool->acquire(), std::chrono::seconds{30});
+	CHECK(pool->total() == 2);
+	CHECK(pool->idle() == 0);
+
+	*first = std::move(second);
+	CHECK(pool->total() == 2);
+	CHECK(pool->idle() == 1);
+
+	std::optional<Pool::Lease> returned{
+		conflux::file_io::block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(returned);
+	CHECK(pool->idle() == 0);
+	auto r = conflux::file_io::block_on(fx->reader, (*returned)->query("SELECT 9::int8"), std::chrono::seconds{30});
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<std::int64_t>(0) == 9);
+
+	returned.reset();
+	first.reset();
+	pool->close();
+}
+TEST_CASE(
 	"db: pool off-owner lease drop releases capacity",
 	"[db][integration][pressure]") {
 	auto ci = conninfo();
@@ -621,6 +664,47 @@ TEST_CASE(
 	auto r = conflux::file_io::block_on(fx->reader, (*next)->query("SELECT 6::int8"), std::chrono::seconds{30});
 	REQUIRE(r.rows() == 1);
 	CHECK(r[0].as<std::int64_t>(0) == 6);
+
+	next.reset();
+	pool->close();
+}
+TEST_CASE(
+	"db: pool successful queued acquire cancels timeout",
+	"[db][integration][pressure]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	conflux::file_io::CurrentFileReaderScope const scope{&fx->reader};
+
+	PoolConfig cfg{
+		.conn = ConnectParams{.conninfo = *ci, .connect_deadline = std::chrono::seconds{10}},
+		.min_connections = 0,
+		.max_connections = 1,
+		.acquire_timeout = std::chrono::seconds{60},
+	};
+	auto pool = Pool::create(std::move(cfg));
+
+	std::optional<Pool::Lease> held{conflux::file_io::block_on(fx->reader, pool->acquire(), std::chrono::seconds{30})};
+	REQUIRE(held);
+
+	auto pending = pool->acquire();
+	CHECK(fx->completions.pending() >= 1);
+	held.reset();
+
+	std::optional<Pool::Lease> next{
+		conflux::file_io::block_on(fx->reader, std::move(pending), std::chrono::seconds{30})};
+	REQUIRE(next);
+
+	auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{1};
+	while (fx->completions.pending() != 0 && std::chrono::steady_clock::now() < deadline) {
+		conflux::file_io::block_on(
+			fx->reader,
+			fx->reader.async_timeout(std::chrono::milliseconds{10}),
+			std::chrono::seconds{1});
+	}
+	CHECK(fx->completions.pending() == 0);
 
 	next.reset();
 	pool->close();
@@ -800,6 +884,33 @@ TEST_CASE(
 
 	std::error_code ec;
 	std::filesystem::remove_all(root, ec);
+}
+TEST_CASE(
+	"db: QueryCache async load outlives cache object",
+	"[db][integration]") {
+	auto fx = require_ring_fixture();
+	conflux::file_io::CurrentFileReaderScope const scope{&fx->reader};
+
+	auto dir = std::filesystem::temp_directory_path()
+			 / std::format("conflux_db_qc_async_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+	std::filesystem::create_directories(dir);
+	{
+		std::ofstream out{dir / "select_async.psql"};
+		out << "SELECT 12::int8";
+	}
+
+	std::optional<Task<std::shared_ptr<std::string const>>> pending;
+	{
+		QueryCache qc{dir};
+		pending.emplace(qc.load_async("select_async"));
+	}
+
+	auto sql = conflux::file_io::block_on(fx->reader, std::move(*pending), std::chrono::seconds{30});
+	REQUIRE(sql);
+	CHECK(*sql == "SELECT 12::int8");
+
+	std::error_code ec;
+	std::filesystem::remove_all(dir, ec);
 }
 TEST_CASE(
 	"db: cancel_inflight zero-arg uses connection cancel pool",

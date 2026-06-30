@@ -59,8 +59,12 @@ class Params {
 		void const *data,
 		std::size_t n) {
 		auto const off = static_cast<std::ptrdiff_t>(arena_.size());
-		arena_.resize(arena_.size() + n);
-		std::copy_n(static_cast<char const *>(data), n, arena_.data() + off);
+		arena_.resize(arena_.size() + (n == 0 ? 1 : n));
+		if (n == 0) {
+			arena_[static_cast<std::size_t>(off)] = '\0';
+		} else {
+			std::copy_n(static_cast<char const *>(data), n, arena_.data() + off);
+		}
 		dirty_ = true;
 		return off;
 	}

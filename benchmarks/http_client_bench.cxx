@@ -661,7 +661,7 @@ struct BenchCase {
 				   BenchArgs const &args) mutable {
 			for (std::size_t i = 0; i < warmup; ++i) {
 				auto wire = conflux::http::client_wire::build_http1_request_wire(req, defaults);
-				g_sink.fetch_add(wire.size(), std::memory_order_relaxed);
+				g_sink.fetch_add(wire->size(), std::memory_order_relaxed);
 			}
 			BenchSamplePlan const plan = bench_sample_plan(iterations, 0, args.samples, args.batch);
 			std::uint64_t request_bytes{};
@@ -674,8 +674,8 @@ struct BenchCase {
 					auto const start = bench_now_ns();
 					for (std::size_t j = 0; j < plan.batch; ++j) {
 						auto wire = conflux::http::client_wire::build_http1_request_wire(req, defaults);
-						request_bytes += wire.size();
-						g_sink.fetch_add(wire.size(), std::memory_order_relaxed);
+						request_bytes += wire->size();
+						g_sink.fetch_add(wire->size(), std::memory_order_relaxed);
 					}
 					total_ns += bench_now_ns() - start;
 				}

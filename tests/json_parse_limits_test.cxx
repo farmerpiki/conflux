@@ -104,6 +104,16 @@ TEST_CASE(
 		deep.append(200, ']');
 		CHECK(parse(deep, opts).has_value());
 	}
+	{
+		JsonParseOptions opts;
+		opts.max_depth = no_limit;
+		std::string deep(257, '[');
+		deep += "1";
+		deep.append(257, ']');
+		auto res = parse(deep, opts);
+		REQUIRE_FALSE(res.has_value());
+		CHECK(res.error().code == JsonIssueCode::nesting_too_deep);
+	}
 }
 
 TEST_CASE(
@@ -178,6 +188,30 @@ TEST_CASE(
 		big_str += '"';
 		CHECK(parse(big_str, opts).has_value());
 	}
+}
+
+TEST_CASE(
+	"json: max_string_size applies to object member names",
+	"[json][limits][pathological]") {
+	JsonParseOptions opts;
+	opts.max_string_size = LimitOption::bound(2);
+	auto res = parse(R"({"abc":1})", opts);
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::string_too_large);
+}
+
+TEST_CASE(
+	"json: sparse input does not reserve from raw input size",
+	"[json][limits][pathological]") {
+	std::string input = "\"";
+	input.append(4096, 'x');
+	input += "\"";
+	auto res = parse(input);
+	REQUIRE(res.has_value());
+	auto const stats = res->parse_storage_stats();
+	CHECK(stats.nodes_capacity < input.size() / 16U);
+	CHECK(stats.array_children_capacity == 64U);
+	CHECK(stats.object_members_capacity == 64U);
 }
 
 TEST_CASE(

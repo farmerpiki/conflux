@@ -144,7 +144,7 @@ that the environment permits `io_uring`:
 ```sh
 cmake --preset debug-gcc-stdcxx
 cmake --build --preset debug-gcc-stdcxx --target conflux_work_tests
-BUILD_DIR=/tmp/conflux/debug-gcc-stdcxx
+BUILD_DIR=build/debug-gcc-stdcxx
 ./scripts/run-build-artifact.sh "$BUILD_DIR/tests/conflux_work_tests"
 ```
 
