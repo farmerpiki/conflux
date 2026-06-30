@@ -1,10 +1,19 @@
 # GCC Modules Coroutine Redeclaration Blocker
 
-Status: verified blocker, not caused by the streaming upload changes.
+Status: resolved by avoiding the exported template coroutine frame in
+`App::run_app_task_response`.
 
-Latest verification: `cmake --build --preset debug-gcc-stdcxx --target conflux_tests`
-still fails in `tests/http_app_e2e.cxx.o` on the existing
-`/async-fixed-secret` route.
+Latest verification:
+
+- `cmake --build --preset debug-gcc-stdcxx --target conflux_tests conflux_http_facade_extractors_tests`
+- `scripts/run-ctest.sh --test-dir build/debug-gcc-stdcxx --output-on-failure -R "^(http app:|http facade:)"`
+- `cmake --build --preset debug-gcc16-stdcxx --target conflux_tests conflux_http_facade_extractors_tests`
+- `scripts/run-ctest.sh --test-dir build/debug-gcc16-stdcxx --output-on-failure -R "^(http app:|http facade:)"`
+- `cmake --build --preset debug-clang-libcxx --target conflux_tests conflux_http_facade_extractors_tests`
+- `scripts/run-ctest.sh --test-dir build/debug-clang-libcxx --output-on-failure -R "^(http app:|http facade:)"`
+
+Both affected test binaries now build on the GCC 15, GCC 16, and Clang/libc++
+debug lanes, and the focused HTTP app/facade CTest selections pass.
 
 ## Error Signature
 
@@ -29,6 +38,14 @@ The failure happens before upload-specific test assertions can run.
 - Retrying the narrower `conflux_tests` target does not bypass the problem
   because the target still compiles the full affected test translation unit.
 
+## Resolution
+
+`src/net/app.cxx` now keeps `run_app_task_response` as a non-coroutine template
+and returns `work::root::make_cancellable_task(...)` around a non-exported inner
+coroutine lambda. That preserves the async handler behavior while avoiding a
+coroutine frame attached inconsistently across the `conflux.net.app` module
+boundary.
+
 ## Do Not Retry Blindly
 
 - Do not keep rerunning the full GCC test targets expecting upload-source changes
@@ -37,12 +54,3 @@ The failure happens before upload-specific test assertions can run.
 - Do not hide the problem by removing upload tests; the blocker is an existing
   GCC modules/coroutine-frame interaction involving async app route machinery
   imported from `conflux.net.app`.
-
-## Next Investigation Direction
-
-If fixing the GCC lane, start at the async app route template coroutine path in
-`src/net/app.cxx`, especially `run_app_task_response` and fixed-route async
-dispatch. The likely direction is to avoid instantiating a template coroutine
-with its frame attached inconsistently across the imported module boundary.
-Before changing that area, also check the GCC runbook mentioned by
-`coding_standards/core_workflow.md`.
