@@ -11,6 +11,7 @@ import conflux.net.router;
 import conflux.tests.support;
 
 using namespace conflux::tests;
+using conflux::http::Config;
 
 namespace {
 
@@ -317,13 +318,20 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: chunked transfer with chunk-count overflow returns 400") {
+	Config cfg = Config::test();
+	cfg.parser_limits.max_chunks = 64;
+	conflux::http::Router router;
+	router.post("/api/echo-body", [](conflux::http::OwnedRequest const &req) {
+		return conflux::http::Response::text(std::string{req.body});
+	});
+	ScopedTestServer srv{cfg, std::move(router)};
 	std::string req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
-	for (int i = 0; i < 200000; ++i) {
+	for (int i = 0; i < 128; ++i) {
 		req += "1\r\nx\r\n";
 	}
 	req += "0\r\n\r\n";
-	auto resp = send_raw_bytes(req);
+	auto resp = send_raw_bytes_on(srv.port(), req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
 

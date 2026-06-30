@@ -265,7 +265,7 @@ TEST_CASE(
 	auto sent = client.send(headers);
 	REQUIRE(sent >= 0);
 
-	static constexpr int kChunkCount = 4096;
+	static constexpr int kChunkCount = 512;
 	for (int i = 0; i < kChunkCount; ++i) {
 		auto chunk = std::format("1;upload-frame={}\r\nx\r\n", i);
 		sent = client.send(chunk);

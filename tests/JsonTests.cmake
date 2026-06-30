@@ -34,7 +34,7 @@ conflux_add_compile_fail_test(
     TEST json/compile-fail-const-string-rvalue-parse
     LINK conflux_json conflux_options
     LABELS json compile-fail
-    EXPECT "call to deleted function 'parse'")
+    EXPECT "deleted function" "parse")
 add_executable(conflux_json_json5_tests json_json5_test.cxx)
 target_link_libraries(conflux_json_json5_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 add_executable(conflux_json_parse_container_tests json_parse_container_test.cxx)

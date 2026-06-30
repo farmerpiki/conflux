@@ -399,7 +399,7 @@ public:
 		auto cleanup_partial = [&]() -> conflux::work::root::Task<void> {
 			try {
 				co_await reader->async_unlink(AT_FDCWD, path_text);
-			} catch (...) {}
+			} catch (...) {} // NOLINT(bugprone-empty-catch): best-effort cleanup after save failure.
 		};
 		std::uint64_t bytes_written{};
 		bool opened{};

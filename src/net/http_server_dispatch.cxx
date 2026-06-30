@@ -252,6 +252,7 @@ void queue_expect_continue_response(
 	conn.written = 0;
 	conn.request_bytes = 0;
 	conn.expect_continue_sent = true;
+	conn.close_after_send = false;
 }
 
 [[nodiscard]] BodyDispatchResult resolve_http1_body_view(
@@ -323,6 +324,8 @@ void queue_expect_continue_response(
 		if (raw.size() - body_start < content_length) {
 			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
 				queue_expect_continue_response(conn);
+			} else if (expect_state == conflux::http::ExpectState::continue_100) {
+				conn.close_after_send = false;
 			}
 			return {.status = BodyDispatchStatus::Incomplete};
 		}
@@ -341,6 +344,8 @@ void queue_expect_continue_response(
 		if (rc == 0) {
 			if (expect_state == conflux::http::ExpectState::continue_100 && !conn.expect_continue_sent) {
 				queue_expect_continue_response(conn);
+			} else if (expect_state == conflux::http::ExpectState::continue_100) {
+				conn.close_after_send = false;
 			}
 			return {.status = BodyDispatchStatus::Incomplete};
 		}
@@ -602,6 +607,7 @@ void install_response_state(
 		queue_expect_continue_response(conn);
 		conn.close_after_send = false;
 		conn.request_bytes = body_start;
+		ring.start_response_send(conn.fd, conn);
 	}
 	feed_http1_upload(conn, ring);
 	return true;

@@ -44,12 +44,15 @@ TEST_CASE(
 	CHECK(root_doc->root().is_null());
 
 	auto object_doc = object([](auto &obj) {
-		obj("name", "alice");
-		obj("middle", std::nullopt);
-		obj.array("values", [](auto &arr) {
-			arr(1);
-			arr(std::nullopt);
-		});
+		REQUIRE(obj("name", "alice").has_value());
+		REQUIRE(obj("middle", std::nullopt).has_value());
+		REQUIRE(obj.array(
+					   "values",
+					   [](auto &arr) {
+						   REQUIRE(arr(1).has_value());
+						   REQUIRE(arr(std::nullopt).has_value());
+					   })
+					.has_value());
 	});
 	REQUIRE(object_doc.has_value());
 	auto dumped = object_doc->dump();
