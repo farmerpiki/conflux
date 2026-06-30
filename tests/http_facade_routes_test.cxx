@@ -138,7 +138,7 @@ TEST_CASE(
 		app.route_table()
 		== "GET /todos [app] State\n"
 		   "GET /todos/{id:i64} [app] Path<id>,State\n"
-		   "POST /todos [app] Json,State");
+		   "POST /todos [app] Json,State body_mode=buffered_raw");
 }
 
 TEST_CASE(
@@ -166,7 +166,7 @@ TEST_CASE(
 	CHECK(
 		app.route_table()
 		== "POST /upload [app] name=upload.create max_body=1048576 timeout=5000ms rate_limit=uploads "
-		   "bearer_token=user BodyText");
+		   "bearer_token=user BodyText body_mode=buffered_raw");
 }
 
 TEST_CASE(

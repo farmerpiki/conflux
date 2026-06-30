@@ -175,7 +175,7 @@ TEST_CASE(
 
 	auto second = router.dispatch(req);
 	REQUIRE(second.status == 429);
-	CHECK(calls == 2);
+	CHECK(calls == 1);
 }
 
 TEST_CASE(

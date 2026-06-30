@@ -72,6 +72,25 @@ struct TempTreeCleanup {
 	return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
 }
 
+[[nodiscard]] bool wait_for_http_app_ready(
+	std::uint16_t port) {
+	conflux::tests::wait_for_server(port);
+	std::string_view const probe =
+		"GET /__conflux_ready_probe__ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	for (int i = 0; i < 20; ++i) {
+		conflux::tests::LocalTcpClient client{port};
+		client.set_recv_timeout(std::chrono::seconds{1});
+		if (client.send(probe) == static_cast<ssize_t>(probe.size())) {
+			auto response = client.read_headers();
+			if (response.starts_with("HTTP/1.1 ")) {
+				return true;
+			}
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	return false;
+}
+
 } // namespace
 
 TEST_CASE(
@@ -300,7 +319,7 @@ TEST_CASE(
 	REQUIRE(handler_started->load(std::memory_order_acquire));
 	sent = client.send("abcdef");
 	REQUIRE(sent == 6);
-	auto resp = client.read_until_close();
+	auto resp = client.read_one_response();
 	auto report = (*server)->drain();
 	if (thread.joinable()) {
 		thread.join();
@@ -413,9 +432,8 @@ TEST_CASE(
 	auto server = std::move(app).try_server({.port = 0});
 	REQUIRE(server.has_value());
 	std::thread thread{[srv = server->get()] { auto _ = srv->run(); }};
-	conflux::tests::wait_for_server((*server)->port());
+	REQUIRE(wait_for_http_app_ready((*server)->port()));
 	conflux::tests::LocalTcpClient client{(*server)->port()};
-	client.set_recv_timeout(std::chrono::seconds{5});
 	std::string_view const body = "abcdef";
 	auto sent = client.send(
 		std::format(

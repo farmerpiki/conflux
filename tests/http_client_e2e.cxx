@@ -69,6 +69,15 @@ void ensure_redirect_servers() {
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 
+		auto echo_redirect = [](conflux::http::OwnedRequest const &req) {
+			return conflux::http::Response::text(
+				std::format(
+					"method={}\nbody={}\ncontent-type={}",
+					req.method,
+					req.body,
+					std::string{req.headers["content-type"]}));
+		};
+
 		conflux::http::Router target;
 		target.get("/echo-headers", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::text(
@@ -79,6 +88,7 @@ void ensure_redirect_servers() {
 					std::string{req.headers["proxy-authorization"]},
 					std::string{req.headers["host"]}));
 		});
+		target.post("/echo-redirect", echo_redirect);
 		g_redirect_target_port = test_servers().start(cfg, std::move(target));
 
 		conflux::http::Router source;
@@ -91,14 +101,6 @@ void ensure_redirect_servers() {
 					std::string{req.headers["proxy-authorization"]},
 					std::string{req.headers["host"]}));
 		});
-		auto echo_redirect = [](conflux::http::OwnedRequest const &req) {
-			return conflux::http::Response::text(
-				std::format(
-					"method={}\nbody={}\ncontent-type={}",
-					req.method,
-					req.body,
-					std::string{req.headers["content-type"]}));
-		};
 		source.get("/echo-redirect", echo_redirect);
 		source.post("/echo-redirect", echo_redirect);
 		source.get("/same", [](conflux::http::OwnedRequest const &) {
@@ -111,8 +113,13 @@ void ensure_redirect_servers() {
 		source.post("/see-other", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::redirect("/echo-redirect", 303);
 		});
-		source.post("/temporary", [](conflux::http::OwnedRequest const &) {
-			return conflux::http::Response::redirect("/echo-redirect", 307);
+		source.post("/temporary", [](conflux::http::OwnedRequest const &req) {
+			if (req.body != "payload") {
+				return conflux::http::Response::bad_request("missing redirect source body");
+			}
+			return conflux::http::Response::redirect(
+				std::format("http://127.0.0.1:{}/echo-redirect", g_redirect_target_port),
+				307);
 		});
 		source.get("/loop", [](conflux::http::OwnedRequest const &) {
 			return conflux::http::Response::redirect("/loop");

@@ -659,6 +659,16 @@ void Ring::handle_http_response_send_complete(
 	if (drain_control != nullptr && drain_control->active.load(std::memory_order_acquire)) {
 		drain_control->requests_finished.fetch_add(1, std::memory_order_relaxed);
 	}
+	if (conn.expect_continue_sent && conn.http1_upload_body) {
+		conn.request_bytes = 0;
+		if (conn.is_deferred) {
+			queue_deferred_wait(fd);
+		}
+		if (!conn.recv_armed) {
+			queue_multishot_recv(fd);
+		}
+		return;
+	}
 	if (conn.close_after_send) {
 		conn.close_after_send = false;
 #if CONFLUX_HAS_TLS
