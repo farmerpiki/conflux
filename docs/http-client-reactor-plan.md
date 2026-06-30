@@ -1,15 +1,23 @@
 # HTTP Async Client Ergonomics Plan
 
+Status: Phase 1 complete; Phase 2 persistent reactor remains deferred design.
+
+The one-shot async-backed helper `async_blocking_send(...)` is implemented in
+`conflux.net.async_client` and documented with the HTTP client API. Keep this
+file only as rationale for that landed helper and as the review checklist for a
+future persistent `HttpClientReactor`.
+
 ## Problem
 
 `conflux::http::async_send(HttpClient const&, SocketTaskRing&, ClientRequest const&)`
-is a real async HTTP client transport, but using it outside the HTTP server
-requires callers to assemble raw io_uring plumbing: ring allocation,
+is a real async HTTP client transport. Before Phase 1, using it outside the
+HTTP server required callers to assemble raw io_uring plumbing: ring allocation,
 `CompletionTable`, user-data encoding, `SocketTaskRing`, and a pump loop.
 
 That low-level API should remain available for advanced users. The friction is
-that ordinary callers have no supported path between `blocking_send(...)` and
-full manual `SocketTaskRing` ownership.
+now addressed for ordinary callers by `async_blocking_send(...)`. The remaining
+open question is whether a persistent daemon-style client reactor is worth
+shipping.
 
 ## Current Contracts To Preserve
 
@@ -26,8 +34,8 @@ full manual `SocketTaskRing` ownership.
 
 ## Phase 1: One-Shot Async-Backed Send
 
-Add a convenience helper for callers that want the async client runtime without
-manual ring setup:
+Complete. A convenience helper exists for callers that want the async client
+runtime without manual ring setup:
 
 ```cpp
 namespace conflux::http {
@@ -63,8 +71,10 @@ auto r3 = async_blocking_send(client, std::move(req));
 
 ### Phase 1 Implementation
 
-1. Add a small production helper, likely in the `conflux_net_async_client`
-   target, that owns:
+Implemented shape:
+
+1. A small production helper in the `conflux_net_async_client`
+   target owns:
    - `::io_uring`
    - `conflux::uring::CompletionTable`
    - `conflux::socket_io::SocketTaskRing`
@@ -109,7 +119,7 @@ pulling io_uring async dependencies into the blocking client component.
 
 ### Phase 1 Tests
 
-Add or update tests so users do not need to infer this behavior from internals:
+Landed tests cover the intended user-facing behavior:
 
 - Local HTTP server smoke: `async_blocking_send(client, ClientRequest::get(...))`
   succeeds without mentioning `SocketTaskRing` in the test body.
@@ -126,9 +136,9 @@ Add or update tests so users do not need to infer this behavior from internals:
 
 ## Phase 2: Persistent Daemon Reactor
 
-Only start this after Phase 1 lands. The persistent reactor is useful, but it is
-not just a convenience wrapper; it is a cross-thread runtime with cancellation,
-shutdown, and queue semantics.
+Deferred. The persistent reactor is useful, but it is not just a convenience
+wrapper; it is a cross-thread runtime with cancellation, shutdown, and queue
+semantics.
 
 Proposed shape, subject to state-machine review:
 
@@ -235,7 +245,7 @@ Required before shipping the persistent reactor:
 
 ## Documentation Updates
 
-Update the HTTP client docs to present the decision tree:
+HTTP client docs should keep this decision tree current:
 
 - `HttpClient::blocking_send`: simplest synchronous path, no io_uring runtime.
 - `async_blocking_send`: one-shot helper that uses the async transport without
@@ -257,14 +267,14 @@ Update the HTTP client docs to present the decision tree:
 
 ## Acceptance Criteria
 
-Phase 1 is complete when:
+Phase 1 is complete:
 
-- outbound async-backed HTTP can be performed without naming `SocketTaskRing`,
+- [x] outbound async-backed HTTP can be performed without naming `SocketTaskRing`,
   `SocketRawRing`, `CompletionTable`, or `io_uring`
-- return type and errors match existing `ClientResult` contracts
-- common lvalue/rvalue request calls compile without casts
-- docs explain when to choose blocking, async-backed blocking, or low-level async
-- focused tests and public import smoke pass
+- [x] return type and errors match existing `ClientResult` contracts
+- [x] common lvalue/rvalue request calls compile without casts
+- [x] docs explain when to choose blocking, async-backed blocking, or low-level async
+- [x] focused tests and public import smoke pass
 
 Phase 2 is not ready to implement until its state machine and ring-owner
 contract are reviewed separately and score at least 9/10.
