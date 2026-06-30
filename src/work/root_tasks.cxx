@@ -10,6 +10,12 @@ import conflux.types;
 import conflux.small_function;
 import :core;
 
+namespace conflux::work::root::detail {
+
+struct consume_access;
+
+} // namespace conflux::work::root::detail
+
 export namespace conflux::work::root {
 
 namespace detail {
@@ -120,12 +126,6 @@ template<class A, class T>
 concept awaits_outcome = awaitable<A> && std::same_as<await_resume_t<A>, Outcome<T>>;
 
 } // namespace detail
-namespace detail {
-
-struct consume_access;
-
-} // namespace detail
-
 template<work_value T, ControlCategory Category>
 class BasicResult {
 	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
@@ -512,7 +512,10 @@ public:
 		return detail::OutcomeAwaiter<T>{consume()};
 	}
 };
-namespace detail {
+
+} // namespace conflux::work::root
+
+namespace conflux::work::root::detail {
 
 struct consume_access {
 	template<work_value T, ControlCategory Category>
@@ -537,7 +540,10 @@ struct consume_access {
 	}
 };
 
-} // namespace detail
+} // namespace conflux::work::root::detail
+
+export namespace conflux::work::root {
+
 template<work_value T>
 using TaskJoinHandle = BasicJoinHandle<T, ControlCategory::task>;
 

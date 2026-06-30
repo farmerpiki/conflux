@@ -643,6 +643,7 @@ struct TreeBuilder {
 	// allocation that the v7-style local vectors paid for each container.
 	std::vector<std::uint32_t> staging;
 	std::vector<MemberEntry> staging_members;
+	static constexpr std::size_t kRecursiveDepthCeiling = 256;
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
 		std::string msg) const {
@@ -664,7 +665,7 @@ struct TreeBuilder {
 		if (tok.pos >= tok.src.size()) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "std::unexpected end of input"));
 		}
-		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) [[unlikely]] {
+		if (depth > kRecursiveDepthCeiling || opts.max_depth.exceeds(depth, kDefaultMaxDepth)) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
 		}
 
@@ -726,7 +727,7 @@ struct TreeBuilder {
 		if (tok.pos >= tok.src.size()) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::unexpected_eof, "std::unexpected end of input"));
 		}
-		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) [[unlikely]] {
+		if (depth > kRecursiveDepthCeiling || opts.max_depth.exceeds(depth, kDefaultMaxDepth)) [[unlikely]] {
 			return std::unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
 		}
 
@@ -1118,6 +1119,10 @@ struct TreeBuilder {
 			staging_members.resize(members_start);
 			return std::unexpected(std::move(parsed_name).error());
 		}
+		if (opts.max_string_size.exceeds(parsed_name->len, kDefaultMaxString)) [[unlikely]] {
+			staging_members.resize(members_start);
+			return std::unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
+		}
 		MemberNameKey const name_key{.off = parsed_name->off, .len = parsed_name->len, .flags = parsed_name->flags};
 		std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
 		auto const dup_index = dedup_member_index(members_start, name_key, seen_hash);
@@ -1285,10 +1290,10 @@ template<ParseMode Mode>
 	DocumentStorage &store,
 	JsonParseOptions const &opts) {
 	store.parse_stats = {};
-	std::size_t const reserve_n = std::max<std::size_t>(64, store.input_view.size() / 16 + 16);
-	store.nodes.reserve(reserve_n);
-	store.array_children.reserve(reserve_n);
-	store.object_members.reserve(reserve_n);
+	constexpr std::size_t kInitialReserve = 64;
+	store.nodes.reserve(kInitialReserve);
+	store.array_children.reserve(kInitialReserve);
+	store.object_members.reserve(kInitialReserve);
 	store.parse_stats.input_bytes = store.input_view.size();
 	store.parse_stats.string_arena_reserve_bytes = 0;
 
@@ -1348,18 +1353,11 @@ template<ParseMode Mode>
 	DocumentStorage &storage_ref,
 	std::unique_ptr<DocumentStorage> storage,
 	JsonParseOptions const &opts) {
-	// R1 / Polish AA — pre-size the three growth vectors. JSON has roughly
-	// one node per 8–16 bytes of input on typical payloads; reserving ahead
-	// of the parse skips the geometric realloc cycle on >100 KB inputs.
-	// Floor at 64 preserves the tiny-input baseline. A precise structural
-	// prescan was tried and rejected — the branchful in-std::string scan
-	// (~1 GB/s) cost more than the realloc copies it saved on the
-	// 4 KB / 200 KB corpora in this bench.
-	std::size_t const reserve_n = std::max<std::size_t>(64, storage_ref.input_view.size() / 16 + 16);
+	constexpr std::size_t kInitialReserve = 64;
 	storage_ref.parse_stats = {};
-	storage->nodes.reserve(reserve_n);
-	storage->array_children.reserve(reserve_n);
-	storage->object_members.reserve(reserve_n);
+	storage->nodes.reserve(kInitialReserve);
+	storage->array_children.reserve(kInitialReserve);
+	storage->object_members.reserve(kInitialReserve);
 	storage_ref.parse_stats.input_bytes = storage_ref.input_view.size();
 	storage_ref.parse_stats.string_arena_reserve_bytes = 0;
 

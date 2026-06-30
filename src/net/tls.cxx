@@ -333,7 +333,6 @@ public:
 			throw TlsError{"TlsContext: SSL_CTX_new failed"};
 		}
 		SSL_CTX_set_verify(ctx_.get(), SSL_VERIFY_PEER, nullptr);
-		SSL_CTX_set_default_verify_paths(ctx_.get());
 	}
 	void set_verify_peer(
 		bool enable) {

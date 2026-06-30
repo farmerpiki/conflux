@@ -365,6 +365,37 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"WsConn failed send close callback can reenter send",
+	"[ws][realtime]") {
+	int sockets[2]{};
+	REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+	::close(sockets[1]);
+
+	conflux::http::WsConn conn{sockets[0]};
+	bool callback_ran = false;
+	std::shared_ptr<std::atomic_bool> reentrant_done;
+	conn.on_close([&] {
+		callback_ran = true;
+		reentrant_done = std::make_shared<std::atomic_bool>(false);
+		std::thread{[&conn, done = reentrant_done] {
+			(void)conn.send_text("final");
+			done->store(true, std::memory_order_release);
+		}}.detach();
+		for (int i = 0; i != 25 && !reentrant_done->load(std::memory_order_acquire); ++i) {
+			std::this_thread::sleep_for(std::chrono::milliseconds{10});
+		}
+		CHECK(reentrant_done->load(std::memory_order_acquire));
+	});
+	CHECK_FALSE(conn.send_text("trigger"));
+	CHECK(callback_ran);
+	for (int i = 0; reentrant_done && i != 25 && !reentrant_done->load(std::memory_order_acquire); ++i) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{10});
+	}
+	REQUIRE(reentrant_done);
+	CHECK(reentrant_done->load(std::memory_order_acquire));
+}
+
+TEST_CASE(
 	"http response: streamed file completion callbacks run once",
 	"[http][response]") {
 	auto streamed = std::make_shared<chttp::StreamedFile>();

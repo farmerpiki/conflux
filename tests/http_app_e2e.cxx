@@ -38,7 +38,7 @@ conflux::work::Task<chttp::CreatedBody<std::string>> async_body_text_created(
 }
 
 conflux::work::Task<chttp::Response> async_request_view_echo(
-	chttp::RequestView req) {
+	chttp::RequestView const &req) {
 	co_await short_async_test_delay();
 	co_return chttp::text(std::format("{}:{}", req.header("x-check"), req.body));
 }
@@ -772,7 +772,7 @@ TEST_CASE(
 	app.config().ring_entries = 64;
 	app.config().startup_banner = false;
 	app.use(
-		[](chttp::RequestView req,
+		[](chttp::RequestView const &req,
 		   chttp::RequestContext const &ctx,
 		   auto const &next) -> conflux::work::Task<chttp::Response> {
 			auto task_source = conflux::work::root::make_task_source<int>();
@@ -934,6 +934,35 @@ TEST_CASE(
 			[](chttp::RequestView const &, chttp::RequestContext const &) -> conflux::work::Task<chttp::Response> {
 				co_return chttp::text("secret");
 			});
+	});
+	auto server = std::move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+	std::thread thread{[srv = server->get()] { (void)srv->run(); }};
+	conflux::tests::wait_for_server((*server)->port());
+	auto resp = conflux::tests::http_get_on((*server)->port(), "/admin/context");
+	auto report = (*server)->drain();
+	if (thread.joinable()) {
+		thread.join();
+	}
+	(void)report;
+	REQUIRE(resp.starts_with("HTTP/1.1 401 Unauthorized"));
+}
+
+TEST_CASE(
+	"sync group middleware next preserves async context route failures") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.group("/admin", [](auto &group) {
+		group.use([](chttp::RequestView const &req, auto const &next) { return next(req); });
+		group
+			.get(
+				"/context",
+				[](chttp::RequestView const &, chttp::RequestContext const &) -> conflux::work::Task<chttp::Response> {
+					co_return chttp::text("secret");
+				})
+			.require_bearer_token("secret-token");
 	});
 	auto server = std::move(app).try_server({.port = 0});
 	REQUIRE(server.has_value());

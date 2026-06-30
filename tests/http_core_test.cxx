@@ -73,6 +73,14 @@ TEST_CASE(
 	REQUIRE_FALSE(invalid_host.has_value());
 	CHECK(invalid_host.error().kind == chttp::UrlErrorKind::invalid_host);
 
+	auto crlf_query = chttp::Url::parse("http://example.com/safe?q=1\r\nX-Injected: yes");
+	REQUIRE_FALSE(crlf_query.has_value());
+	CHECK(crlf_query.error().kind == chttp::UrlErrorKind::invalid_target);
+
+	auto space_path = chttp::Url::parse("http://example.com/a path");
+	REQUIRE_FALSE(space_path.has_value());
+	CHECK(space_path.error().kind == chttp::UrlErrorKind::invalid_target);
+
 	auto bad_port = chttp::Url::parse("http://example.com:0/");
 	REQUIRE_FALSE(bad_port.has_value());
 	CHECK(bad_port.error().kind == chttp::UrlErrorKind::invalid_port);

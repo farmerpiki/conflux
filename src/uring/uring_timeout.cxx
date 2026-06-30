@@ -17,10 +17,15 @@ export struct UringTimeoutError final : std::runtime_error {
 		std::string_view msg)
 		: std::runtime_error{std::string{msg}} {}
 };
+export struct ArmedTimeout {
+	root::Task<void> task;
+	std::uint64_t user_data{};
+	bool armed{false};
+};
 
 namespace detail {
 
-[[nodiscard]] root::Task<void> submit_timeout_(
+[[nodiscard]] ArmedTimeout submit_timeout_(
 	io_uring *ring,
 	CompletionTable &completions,
 	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
@@ -32,7 +37,7 @@ namespace detail {
 	auto *sqe = io_uring_get_sqe(ring);
 	if (sqe == nullptr) {
 		auto _ = src.try_set_exception(std::make_exception_ptr(UringTimeoutError{"uring.timeout: SQ full"}));
-		return std::move(task);
+		return ArmedTimeout{.task = std::move(task)};
 	}
 	auto ts = std::make_shared<__kernel_timespec>();
 	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(ms);
@@ -63,13 +68,24 @@ namespace detail {
 		} catch (...) { auto _ = src.try_set_exception(std::current_exception()); }
 		auto _ = ts;
 	});
-	io_uring_sqe_set_data64(sqe, encode_ud(slot, gen));
-	return std::move(task);
+	auto const user_data = encode_ud(slot, gen);
+	io_uring_sqe_set_data64(sqe, user_data);
+	return ArmedTimeout{.task = std::move(task), .user_data = user_data, .armed = true};
 }
 
 } // namespace detail
 
 export [[nodiscard]] root::Task<void> async_timeout(
+	io_uring *ring,
+	CompletionTable &completions,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::chrono::milliseconds ms,
+	unsigned count = 0,
+	unsigned flags = 0) {
+	return detail::submit_timeout_(ring, completions, std::move(encode_ud), ms, count, flags, false).task;
+}
+
+export [[nodiscard]] ArmedTimeout async_timeout_with_user_data(
 	io_uring *ring,
 	CompletionTable &completions,
 	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
@@ -131,7 +147,7 @@ export [[nodiscard]] root::Task<void> async_link_timeout(
 	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
 	std::chrono::milliseconds ms,
 	unsigned flags = 0) {
-	return detail::submit_timeout_(ring, completions, std::move(encode_ud), ms, 0, flags, true);
+	return detail::submit_timeout_(ring, completions, std::move(encode_ud), ms, 0, flags, true).task;
 }
 
 export [[nodiscard]] root::Task<void> link_timeout_async(

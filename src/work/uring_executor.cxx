@@ -96,7 +96,7 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 	bool ring_initialized{false};
 	std::atomic<int> ring_fd_value{-1};
 	std::unique_ptr<conflux::uring::CompletionTable> completions{};
-	std::unique_ptr<RingLane> lane{};
+	std::shared_ptr<RingLane> lane{};
 	std::thread::id owner_thread{};
 	std::jthread thread{};
 
@@ -122,6 +122,33 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 	}
 
 	[[nodiscard]] std::uint64_t wake_user_data() const noexcept { return pack_user_data(kExecutorSlot, kWakeTag); }
+
+	[[nodiscard]] std::shared_ptr<RingLane> lane_snapshot() const {
+		std::scoped_lock lock{mutex};
+		return lane;
+	}
+
+	void publish_lane(
+		std::shared_ptr<RingLane> next) {
+		std::scoped_lock lock{mutex};
+		lane = std::move(next);
+	}
+
+	[[nodiscard]] std::shared_ptr<RingLane> release_lane() {
+		std::scoped_lock lock{mutex};
+		auto old = std::move(lane);
+		lane.reset();
+		return old;
+	}
+
+	template<class Job>
+	[[nodiscard]] bool enqueue_lane(
+		Job &&job) noexcept {
+		try {
+			auto target = lane_snapshot();
+			return target != nullptr && target->enqueue(std::forward<Job>(job));
+		} catch (...) { return false; }
+	}
 
 	void start() {
 		auto self = shared_from_this();
@@ -199,11 +226,7 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 	}
 
 	void wake() noexcept {
-		try {
-			if (lane != nullptr) {
-				auto _ = lane->enqueue([] {});
-			}
-		} catch (...) {} // NOLINT(bugprone-empty-catch): wake is best-effort during shutdown notification.
+		auto _ = enqueue_lane([] {});
 		cv.notify_all();
 	}
 
@@ -267,15 +290,18 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 		}
 
 		completions = std::make_unique<conflux::uring::CompletionTable>(options.completion_slots);
-		lane = std::make_unique<RingLane>(RingLaneOptions{
+		auto lane_local = std::make_shared<RingLane>(RingLaneOptions{
 			.ring_fd = ring.ring_fd,
 			.wake_user_data = wake_user_data(),
 			.drain_budget = options.lane_drain_budget,
 			.allow_inline_on_owner = true});
-		lane->adopt_current_thread();
+		lane_local->adopt_current_thread();
+		publish_lane(lane_local);
 		publish_startup(UringExecutorState::running);
 		loop(st);
-		lane.reset();
+		if (auto old_lane = release_lane(); old_lane != nullptr) {
+			old_lane->stop();
+		}
 		completions.reset();
 		if (ring_initialized) {
 			::io_uring_queue_exit(&ring);
@@ -328,8 +354,8 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 			return;
 		}
 		cancel_all(root::CancelReason::shutdown);
-		if (lane != nullptr) {
-			auto _ = lane->drain();
+		if (auto target = lane_snapshot(); target != nullptr) {
+			auto _ = target->drain();
 		}
 		state.store(UringExecutorState::draining, std::memory_order_release);
 	}
@@ -362,8 +388,10 @@ struct UringExecutorSharedState : std::enable_shared_from_this<UringExecutorShar
 		auto const slot = user_data_slot(cqe.user_data);
 		auto const gen = user_data_generation(cqe.user_data);
 		if (slot == kExecutorSlot) {
-			if (gen == kWakeTag && lane != nullptr) {
-				auto _ = lane->drain();
+			if (gen == kWakeTag) {
+				if (auto target = lane_snapshot(); target != nullptr) {
+					auto _ = target->drain();
+				}
 			} else {
 				runtime_error = std::make_error_code(std::errc::protocol_error);
 				state.store(UringExecutorState::stopping, std::memory_order_release);
@@ -631,8 +659,7 @@ public:
 				"conflux.work.uring_executor: submission queue full");
 			return std::move(task);
 		}
-		if (state_->lane == nullptr
-			|| !state_->lane->enqueue([state = state_, submission]() mutable { submission->start(*state); })) {
+		if (!state_->enqueue_lane([state = state_, submission]() mutable { submission->start(*state); })) {
 			submission->fail_enqueue(
 				std::make_error_code(std::errc::io_error),
 				"conflux.work.uring_executor: ring wake failed");

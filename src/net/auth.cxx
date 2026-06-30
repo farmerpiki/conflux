@@ -399,8 +399,9 @@ AuthFailureLimiter::AuthFailureLimiter()
 
 AuthFailureLimiter::AuthFailureLimiter(
 	AuthThrottleOptions opts)
-	: state_(std::shared_ptr<auth_detail::AuthThrottleState>{
-		  new auth_detail::AuthThrottleState(std::max<std::size_t>(opts.max_subjects, 1))})
+	: state_(
+		  std::shared_ptr<auth_detail::AuthThrottleState>{
+			  new auth_detail::AuthThrottleState(std::max<std::size_t>(opts.max_subjects, 1))})
 	, opts_(opts) {}
 
 AuthThrottleOutcome AuthFailureLimiter::before_attempt(
@@ -576,12 +577,12 @@ conflux::http::Router::Middleware basic_auth_middleware(
 		if (!credentials) {
 			return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));
 		}
+		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
+			return auth_detail::too_many_auth_attempts(*retry_after);
+		}
 		if (v(credentials->username, credentials->password)) {
 			auth_detail::clear_basic_auth_failures(*state, opts, limiter_key);
 			return next(req);
-		}
-		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
-			return auth_detail::too_many_auth_attempts(*retry_after);
 		}
 		auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
 		return auth_detail::unauthorized(std::format("Basic realm=\"{}\"", opts.realm));

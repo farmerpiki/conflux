@@ -3014,6 +3014,9 @@ std::expected<Document, JsonError> parse_view(std::string_view input, JsonParseO
 std::expected<Document, JsonError> parse(std::string_view input, JsonParseOptions const &opts = {});
 std::expected<Document, JsonError> parse(char const *input, JsonParseOptions const &opts = {});
 std::expected<Document, JsonError> parse(std::string &&input, JsonParseOptions const &opts = {});
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse(T &&, JsonParseOptions const & = {}) = delete;
 
 // Deleted std::string rvalue overloads (Correction T) — explicit borrowing requires
 // caller-owned bytes. String literals and string_view temporaries still select
@@ -3048,6 +3051,9 @@ std::expected<Document, JsonError>
 parse(char const *input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
 std::expected<Document, JsonError>
 parse(std::string &&input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+template<typename T>
+	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
+std::expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 template<typename T>
 	requires(std::same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
 std::expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;

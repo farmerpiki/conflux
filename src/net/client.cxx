@@ -641,7 +641,11 @@ bool recv_chunked(
 	HttpClientOptions const &opts,
 	int write_timeout_sec,
 	HttpTelemetry &tel) {
-	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	auto wire_result = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	if (!wire_result) {
+		return std::move(wire_result).error();
+	}
+	std::string const wire = std::move(*wire_result);
 	if (!send_all(conn, wire, write_timeout_sec)) {
 		return HttpError{
 			.kind = HttpErrorKind::write,

@@ -520,7 +520,6 @@ struct ConnectOp {
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_by_ud(r.raw(), target_ud, r.encode(cs, cg))) {
 			r.completions().dispatch(cs, cg, -EBUSY, conflux::uring::CqeFlags{});
-			complete_cancelled();
 			return;
 		}
 		auto _ = r.raw().submit();
@@ -544,7 +543,7 @@ struct ConnectOp {
 		stop_cause.store(StopCause::user_cancel, std::memory_order_release);
 		cancel_requested.store(true, std::memory_order_release);
 		if (!ring->submit_on_owner([self](SocketTaskRing &r) { self->cancel_on_owner(r, self); })) {
-			complete_cancelled(); // may run on cancelling thread; relies on TaskSource setter MT-safety
+			return;
 		}
 	}
 	void on_timeout_cqe(

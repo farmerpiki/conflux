@@ -83,18 +83,28 @@ public:
 			std::shared_ptr<Connection> c) noexcept
 			: pool_{std::move(p)}
 			, conn_{std::move(c)} {}
+		void release_() noexcept {
+			if (pool_ && conn_) {
+				pool_->return_(std::move(conn_));
+			}
+			pool_.reset();
+		}
 
 	public:
 		Lease() = default;
 		Lease(Lease const &) = delete;
 		Lease &operator =(Lease const &) = delete;
 		Lease(Lease &&) noexcept = default;
-		Lease &operator =(Lease &&) noexcept = default;
-		~Lease() {
-			if (pool_ && conn_) {
-				pool_->return_(std::move(conn_));
+		Lease &operator =(
+			Lease &&other) noexcept {
+			if (this != &other) {
+				release_();
+				pool_ = std::move(other.pool_);
+				conn_ = std::move(other.conn_);
 			}
+			return *this;
 		}
+		~Lease() { release_(); }
 		[[nodiscard]] Connection &operator *() const noexcept { return *conn_; }
 		[[nodiscard]] Connection *operator ->() const noexcept { return conn_.get(); }
 		[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(conn_); }
@@ -102,6 +112,9 @@ public:
 	struct Waiter {
 		std::shared_ptr<root::TaskSource<Lease>> src;
 		std::atomic_bool active{true};
+		conflux::file_io::FileReader *reader{};
+		std::uint64_t timeout_user_data{};
+		std::atomic_bool timeout_armed{false};
 		explicit Waiter(
 			std::shared_ptr<root::TaskSource<Lease>> s) noexcept
 			: src{std::move(s)} {}
@@ -126,6 +139,7 @@ private:
 	void return_(std::shared_ptr<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
+	void cancel_waiter_timeout_(std::shared_ptr<Waiter> const &waiter) noexcept;
 	void dispatch_lease_(
 		std::shared_ptr<root::TaskSource<Lease>> const &src,
 		std::shared_ptr<Connection> conn) noexcept;
@@ -233,8 +247,10 @@ void Pool::close() noexcept {
 	}
 	closed_ = true;
 	for (auto &waiter: waiters_) {
-		waiter->active.store(false, std::memory_order_release);
-		auto _ = waiter->src->try_set_cancelled(root::work_errc::cancelled_requested);
+		if (waiter->active.exchange(false, std::memory_order_acq_rel)) {
+			cancel_waiter_timeout_(waiter);
+			auto _ = waiter->src->try_set_cancelled(root::work_errc::cancelled_requested);
+		}
 	}
 	waiters_.clear();
 	idle_.clear();
@@ -280,16 +296,31 @@ root::Task<Pool::Lease> Pool::acquire() {
 	}
 	auto waiter = std::make_shared<Waiter>(shared_src);
 	waiters_.push_back(waiter);
+	std::weak_ptr<Pool> const weak_pool{shared_from_this()};
 	std::weak_ptr<Waiter> const weak_waiter{waiter};
-	(void)shared_src->install_cancel_hook([weak_waiter](root::CancelReason) noexcept {
+	(void)shared_src->install_cancel_hook([weak_pool, weak_waiter](root::CancelReason) noexcept {
 		if (auto waiter = weak_waiter.lock()) {
-			waiter->active.store(false, std::memory_order_release);
-			auto _ = waiter->src->try_set_cancelled(root::work_errc::cancelled_requested);
+			if (waiter->active.exchange(false, std::memory_order_acq_rel)) {
+				if (auto pool = weak_pool.lock()) {
+					pool->cancel_waiter_timeout_(waiter);
+				}
+				auto _ = waiter->src->try_set_cancelled(root::work_errc::cancelled_requested);
+			}
 		}
 	});
 	if (cfg_.acquire_timeout.count() > 0) {
 		if (auto *reader = conflux::file_io::current_file_reader(); reader != nullptr) {
-			auto self = shared_from_this();
+			waiter->reader = reader;
+			auto armed = conflux::uring::async_timeout_with_user_data(
+				reader->ring(),
+				*reader->completions(),
+				[reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
+				cfg_.acquire_timeout);
+			waiter->timeout_user_data = armed.user_data;
+			waiter->timeout_armed.store(armed.armed, std::memory_order_release);
+			if (!waiter->active.load(std::memory_order_acquire)) {
+				cancel_waiter_timeout_(waiter);
+			}
 			[](std::shared_ptr<Waiter> waiter, root::Task<void> to_task) -> root::Task<void> {
 				try {
 					co_await std::move(to_task);
@@ -298,12 +329,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 							std::make_exception_ptr(PgError{"conflux.pg: acquire timeout"}));
 					}
 				} catch (...) { detail::ignore_best_effort_failure(); }
-			}(waiter,
-			  conflux::uring::async_timeout(
-				  reader->ring(),
-				  *reader->completions(),
-				  [reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
-				  cfg_.acquire_timeout))
+			}(waiter, std::move(armed.task))
 																				.detach();
 		}
 	}
@@ -342,10 +368,30 @@ void Pool::try_dispatch_waiters_() {
 		if (!waiter->active.exchange(false, std::memory_order_acq_rel)) {
 			continue;
 		}
+		cancel_waiter_timeout_(waiter);
 		auto conn = std::move(idle_.back());
 		idle_.pop_back();
 		dispatch_lease_(waiter->src, std::move(conn));
 	}
+}
+void Pool::cancel_waiter_timeout_(
+	std::shared_ptr<Waiter> const &waiter) noexcept {
+	if (waiter->reader == nullptr || !waiter->timeout_armed.exchange(false, std::memory_order_acq_rel)) {
+		return;
+	}
+	auto *reader = waiter->reader;
+	auto const user_data = waiter->timeout_user_data;
+	[](conflux::file_io::FileReader *reader, std::uint64_t user_data) -> root::Task<void> {
+		try {
+			co_await conflux::uring::async_timeout_remove(
+				reader->ring(),
+				*reader->completions(),
+				[reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
+				user_data);
+		} catch (...) { detail::ignore_best_effort_failure(); }
+	}(reader, user_data)
+																			 .detach();
+	waiter->timeout_user_data = 0;
 }
 void Pool::grow_if_needed_() {
 	while (total_ < cfg_.min_connections) {

@@ -4,6 +4,23 @@
 import std;
 import conflux.types;
 import conflux.crypto;
+
+namespace {
+
+bool aes_gcm_backend_unavailable(
+	std::string_view error) {
+	return error.find("AES-GCM requires AES-NI/PCLMUL/SSE4.1 support") != std::string_view::npos;
+}
+
+void require_aes_gcm_available(
+	std::expected<std::vector<unsigned char>, std::string> const &result) {
+	if (!result.has_value()) {
+		REQUIRE(aes_gcm_backend_unavailable(result.error()));
+	}
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // base64
 // ---------------------------------------------------------------------------
@@ -293,7 +310,10 @@ TEST_CASE(
 		iv,
 		{reinterpret_cast<unsigned char const *>(msg.data()), msg.size()},
 		{});
-	REQUIRE(ct.has_value());
+	require_aes_gcm_available(ct);
+	if (!ct.has_value()) {
+		return;
+	}
 	REQUIRE(ct->size() == msg.size() + 16);
 
 	auto pt = conflux::crypto::aes_gcm_decrypt(key, iv, *ct, {});
@@ -313,7 +333,10 @@ TEST_CASE(
 		iv,
 		{reinterpret_cast<unsigned char const *>(msg.data()), msg.size()},
 		{});
-	REQUIRE(ct.has_value());
+	require_aes_gcm_available(ct);
+	if (!ct.has_value()) {
+		return;
+	}
 
 	// Flip a byte in ciphertext
 	(*ct)[0] = static_cast<unsigned char>((*ct)[0] ^ 0xFF);
@@ -333,7 +356,10 @@ TEST_CASE(
 		iv,
 		{reinterpret_cast<unsigned char const *>(msg.data()), msg.size()},
 		{});
-	REQUIRE(ct.has_value());
+	require_aes_gcm_available(ct);
+	if (!ct.has_value()) {
+		return;
+	}
 
 	// Flip last byte (in tag)
 	ct->back() = static_cast<unsigned char>(ct->back() ^ 1);
@@ -354,7 +380,10 @@ TEST_CASE(
 		iv,
 		{reinterpret_cast<unsigned char const *>(msg.data()), msg.size()},
 		{reinterpret_cast<unsigned char const *>(aad.data()), aad.size()});
-	REQUIRE(ct.has_value());
+	require_aes_gcm_available(ct);
+	if (!ct.has_value()) {
+		return;
+	}
 
 	// Decrypt with correct AAD
 	auto pt = conflux::crypto::aes_gcm_decrypt(
@@ -383,7 +412,10 @@ TEST_CASE(
 	std::array<unsigned char, 32> key{};
 	std::array<unsigned char, 12> iv{};
 	auto ct = conflux::crypto::aes_gcm_encrypt(key, iv, {}, {});
-	REQUIRE(ct.has_value());
+	require_aes_gcm_available(ct);
+	if (!ct.has_value()) {
+		return;
+	}
 	REQUIRE(ct->size() == 16); // tag only
 	CHECK((*ct)[0] == 0x53);
 	CHECK((*ct)[1] == 0x0f);
@@ -398,10 +430,29 @@ TEST_CASE(
 	std::array<unsigned char, 32> key{};
 	std::array<unsigned char, 12> iv{};
 	auto ct = conflux::crypto::aes_gcm_encrypt(key, iv, {}, {});
-	REQUIRE(ct.has_value());
+	require_aes_gcm_available(ct);
+	if (!ct.has_value()) {
+		return;
+	}
 	auto pt = conflux::crypto::aes_gcm_decrypt(key, iv, *ct, {});
 	REQUIRE(pt.has_value());
 	CHECK(pt->empty());
+}
+TEST_CASE(
+	"crypto: aes_gcm requires accelerated backend",
+	"[crypto]") {
+	std::array<unsigned char, 32> key{};
+	std::array<unsigned char, 12> iv{};
+	auto enc = conflux::crypto::aes_gcm_encrypt(key, iv, {}, {});
+	if (enc.has_value()) {
+		return;
+	}
+	CHECK(aes_gcm_backend_unavailable(enc.error()));
+
+	std::array<unsigned char, 16> tag{};
+	auto dec = conflux::crypto::aes_gcm_decrypt(key, iv, tag, {});
+	REQUIRE(!dec.has_value());
+	CHECK(aes_gcm_backend_unavailable(dec.error()));
 }
 TEST_CASE(
 	"crypto: aes_gcm rejects wrong key size",

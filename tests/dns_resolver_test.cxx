@@ -862,6 +862,48 @@ TEST_CASE(
 	CHECK_FALSE(r2->endpoints.empty());
 }
 TEST_CASE(
+	"dns: cache key isolates per-call nameserver overrides",
+	"[dns][resolver][native][cache]") {
+	auto g = RingGuard::make();
+	REQUIRE(g);
+	REQUIRE(g->ok);
+
+	DnsMockServer default_ns;
+	default_ns.set_response(
+		"split.test",
+		1,
+		{
+			.kind = DnsMockServer::RespKind::noerror,
+			.records = {{.rdata = {10, 0, 0, 11}, .ttl = 300}},
+		});
+	DnsMockServer override_ns;
+	override_ns.set_response(
+		"split.test",
+		1,
+		{
+			.kind = DnsMockServer::RespKind::noerror,
+			.records = {{.rdata = {10, 0, 0, 22}, .ttl = 300}},
+		});
+
+	ResolverOptions resolver_opts{.cache_capacity = 16};
+	resolver_opts.override_nameservers = {default_ns.endpoint()};
+	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
+
+	auto override_opts = mock_opts(override_ns);
+	auto r1 = r.resolve_blocking("split.test", 80, override_opts);
+	REQUIRE(r1.has_value());
+	CHECK_FALSE(r1->from_cache);
+	auto const override_queries = override_ns.queries().size();
+	CHECK(override_queries > 0);
+	CHECK(default_ns.queries().empty());
+
+	auto r2 = r.resolve_blocking("split.test", 80);
+	REQUIRE(r2.has_value());
+	CHECK_FALSE(r2->from_cache);
+	CHECK(override_ns.queries().size() == override_queries);
+	CHECK(default_ns.queries().size() > 0);
+}
+TEST_CASE(
 	"dns: TTL in cache entry matches server response",
 	"[dns][resolver][native][cache]") {
 	auto g = RingGuard::make();

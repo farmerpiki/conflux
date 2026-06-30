@@ -971,14 +971,15 @@ public:
 	std::uint16_t port,
 	AddressFamily prefer,
 	bool v4,
-	bool v6) {
+	bool v6,
+	std::string_view resolver_context) {
 	std::array<char, std::numeric_limits<std::uint16_t>::digits10 + 1> port_buf{};
 	auto const [port_end, ec] = std::to_chars(port_buf.data(), port_buf.data() + port_buf.size(), port);
 	if (ec != std::errc{}) {
 		return {};
 	}
 	std::string out;
-	out.reserve(host.size() + static_cast<std::size_t>(port_end - port_buf.data()) + 5);
+	out.reserve(host.size() + static_cast<std::size_t>(port_end - port_buf.data()) + resolver_context.size() + 6);
 	out.append(host);
 	out.push_back(':');
 	out.append(port_buf.data(), port_end);
@@ -986,6 +987,44 @@ public:
 	out.push_back(prefer == AddressFamily::v4 ? '4' : '6');
 	out.push_back(v4 ? '4' : '-');
 	out.push_back(v6 ? '6' : '-');
+	out.push_back(':');
+	out.append(resolver_context);
+	return out;
+}
+[[nodiscard]] std::string nameserver_cache_token(
+	NameserverEndpoint const &ns) {
+	std::array<char, INET6_ADDRSTRLEN> host_buf{};
+	std::uint16_t port = ns.port;
+	if (ns.addr.ss_family == AF_INET && ns.addr_len >= static_cast<::socklen_t>(sizeof(::sockaddr_in))) {
+		auto const *sin = reinterpret_cast<::sockaddr_in const *>(&ns.addr);
+		if (::inet_ntop(AF_INET, &sin->sin_addr, host_buf.data(), static_cast<::socklen_t>(host_buf.size())) == nullptr) {
+			return {};
+		}
+		port = ntohs(sin->sin_port);
+	} else if (ns.addr.ss_family == AF_INET6 && ns.addr_len >= static_cast<::socklen_t>(sizeof(::sockaddr_in6))) {
+		auto const *sin6 = reinterpret_cast<::sockaddr_in6 const *>(&ns.addr);
+		if (::inet_ntop(AF_INET6, &sin6->sin6_addr, host_buf.data(), static_cast<::socklen_t>(host_buf.size())) == nullptr) {
+			return {};
+		}
+		port = ntohs(sin6->sin6_port);
+	} else {
+		return {};
+	}
+	return std::format("{}#{}", host_buf.data(), port);
+}
+[[nodiscard]] std::string nameserver_cache_context(
+	std::vector<NameserverEndpoint> const &nameservers) {
+	std::string out;
+	for (auto const &ns: nameservers) {
+		auto token = nameserver_cache_token(ns);
+		if (token.empty()) {
+			return {};
+		}
+		if (!out.empty()) {
+			out.push_back(',');
+		}
+		out += token;
+	}
 	return out;
 }
 [[nodiscard]] std::chrono::milliseconds effective_native_timeout(
@@ -1479,7 +1518,15 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	std::string const cache_key =
 		effective_opts.bypass_cache ?
 			std::string{} :
-			make_cache_key(host, port, effective_opts.prefer, effective_opts.allow_v4, effective_opts.allow_v6);
+			make_cache_key(
+				host,
+				port,
+				effective_opts.prefer,
+				effective_opts.allow_v4,
+				effective_opts.allow_v6,
+				impl_->backend == ResolverBackend::native_udp ?
+					nameserver_cache_context(native_udp_nameservers(impl_, effective_opts)) :
+					std::string_view{"nss"});
 
 	// LRU cache lookup
 	if (impl_->cache && !cache_key.empty()) {
@@ -1587,7 +1634,13 @@ struct BlockingDnsRingBase {
 	if (!impl->cache || effective_opts.bypass_cache) {
 		return {};
 	}
-	return make_cache_key(candidate, port, effective_opts.prefer, effective_opts.allow_v4, effective_opts.allow_v6);
+	return make_cache_key(
+		candidate,
+		port,
+		effective_opts.prefer,
+		effective_opts.allow_v4,
+		effective_opts.allow_v6,
+		nameserver_cache_context(native_udp_nameservers(impl, effective_opts)));
 }
 
 [[nodiscard]] std::optional<std::expected<ResolveResult, DnsError>> lookup_blocking_dns_cache(

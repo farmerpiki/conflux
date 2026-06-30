@@ -632,21 +632,42 @@ public:
 	}
 	[[nodiscard]] bool send_text(
 		std::string_view data) {
-		std::scoped_lock const lk{send_mtx_};
-		return do_send_frame(1, std::as_bytes(std::span{data}));
+		bool ok = false;
+		{
+			std::scoped_lock const lk{send_mtx_};
+			ok = do_send_frame(1, std::as_bytes(std::span{data}));
+		}
+		if (!ok) {
+			mark_remote_close_noexcept();
+		}
+		return ok;
 	}
 	[[nodiscard]] bool send_binary(
 		std::span<std::byte const> data) {
-		std::scoped_lock const lk{send_mtx_};
-		return do_send_frame(2, data);
+		bool ok = false;
+		{
+			std::scoped_lock const lk{send_mtx_};
+			ok = do_send_frame(2, data);
+		}
+		if (!ok) {
+			mark_remote_close_noexcept();
+		}
+		return ok;
 	}
 	[[nodiscard]] bool send_ping(
 		std::string_view data = {}) {
 		if (data.size() > 125) {
 			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-std::byte control frame limit"};
 		}
-		std::scoped_lock const lk{send_mtx_};
-		return do_send_frame(9, std::as_bytes(std::span{data}));
+		bool ok = false;
+		{
+			std::scoped_lock const lk{send_mtx_};
+			ok = do_send_frame(9, std::as_bytes(std::span{data}));
+		}
+		if (!ok) {
+			mark_remote_close_noexcept();
+		}
+		return ok;
 	}
 	void close(
 		std::uint16_t code = 1000,
@@ -682,7 +703,7 @@ public:
 			SSL_free(ssl_);
 			ssl_ = nullptr;
 		}
-	#endif
+#endif
 		::shutdown(fd_, SHUT_WR);
 	}
 	[[nodiscard]] bool is_open() const noexcept { return !closed_.test(); }
@@ -909,7 +930,14 @@ private:
 		detail::FrameHeader const &hdr,
 		std::string const &payload) {
 		if (hdr.opcode == 0x9U) {
-			do_send_frame(10, std::as_bytes(std::span{payload}));
+			bool ok = false;
+			{
+				std::scoped_lock const lk{send_mtx_};
+				ok = do_send_frame(10, std::as_bytes(std::span{payload}));
+			}
+			if (!ok) {
+				mark_remote_close_noexcept();
+			}
 			return true;
 		}
 		if (hdr.opcode == 0xAU) {
@@ -1000,7 +1028,6 @@ private:
 		}
 		if (!ok) {
 			note_pressure_close_noexcept();
-			mark_remote_close_noexcept();
 		}
 		return ok;
 	}

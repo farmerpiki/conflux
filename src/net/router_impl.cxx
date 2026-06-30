@@ -12,7 +12,6 @@ import conflux.net.router_match;
 import conflux.net.router_static;
 import conflux.work;
 import conflux.net.config;
-import conflux.socket_io;
 
 namespace conflux::http {
 
@@ -557,12 +556,7 @@ Router::ContextHandler Router::Group::wrap_context(
 				conflux::http::RequestView const &r,
 				conflux::http::RequestContext const &c) -> conflux::work::root::Task<Response> {
 			Handler next = [n, c](conflux::http::RequestView const &next_req) -> Response {
-				auto invoke_context = [](ContextHandler handler,
-										 conflux::http::RequestView req,
-										 conflux::http::RequestContext ctx) -> conflux::work::root::Task<Response> {
-					co_return co_await handler(req, ctx);
-				};
-				return Router::defer_http_task(invoke_context(n, conflux::http::RequestView{next_req}, c));
+				return Router::defer_http_task(n(next_req, c));
 			};
 			co_return mw(r, next);
 		};

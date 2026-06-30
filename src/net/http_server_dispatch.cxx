@@ -401,7 +401,9 @@ void apply_http1_keep_alive(
 	conflux::http::Response resp;
 	try {
 		if (upload_body) {
-			if (auto async = ring.try_dispatch_context(req, std::move(upload_body))) {
+			if (auto async = ring.try_dispatch_context(req, upload_body)) {
+				resp = std::move(*async);
+			} else if (auto async = ring.try_dispatch_context(fallback_req)) {
 				resp = std::move(*async);
 			} else {
 				resp = ring.dispatch(fallback_req);

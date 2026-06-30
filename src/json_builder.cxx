@@ -79,6 +79,9 @@ void ObjectBuilder::commit() && noexcept {
 		return;
 	}
 	auto *st = frame_.state;
+	if (st->active_depth != frame_.depth) {
+		return;
+	}
 	std::size_t const mem_start = st->store.object_members.size();
 	for (auto m: frame_.local_members) { // copy: may patch name_off for external ptrs
 		if ((m.name_flags & kMemberExternalView) != 0) {
@@ -152,6 +155,9 @@ void ArrayBuilder::commit() && noexcept {
 		return;
 	}
 	auto *st = frame_.state;
+	if (st->active_depth != frame_.depth) {
+		return;
+	}
 	std::size_t const child_start = st->store.array_children.size();
 	for (std::size_t const idx: frame_.local_children) {
 		st->store.array_children.push_back(static_cast<std::uint32_t>(idx));

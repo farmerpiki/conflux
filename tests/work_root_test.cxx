@@ -1030,6 +1030,22 @@ TEST_CASE(
 	(void)root::blocking_join(std::move(handle));
 }
 TEST_CASE(
+	"work.root: R7 clear_on_ready reports in_flight while ready callback runs",
+	"[work.root][r2][r7]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+
+	root::ClearOnReadyStatus observed = root::ClearOnReadyStatus::not_armed;
+	auto r = ctrl.try_set_on_ready([ctrl, &observed]() mutable noexcept { observed = ctrl.clear_on_ready(); });
+	REQUIRE(r.status == root::ReadyRegistration::installed);
+
+	REQUIRE(src.try_set_value(root::Success<int>{5}));
+	CHECK(observed == root::ClearOnReadyStatus::in_flight);
+	CHECK(ctrl.clear_on_ready() == root::ClearOnReadyStatus::already_terminal);
+	(void)root::blocking_join(std::move(handle));
+}
+TEST_CASE(
 	"work.root: R7 clear_on_ready without armed hook returns not_armed",
 	"[work.root][r2][r7]") {
 	auto [task, src] = root::make_task_source<int>();

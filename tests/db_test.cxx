@@ -189,6 +189,48 @@ TEST_CASE(
 	CHECK(wire[7] == 0x08);
 }
 TEST_CASE(
+	"db: Params empty binary bind is not null",
+	"[db][unit]") {
+	Params p;
+	p.add_binary(std::span<std::byte const>{});
+
+	auto const *vals = p.values();
+	REQUIRE(vals != nullptr);
+	CHECK(vals[0] != nullptr);
+
+	auto const *lens = p.lengths();
+	REQUIRE(lens != nullptr);
+	CHECK(lens[0] == 0);
+
+	auto const *fmts = p.formats();
+	REQUIRE(fmts != nullptr);
+	CHECK(fmts[0] == 1);
+
+	auto const *typs = p.types();
+	REQUIRE(typs != nullptr);
+	CHECK(typs[0] == conflux::pg::oids::bytea);
+}
+TEST_CASE(
+	"db: Params overflow empty binary binds are not null",
+	"[db][unit]") {
+	Params p;
+	for (int i = 0; i < 10; ++i) {
+		p.add_binary(std::span<std::byte const>{});
+	}
+
+	auto const *vals = p.values();
+	auto const *lens = p.lengths();
+	auto const *fmts = p.formats();
+	REQUIRE(vals != nullptr);
+	REQUIRE(lens != nullptr);
+	REQUIRE(fmts != nullptr);
+	for (int i = 0; i < 10; ++i) {
+		CHECK(vals[i] != nullptr);
+		CHECK(lens[i] == 0);
+		CHECK(fmts[i] == 1);
+	}
+}
+TEST_CASE(
 	"db: Params result_format setter",
 	"[db][unit]") {
 	Params p;
@@ -464,4 +506,12 @@ TEST_CASE(
 	CHECK(e1.get() != e3.get());
 	CHECK(e1->name == StatementCache::stable_name("SELECT 1"));
 	CHECK(*e1->sql == "SELECT 1");
+}
+TEST_CASE(
+	"db: StatementCache rejects same SQL with different parameter types",
+	"[db][unit]") {
+	StatementCache sc;
+	auto e1 = sc.get("SELECT $1", {conflux::pg::oids::int4});
+	REQUIRE(e1 != nullptr);
+	CHECK_THROWS_AS((void)sc.get("SELECT $1", {conflux::pg::oids::int8}), PgError);
 }

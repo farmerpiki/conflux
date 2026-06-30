@@ -960,13 +960,23 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		}
 		if (prev == ReadyHookState::armed) {
 			::conflux::detail::small_move_only_function<void()> fn{};
+			bool should_run = false;
 			{
 				std::unique_lock lk{mtx_};
-				fn = std::move(on_ready_fn_);
-				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+				auto const state = ready_hook_state_.load(std::memory_order_acquire);
+				if (state == ReadyHookState::armed) {
+					fn = std::move(on_ready_fn_);
+					ready_hook_state_.store(ReadyHookState::committing, std::memory_order_release);
+					should_run = true;
+				} else if (state == ReadyHookState::disarmed) {
+					ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+				}
 			}
-			if (fn) {
+			if (should_run && fn) {
 				fn();
+			}
+			if (should_run) {
+				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 			}
 		} else if (prev == ReadyHookState::disarmed) {
 			std::unique_lock lk{mtx_};
