@@ -478,9 +478,11 @@ void HttpServer::initialize(
 				.ciphersuites = cfg.tls_ciphersuites,
 				.ktls = cfg.ktls,
 			};
-			SSL_CTX *const vhost_ctx = impl_->tls_ctx->add_vhost(vh.hostname, vhost_opts);
 	#if CONFLUX_HAS_HTTP2
+			SSL_CTX *const vhost_ctx = impl_->tls_ctx->add_vhost(vh.hostname, vhost_opts);
 			conflux::http::detail::http2_configure_alpn(vhost_ctx);
+	#else
+			(void) impl_->tls_ctx->add_vhost(vh.hostname, vhost_opts);
 	#endif
 	#if CONFLUX_HAS_HTTP3
 			if (impl_->http3_tls_ctx) {

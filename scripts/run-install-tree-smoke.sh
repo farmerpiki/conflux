@@ -173,8 +173,15 @@ if [[ -n "$api_surface" ]]; then
     cmake_configure+=(-DCONFLUX_API_SURFACE="$api_surface")
     package_smoke_args+=(--api-surface "$api_surface")
 fi
+if [[ -z "$generator" && -z "${CMAKE_GENERATOR:-}" && "$interface_mode" == "MODULE_INTERFACE" ]]; then
+    command -v ninja >/dev/null 2>&1 || fail "MODULE_INTERFACE install smoke requires a module-capable CMake generator; install Ninja or pass --generator"
+    generator="Ninja"
+fi
 if [[ -n "$generator" ]]; then
     cmake_configure+=(-G "$generator")
+fi
+if [[ "$interface_mode" == "MODULE_INTERFACE" ]]; then
+    package_smoke_args+=(--enable-import-std)
 fi
 cmake_configure+=("${extra_cmake_args[@]}")
 

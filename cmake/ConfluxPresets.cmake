@@ -413,6 +413,7 @@ macro(conflux_apply_preset)
     endif()
 
     if(_requested_p STREQUAL "release-http-api")
+        set(_d_PROVIDER_TLS OFF)
         set(_d_PROVIDER_HTTP2 OFF)
         set(_d_PROVIDER_HTTP3 OFF)
         set(_d_PROVIDER_ARGON2 RUNTIME)

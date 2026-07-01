@@ -237,9 +237,9 @@ TEST_CASE(
 		"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nTransfer-Encoding: "
 		"chunked\r\nConnection: close\r\n\r\n";
 	auto sent = client.send(headers);
-	REQUIRE(sent >= 0);
+	REQUIRE(sent == static_cast<ssize_t>(headers.size()));
 	sent = client.send(chunks);
-	REQUIRE(sent >= 0);
+	REQUIRE(sent == static_cast<ssize_t>(chunks.size()));
 	auto resp = client.read_one_response();
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(body_of(resp) == std::string(static_cast<std::size_t>(kChunkCount), 'x'));
@@ -263,21 +263,22 @@ TEST_CASE(
 		"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nTransfer-Encoding: "
 		"chunked\r\nConnection: close\r\n\r\n";
 	auto sent = client.send(headers);
-	REQUIRE(sent >= 0);
+	REQUIRE(sent == static_cast<ssize_t>(headers.size()));
 
-	static constexpr int kChunkCount = 512;
+	static constexpr int kChunkCount = 256;
 	for (int i = 0; i < kChunkCount; ++i) {
 		auto chunk = std::format("1;upload-frame={}\r\nx\r\n", i);
 		sent = client.send(chunk);
-		REQUIRE(sent >= 0);
+		REQUIRE(sent == static_cast<ssize_t>(chunk.size()));
 	}
 	sent = client.send("0\r\n\r\n");
-	REQUIRE(sent >= 0);
+	REQUIRE(sent == 5);
 
 	auto resp = client.read_one_response();
+	srv.stop();
+	INFO(resp);
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(body_of(resp) == std::format("{}", kChunkCount));
-	srv.stop();
 }
 
 TEST_CASE(

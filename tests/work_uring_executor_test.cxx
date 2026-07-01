@@ -28,7 +28,9 @@ namespace root = conflux::work::root;
 [[nodiscard]] root::Task<int> nop_then_int(
 	work::UringExecutorContext &ctx,
 	int value) {
-	auto [task, src] = root::make_task_source<int>();
+	auto task_source = root::make_task_source<int>();
+	auto task = std::move(task_source.first);
+	auto src = std::move(task_source.second);
 	auto shared_src = std::make_shared<root::TaskSource<int>>(std::move(src));
 	auto [slot, gen] = ctx.completions().reserve([shared_src, value](conflux::uring::IoResult result) mutable {
 		if (result.res < 0) {
@@ -111,7 +113,7 @@ TEST_CASE(
 	auto task = conflux::file_io::async_file_io(*exec, [](conflux::file_io::FileReader &reader) -> root::Task<bool> {
 		bool const installed = conflux::file_io::current_file_reader() == &reader;
 		co_await reader.async_nop();
-		co_return installed && conflux::file_io::current_file_reader() == &reader;
+		co_return installed &&conflux::file_io::current_file_reader() == &reader;
 	});
 	CHECK(work::sync_wait(std::move(task)));
 }

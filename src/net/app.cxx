@@ -1953,31 +1953,48 @@ public:
 		AppJsonOptions json_options
 #endif
 	) {
-		return conflux::work::root::make_cancellable_task(
-			[handler,
-			 extracted_args = std::move(extracted_args)
+		return conflux::work::root::make_cancellable_task([handler,
+														   extracted_args = std::move(extracted_args)
 #if CONFLUX_HAS_JSON
-				 ,
-			 json_options
+															   ,
+														   json_options
 #endif
-		](conflux::work::root::Cancellation) mutable -> conflux::work::root::Task<Response> {
+		](conflux::work::root::Cancellation) mutable {
+			return [](Fn *inner_handler,
+					  ExtractedArgs inner_extracted_args
+#if CONFLUX_HAS_JSON
+					  ,
+					  AppJsonOptions inner_json_options
+#endif
+					  ) -> conflux::work::root::Task<Response> {
 				try {
 					auto result = [&]() {
 						if constexpr (detail::TupleAllCopyConstructibleV<ExtractedArgs>) {
-							return std::apply([handler](auto &...args) { return (*handler)(args...); }, extracted_args);
+							return std::apply(
+								[inner_handler](auto &...args) { return (*inner_handler)(args...); },
+								inner_extracted_args);
 						} else {
 							return std::apply(
-								[handler](auto &...args) { return (*handler)(detail::move_if_move_only(args)...); },
-								extracted_args);
+								[inner_handler](auto &...args) {
+									return (*inner_handler)(detail::move_if_move_only(args)...);
+								},
+								inner_extracted_args);
 						}
 					}();
 #if CONFLUX_HAS_JSON
-					co_return into_app_response(co_await std::move(result), json_options);
+					co_return into_app_response(co_await std::move(result), inner_json_options);
 #else
 					co_return into_app_response(co_await std::move(result));
 #endif
 				} catch (ExtractorFailure &failure) { co_return std::move(failure).response(); }
-			});
+			}(handler,
+						std::move(extracted_args)
+#if CONFLUX_HAS_JSON
+							,
+						json_options
+#endif
+						);
+		});
 	}
 
 	template<class Fn, class ExtractedArgs>
