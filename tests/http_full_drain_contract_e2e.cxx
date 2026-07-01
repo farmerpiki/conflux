@@ -53,6 +53,43 @@ void shrink_recv_buffer(
 	(void)::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
 }
 
+[[nodiscard]] bool is_recv_timeout_error(
+	int error) noexcept {
+	if (error == EAGAIN) {
+		return true;
+	}
+#if EWOULDBLOCK != EAGAIN
+	return error == EWOULDBLOCK;
+#else
+	return false;
+#endif
+}
+
+[[nodiscard]] std::string read_until_contains(
+	int fd,
+	std::string_view needle,
+	std::chrono::milliseconds deadline) {
+	std::string out;
+	std::array<char, 256> buf{};
+	auto const stop_at = std::chrono::steady_clock::now() + deadline;
+	set_recv_timeout(fd, std::chrono::milliseconds{50});
+	while (std::chrono::steady_clock::now() < stop_at) {
+		errno = 0;
+		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
+		if (n > 0) {
+			out.append(buf.data(), static_cast<std::size_t>(n));
+			if (out.find(needle) != std::string::npos) {
+				break;
+			}
+			continue;
+		}
+		if (n == 0 || !is_recv_timeout_error(errno)) {
+			break;
+		}
+	}
+	return out;
+}
+
 [[nodiscard]] bool connect_refused(
 	std::uint16_t port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -129,15 +166,9 @@ TEST_CASE(
 	auto sse_headers = sse.read_headers();
 	REQUIRE(sse_headers.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(sse_headers.find("Content-Type: text/event-stream") != std::string::npos);
-	set_recv_timeout(sse.fd(), std::chrono::milliseconds{250});
-	std::string sse_initial;
-	std::array<char, 256> sse_buf{};
-	for (;;) {
-		auto const n = sse.recv(sse_buf.data(), sse_buf.size());
-		if (n <= 0) {
-			break;
-		}
-		sse_initial.append(sse_buf.data(), static_cast<std::size_t>(n));
+	auto sse_initial = sse_headers;
+	if (sse_initial.find("data: open") == std::string::npos) {
+		sse_initial += read_until_contains(sse.fd(), "data: open", std::chrono::seconds{5});
 	}
 	REQUIRE(sse_initial.find("data: open") != std::string::npos);
 

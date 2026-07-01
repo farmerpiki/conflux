@@ -207,6 +207,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT CONFLUX_GCC_EAGER_MODULE_IMPORTS
         target_compile_options(${_conflux_example_target} PRIVATE -fno-module-lazy)
     endforeach()
 endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+    foreach(_conflux_example_target IN LISTS CONFLUX_AVAILABLE_EXAMPLE_TARGETS)
+        target_compile_options(${_conflux_example_target} PRIVATE -O0)
+    endforeach()
+endif()
 
 add_custom_target(conflux_examples)
 if(CONFLUX_AVAILABLE_EXAMPLE_TARGETS)

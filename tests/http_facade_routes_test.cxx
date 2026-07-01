@@ -283,7 +283,9 @@ TEST_CASE(
 	app.get(
 		"/async-json",
 		[source_slot](http::State<std::string> state) -> conflux::work::Task<http::Json<FacadeAnswer>> {
-			auto [task, source] = conflux::work::root::make_task_source<http::Json<FacadeAnswer>>();
+			auto task_source = conflux::work::root::make_task_source<http::Json<FacadeAnswer>>();
+			auto task = std::move(task_source.first);
+			auto source = std::move(task_source.second);
 			source_slot->emplace(std::move(source));
 			auto _ = state.get();
 			co_return co_await std::move(task);

@@ -575,6 +575,9 @@ std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 			out.data());
 		return out;
 	}
+#else
+	(void)plaintext;
+	(void)aad;
 #endif
 
 	return aes_gcm_accelerated_backend_required("aes_gcm_encrypt");
@@ -595,6 +598,8 @@ std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	{
 		return try_aesni_gcm_decrypt(key, iv, ciphertext_and_tag, aad);
 	}
+#else
+	(void)aad;
 #endif
 
 	return aes_gcm_accelerated_backend_required("aes_gcm_decrypt");

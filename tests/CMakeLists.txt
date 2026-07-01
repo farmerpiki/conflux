@@ -64,6 +64,16 @@ include("${CMAKE_CURRENT_LIST_DIR}/DbTests.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/E2ETests.cmake")
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+    get_property(_conflux_tests_dir_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_conflux_test_target IN LISTS _conflux_tests_dir_targets)
+        get_target_property(_conflux_test_type ${_conflux_test_target} TYPE)
+        if(_conflux_test_type STREQUAL "EXECUTABLE" OR _conflux_test_type STREQUAL "OBJECT_LIBRARY")
+            target_compile_options(${_conflux_test_target} PRIVATE -fno-builtin-memcpy)
+        endif()
+    endforeach()
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/TestDiscovery.cmake")
 endif()
 
