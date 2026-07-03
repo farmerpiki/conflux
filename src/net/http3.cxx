@@ -89,7 +89,6 @@ struct Http3Stream {
 	std::size_t expected_body_size{};
 	bool request_complete{false};
 	bool response_submitted{false};
-	bool body_reserved{false};
 	bool seen_content_length{false};
 	bool rejected{false};
 	conflux::http::Response response{};
@@ -278,10 +277,6 @@ int h3_recv_data_cb(
 		&& (s.body.size() > s.expected_body_size || datalen > s.expected_body_size - s.body.size())) {
 		h3_reject_stream(c, s, stream_id, NGHTTP3_H3_MESSAGE_ERROR);
 		return 0;
-	}
-	if (!s.body_reserved && s.expected_body_size > 0) {
-		s.body.reserve(s.expected_body_size);
-		s.body_reserved = true;
 	}
 	s.body.append(reinterpret_cast<char const *>(data), datalen);
 	return 0;
