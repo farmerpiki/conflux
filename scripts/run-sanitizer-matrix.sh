@@ -117,7 +117,7 @@ for preset in "${ONLY[@]+"${ONLY[@]}"}"; do
     fi
 done
 
-: "${PG_TEST_CONNINFO:=postgresql:///postgres?user=postgres}"
+: "${PG_TEST_CONNINFO:=postgresql:///conflux_test?user=postgres}"
 : "${PG_CONNINFO:=postgresql:///conflux_bench?user=postgres}"
 
 # ── helpers ──────────────────────────────────────────────────────────────────

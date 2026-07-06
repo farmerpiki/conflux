@@ -138,7 +138,7 @@ fi
 # Tests and benchmarks intentionally default to different DBs. Put explicit
 # NAME=VALUE arguments last so one-off overrides win over these defaults.
 exec env \
-	PG_TEST_CONNINFO="${PG_TEST_CONNINFO:-postgresql:///postgres?user=postgres}" \
+	PG_TEST_CONNINFO="${PG_TEST_CONNINFO:-postgresql:///conflux_test?user=postgres}" \
 	PG_CONNINFO="${PG_CONNINFO:-postgresql:///conflux_bench?user=postgres}" \
 	"${env_args[@]}" \
 	"$artifact" "$@"
