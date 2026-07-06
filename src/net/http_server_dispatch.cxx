@@ -558,6 +558,7 @@ void install_response_state(
 	if (!storage) {
 		storage = conn.partial.cut_prefix(body_start, ring.acquire_request_buffer(), ring.request_tail_scratch);
 	}
+	conn.request_bytes = 0;
 	conn.http1_upload_request_storage = storage;
 	conn.http1_upload_body = upload_body;
 	conn.http1_upload_content_length = content_length;
@@ -606,7 +607,6 @@ void install_response_state(
 		conn.http1_continue_final_close_after_send = conn.close_after_send;
 		queue_expect_continue_response(conn);
 		conn.close_after_send = false;
-		conn.request_bytes = body_start;
 		ring.start_response_send(conn.fd, conn);
 	}
 	feed_http1_upload(conn, ring);
@@ -882,9 +882,19 @@ void fail_http1_upload(
 	if (conn.http1_upload_body) {
 		conn.http1_upload_body->fail(std::move(error));
 	}
+	ring.clear_deferred_wait(conn.deferred_efd);
+	conn.is_deferred = false;
+	conn.deferred_efd = -1;
+	conn.deferred_response.reset();
+	conn.deferred_request_storage.reset();
+	conn.deferred_request_files.reset();
+	conn.deferred_head_only = false;
+	conn.http1_continue_final_close_after_send = false;
 	conn.own_response = conflux::http::format_response(response, ring.alt_svc_header, true);
 	conn.has_response = true;
 	conn.close_after_send = true;
+	conn.request_bytes = 0;
+	conn.expect_continue_sent = false;
 	conn.http1_upload_body.reset();
 	conn.http1_upload_request_storage.reset();
 	conn.http1_upload_content_length.reset();
@@ -938,6 +948,8 @@ void finish_http1_upload(
 	conn.http1_upload_content_length.reset();
 	conn.http1_upload_line.clear();
 	conn.http1_upload_chunk_phase = Http1UploadChunkPhase::done;
+	conn.request_bytes = 0;
+	conn.expect_continue_sent = false;
 	conn.request_in_progress = false;
 	if (conn.is_deferred && conn.deferred_response) {
 		if (auto ready = conn.deferred_response->take_ready()) {

@@ -561,11 +561,14 @@ private:
 			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<Response>>) {
 				return Handler{
 					[wrapped = Fn(std::forward<F>(fn))](conflux::http::RequestView const &req) mutable -> Response {
-						auto invoke_view = [](Fn &handler,
-											  conflux::http::RequestView view) -> conflux::work::root::Task<Response> {
-							co_return co_await std::invoke(handler, view);
+						auto owned = req.to_owned();
+						auto invoke_view =
+							[](Fn &handler,
+							   conflux::http::OwnedRequest owned_req) -> conflux::work::root::Task<Response> {
+							conflux::http::RequestView const owned_view{owned_req};
+							co_return co_await std::invoke(handler, owned_view);
 						};
-						return defer_http_task(invoke_view(wrapped, conflux::http::RequestView{req}));
+						return defer_http_task(invoke_view(wrapped, std::move(owned)));
 					}};
 			} else {
 				static_assert(

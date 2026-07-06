@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
 	printf 'usage: %s [NAME=VALUE ...] <configured-preset-build-root>/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
 	printf '       %s [NAME=VALUE ...] ./build/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
+	printf '       %s [NAME=VALUE ...] /tmp/conflux/<preset>/{tests,benchmarks,examples,fuzz}/<exe> [args...]\n' "$0" >&2
 	printf '       %s [NAME=VALUE ...] <configured-preset-build-root>/<preset>/conflux_<example> [args...]\n' "$0" >&2
 	printf '       defaults: PG_TEST_CONNINFO=postgresql:///postgres?user=postgres, PG_CONNINFO=postgresql:///conflux_bench?user=postgres\n' >&2
 }
@@ -117,7 +118,8 @@ if ! valid_profile "$profile"; then
 fi
 
 expected_dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$profile")"
-if [[ $artifact_abs != "$build_root/$profile/"* && $artifact_abs != "$expected_dir/"* ]]; then
+tmp_build_dir="/tmp/conflux/$profile"
+if [[ $artifact_abs != "$build_root/$profile/"* && $artifact_abs != "$expected_dir/"* && $artifact_abs != "$tmp_build_dir/"* ]]; then
 	printf 'refusing artifact outside configured build dir for %s: %s\n' "$profile" "$artifact" >&2
 	exit 126
 fi

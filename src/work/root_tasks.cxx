@@ -44,13 +44,40 @@ struct TaskAwaiter {
 	std::shared_ptr<ControlBlockInterface<T>> state_;
 	std::source_location loc_{};
 	bool ready_callback_already_installed_{false};
+	bool ready_callback_installed_{false};
+	TaskAwaiter() = default;
+	explicit TaskAwaiter(
+		std::shared_ptr<ControlBlockInterface<T>> state,
+		std::source_location loc = std::source_location::current()) noexcept
+		: state_{std::move(state)}
+		, loc_{loc} {}
+	TaskAwaiter(
+		TaskAwaiter &&other) noexcept
+		: state_{std::move(other.state_)}
+		, loc_{other.loc_}
+		, ready_callback_already_installed_{std::exchange(other.ready_callback_already_installed_, false)}
+		, ready_callback_installed_{std::exchange(other.ready_callback_installed_, false)} {}
+	TaskAwaiter &operator =(
+		TaskAwaiter &&other) noexcept {
+		if (this != &other) {
+			clear_ready_callback_if_installed();
+			state_ = std::move(other.state_);
+			loc_ = other.loc_;
+			ready_callback_already_installed_ = std::exchange(other.ready_callback_already_installed_, false);
+			ready_callback_installed_ = std::exchange(other.ready_callback_installed_, false);
+		}
+		return *this;
+	}
+	TaskAwaiter(TaskAwaiter const &) = delete;
+	TaskAwaiter &operator =(TaskAwaiter const &) = delete;
+	~TaskAwaiter() noexcept { clear_ready_callback_if_installed(); }
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
 	[[nodiscard]] bool await_suspend(
 		std::coroutine_handle<> h) noexcept {
 		auto result = state_->try_set_on_ready(
 			::conflux::detail::small_move_only_function<void()>{[h]() noexcept { h.resume(); }});
 		switch (result.status) {
-		case ReadyRegistration::installed        : return true;
+		case ReadyRegistration::installed        : ready_callback_installed_ = true; return true;
 		case ReadyRegistration::already_ready    :
 		case ReadyRegistration::empty            : return false;
 		case ReadyRegistration::already_installed: ready_callback_already_installed_ = true; return false;
@@ -58,6 +85,7 @@ struct TaskAwaiter {
 		std::unreachable();
 	}
 	decltype(auto) await_resume() {
+		ready_callback_installed_ = false;
 		if (!state_) [[unlikely]] {
 			raise_join_consumed_handle(loc_);
 		}
@@ -81,19 +109,52 @@ struct TaskAwaiter {
 			}
 		});
 	}
+	void clear_ready_callback_if_installed() noexcept {
+		if (ready_callback_installed_ && state_) {
+			auto _ = state_->clear_on_ready();
+			ready_callback_installed_ = false;
+		}
+	}
 };
 template<work_value T>
 struct OutcomeAwaiter {
 	std::shared_ptr<ControlBlockInterface<T>> state_;
 	std::source_location loc_{};
 	bool ready_callback_already_installed_{false};
+	bool ready_callback_installed_{false};
+	OutcomeAwaiter() = default;
+	explicit OutcomeAwaiter(
+		std::shared_ptr<ControlBlockInterface<T>> state,
+		std::source_location loc = std::source_location::current()) noexcept
+		: state_{std::move(state)}
+		, loc_{loc} {}
+	OutcomeAwaiter(
+		OutcomeAwaiter &&other) noexcept
+		: state_{std::move(other.state_)}
+		, loc_{other.loc_}
+		, ready_callback_already_installed_{std::exchange(other.ready_callback_already_installed_, false)}
+		, ready_callback_installed_{std::exchange(other.ready_callback_installed_, false)} {}
+	OutcomeAwaiter &operator =(
+		OutcomeAwaiter &&other) noexcept {
+		if (this != &other) {
+			clear_ready_callback_if_installed();
+			state_ = std::move(other.state_);
+			loc_ = other.loc_;
+			ready_callback_already_installed_ = std::exchange(other.ready_callback_already_installed_, false);
+			ready_callback_installed_ = std::exchange(other.ready_callback_installed_, false);
+		}
+		return *this;
+	}
+	OutcomeAwaiter(OutcomeAwaiter const &) = delete;
+	OutcomeAwaiter &operator =(OutcomeAwaiter const &) = delete;
+	~OutcomeAwaiter() noexcept { clear_ready_callback_if_installed(); }
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
 	[[nodiscard]] bool await_suspend(
 		std::coroutine_handle<> h) noexcept {
 		auto result = state_->try_set_on_ready(
 			::conflux::detail::small_move_only_function<void()>{[h]() noexcept { h.resume(); }});
 		switch (result.status) {
-		case ReadyRegistration::installed        : return true;
+		case ReadyRegistration::installed        : ready_callback_installed_ = true; return true;
 		case ReadyRegistration::already_ready    :
 		case ReadyRegistration::empty            : return false;
 		case ReadyRegistration::already_installed: ready_callback_already_installed_ = true; return false;
@@ -101,6 +162,7 @@ struct OutcomeAwaiter {
 		std::unreachable();
 	}
 	Outcome<T> await_resume() {
+		ready_callback_installed_ = false;
 		if (!state_) [[unlikely]] {
 			raise_join_consumed_handle(loc_);
 		}
@@ -112,6 +174,12 @@ struct OutcomeAwaiter {
 			raise_join_not_ready(loc_);
 		}
 		return std::move(*outcome);
+	}
+	void clear_ready_callback_if_installed() noexcept {
+		if (ready_callback_installed_ && state_) {
+			auto _ = state_->clear_on_ready();
+			ready_callback_installed_ = false;
+		}
 	}
 };
 template<class A>

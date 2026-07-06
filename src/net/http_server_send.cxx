@@ -373,7 +373,7 @@ void Ring::on_streamed_splice_done(
 		conn.tls_sending_response = false;
 	}
 #endif
-	defer_handle_send_complete_if_current(fd, conn.gen);
+	handle_send_complete(fd, conn);
 }
 
 #if CONFLUX_HAS_TLS
