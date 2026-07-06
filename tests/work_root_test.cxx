@@ -334,6 +334,13 @@ TEST_CASE(
 	CHECK(out.cancelled().reason == root::CancelReason::abandoned);
 }
 TEST_CASE(
+	"work.root: destroying suspended parent clears child ready callback",
+	"[work.root]") {
+	auto [child, src] = root::make_task_source<int>();
+	{ auto parent = await_task_value(std::move(child)); }
+	REQUIRE(src.try_set_value(root::Success<int>{7}));
+}
+TEST_CASE(
 	"work.root: make_cancellable_task sync body returns success",
 	"[work.root]") {
 	auto task = root::make_cancellable_task([](root::Cancellation cancel) {

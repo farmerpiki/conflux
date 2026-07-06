@@ -443,10 +443,6 @@ int Ring::h2_on_data_chunk_cb(
 			}
 			return 0;
 		}
-		if (!stream.body_reserved && stream.expected_body_size > 0) {
-			stream.body.reserve(stream.expected_body_size);
-			stream.body_reserved = true;
-		}
 		stream.body.append(reinterpret_cast<char const *>(data), len);
 	}
 	return 0;
@@ -601,11 +597,6 @@ ssize_t Ring::h2_read_cb(
 		auto deferred_response = resp.deferred_response_ptr();
 		deferred_response->keep_alive(request_lease);
 		if (auto ready = deferred_response->take_ready()) {
-			if (stream.upload_body && stream.upload_body->prelude_rejected() && !stream.end_stream_seen) {
-				stream.upload_body->abandon_consumer();
-				stream.upload_body.reset();
-				stream.rejected = true;
-			}
 			h2_submit_response(conn, stream_id, std::move(*ready));
 			return true;
 		}
@@ -829,6 +820,8 @@ int Ring::h2_on_frame_recv_cb(
 		}
 		upload_body->finish();
 		if (auto async = ctx->ring->try_dispatch_context(upload_req, std::move(upload_body))) {
+			resp = std::move(*async);
+		} else if (auto async = ctx->ring->try_dispatch_context(req)) {
 			resp = std::move(*async);
 		} else {
 			resp = ctx->ring->dispatch(req);

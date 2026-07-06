@@ -217,7 +217,6 @@ struct H2Stream {
 	std::shared_ptr<conflux::http::detail::UploadBodyState> upload_body{};
 	std::size_t expected_body_size{};
 	std::size_t body_received{};
-	bool body_reserved{};
 	bool end_stream_seen{};
 	bool rejected{};
 	bool upload_dispatched{};
