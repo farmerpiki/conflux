@@ -617,7 +617,12 @@ void Ring::h2_submit_response(
 		return;
 	}
 	auto &stream = it->second;
-	bool const cancel_upload = stream.upload_body != nullptr && !stream.end_stream_seen;
+	bool const prelude_rejected_upload = stream.upload_body != nullptr && stream.upload_body->prelude_rejected();
+	bool const cancel_upload = stream.upload_body != nullptr && !stream.end_stream_seen && !prelude_rejected_upload;
+	if (prelude_rejected_upload) {
+		stream.upload_body.reset();
+		stream.rejected = true;
+	}
 	if (cancel_upload) {
 		stream.upload_body->abandon_consumer();
 		stream.upload_body.reset();
