@@ -3,6 +3,7 @@ set -euo pipefail
 
 usage() {
 	printf 'usage: %s [NAME=VALUE ...] --test-dir {build,<configured-preset-build-root>}/<supported-preset> [ctest args...]\n' "$0" >&2
+	printf '       %s [NAME=VALUE ...] --test-dir /tmp/conflux/<supported-preset> [ctest args...]\n' "$0" >&2
 }
 
 valid_profile() {
@@ -59,7 +60,8 @@ else
 		exit 126
 	fi
 	expected_dir="$(python3 scripts/cmake-preset-build-dir.py "$PWD" "$profile")"
-	if [[ "$test_dir" != "$expected_dir" ]]; then
+	tmp_build_dir="/tmp/conflux/$profile"
+	if [[ "$test_dir" != "$expected_dir" && "$test_dir" != "$tmp_build_dir" ]]; then
 		printf 'refusing nested test dir: %s\n' "$test_dir" >&2
 		exit 126
 	fi
@@ -77,7 +79,7 @@ fi
 
 # Keep both values present by default for libpq-based codepaths.
 # Tests and benchmarks intentionally default to different DBs.
-: "${PG_TEST_CONNINFO:=postgresql:///postgres?user=postgres}"
+: "${PG_TEST_CONNINFO:=postgresql:///conflux_test?user=postgres}"
 : "${PG_CONNINFO:=postgresql:///conflux_bench?user=postgres}"
 
 exec env "${env_args[@]}" \

@@ -157,12 +157,12 @@ jobs:
               cmake --build --preset full
               cleanup_preset full
 
-              cmake --preset debug-clang-libcxx
+              cmake --preset debug-clang-libcxx -DCONFLUX_PG_TEST_CONNINFO="$PG_TEST_CONNINFO"
               cmake --build --preset debug-clang-libcxx
               run_preset_ctest debug-clang-libcxx
               cleanup_preset debug-clang-libcxx
 
-              cmake --preset debug-gcc16-stdcxx
+              cmake --preset debug-gcc16-stdcxx -DCONFLUX_PG_TEST_CONNINFO="$PG_TEST_CONNINFO"
               cmake --build --preset debug-gcc16-stdcxx
               run_preset_ctest debug-gcc16-stdcxx
               cleanup_preset debug-gcc16-stdcxx
