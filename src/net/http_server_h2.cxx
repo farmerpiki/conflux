@@ -618,18 +618,19 @@ void Ring::h2_submit_response(
 	}
 	auto &stream = it->second;
 	bool const prelude_rejected_upload = stream.upload_body != nullptr && stream.upload_body->prelude_rejected();
-	bool const cancel_upload = stream.upload_body != nullptr && !stream.end_stream_seen && !prelude_rejected_upload;
-	if (prelude_rejected_upload) {
-		stream.upload_body.reset();
-		stream.rejected = true;
-	}
+	bool const cancel_upload = stream.upload_body != nullptr && !stream.end_stream_seen;
 	if (cancel_upload) {
-		stream.upload_body->abandon_consumer();
+		if (!prelude_rejected_upload) {
+			stream.upload_body->abandon_consumer();
+		}
 		stream.upload_body.reset();
-		{
+		if (!prelude_rejected_upload) {
 			std::scoped_lock lk{conn.h2_ctx->ring->metrics_mu_};
 			++conn.h2_ctx->ring->upload_counters_.canceled_by_handler;
 		}
+	} else if (prelude_rejected_upload) {
+		stream.upload_body.reset();
+		stream.rejected = true;
 	}
 
 	if (resp.is_deferred()) {
