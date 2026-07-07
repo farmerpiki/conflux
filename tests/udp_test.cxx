@@ -17,6 +17,14 @@ using conflux::IoError;
 using conflux::uring::CompletionTable;
 using namespace conflux::socket_io;
 
+static_assert(std::same_as<
+			  decltype(std::declval<UdpSocket &>().async_recv_from(std::declval<std::span<std::uint8_t>>())),
+			  conflux::work::root::JoinTask<UdpRecvResult>>);
+static_assert(std::same_as<
+			  decltype(std::declval<UdpSocket &>()
+						   .async_recv_from(std::declval<std::span<std::uint8_t>>(), std::chrono::milliseconds{})),
+			  conflux::work::root::JoinTask<UdpRecvResult>>);
+
 namespace {
 
 constexpr std::uint64_t pack_ud(

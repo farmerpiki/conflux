@@ -29,12 +29,12 @@ namespace conflux::socket_io {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-// Buffer lifetime contract for Task methods:
+// Buffer lifetime contract for async methods:
 //   *_borrowed — caller storage is passed to the kernel. It must remain valid
 //                until the operation reaches its CQE-backed terminal completion.
 //                In normal awaited use, this means until co_await returns.
-//                Do not destroy/drop/cancel a borrowed task unless the borrowed
-//                storage outlives the underlying io_uring operation.
+//                Borrowed operations return JoinTask when a dropped handle would
+//                otherwise let kernel I/O outlive caller storage.
 //   *_copy     — implementation copies input before submission; caller may drop
 //                or mutate the source buffer after the call returns.
 //   *_owned    — implementation takes ownership by move; no source lifetime
@@ -45,6 +45,9 @@ export class TcpStream {
 
 	[[nodiscard]] wroot::Task<std::size_t>
 	do_send(std::uint8_t const *data, std::size_t len, std::shared_ptr<void> keeper);
+	[[nodiscard]] wroot::Task<void> async_write_all_borrowed_task(std::span<std::uint8_t const> src);
+	[[nodiscard]] wroot::Task<void>
+	async_write_all_borrowed_task(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
 
 public:
 	TcpStream() noexcept;
@@ -68,12 +71,12 @@ public:
 	[[nodiscard]] wroot::JoinTask<std::size_t> async_write_borrowed(std::span<std::uint8_t const> src);
 	[[nodiscard]] wroot::JoinTask<std::size_t>
 	async_write_borrowed(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
-	[[nodiscard]] wroot::Task<void>
+	[[nodiscard]] wroot::JoinTask<void>
 	async_write_all_borrowed(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
 	[[nodiscard]] wroot::Task<std::size_t> async_write_copy(std::span<std::uint8_t const> src);
 	[[nodiscard]] wroot::Task<std::size_t> async_write_owned(std::vector<std::uint8_t> data);
 	[[nodiscard]] wroot::Task<std::size_t> async_write_owned(std::string data);
-	[[nodiscard]] wroot::Task<void> async_write_all_borrowed(std::span<std::uint8_t const> src);
+	[[nodiscard]] wroot::JoinTask<void> async_write_all_borrowed(std::span<std::uint8_t const> src);
 	[[nodiscard]] wroot::Task<void> async_write_all_copy(std::span<std::uint8_t const> src);
 	[[nodiscard]] wroot::Task<void> async_write_all_owned(std::vector<std::uint8_t> data);
 	[[nodiscard]] wroot::Task<void> async_write_all_owned(std::string data);
@@ -123,8 +126,8 @@ public:
 	async_send_to_borrowed(std::span<std::uint8_t const> data, sockaddr_storage addr, socklen_t addr_len);
 	[[nodiscard]] wroot::Task<std::size_t>
 	async_send_to_copy(std::span<std::uint8_t const> data, sockaddr_storage addr, socklen_t addr_len);
-	[[nodiscard]] wroot::Task<UdpRecvResult> async_recv_from(std::span<std::uint8_t> buf);
-	[[nodiscard]] wroot::Task<UdpRecvResult>
+	[[nodiscard]] wroot::JoinTask<UdpRecvResult> async_recv_from(std::span<std::uint8_t> buf);
+	[[nodiscard]] wroot::JoinTask<UdpRecvResult>
 	async_recv_from(std::span<std::uint8_t> buf, std::chrono::milliseconds timeout);
 };
 

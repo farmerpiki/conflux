@@ -30,12 +30,12 @@ using conflux::uring::RingFd;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-// Buffer lifetime contract for Task methods:
+// Buffer lifetime contract for async methods:
 //   *_borrowed — caller storage is passed to the kernel. It must remain valid
 //                until the operation reaches its CQE-backed terminal completion.
 //                In normal awaited use, this means until co_await returns.
-//                Do not destroy/drop/cancel a borrowed task unless the borrowed
-//                storage outlives the underlying io_uring operation.
+//                Borrowed operations return JoinTask when a dropped handle would
+//                otherwise let kernel I/O outlive caller storage.
 //   *_copy     — implementation copies input before submission; caller may drop
 //                or mutate the source buffer after the call returns.
 //   *_owned    — implementation takes ownership by move; no source lifetime
@@ -335,7 +335,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	auto _ = st.handle.release();
 	co_await std::move(task);
 }
-[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed_task(
 	std::span<std::uint8_t const> src) {
 	std::size_t sent = 0;
 	while (sent < src.size()) {
@@ -345,6 +345,10 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		}
 		sent += n;
 	}
+}
+[[nodiscard]] wroot::JoinTask<void> TcpStream::async_write_all_borrowed(
+	std::span<std::uint8_t const> src) {
+	return wroot::require_join(async_write_all_borrowed_task(src));
 }
 [[nodiscard]] wroot::JoinTask<std::size_t> TcpStream::async_write_borrowed(
 	std::span<std::uint8_t const> src,
@@ -370,7 +374,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 			return submit_send_timeout_borrowed(ring->raw(), h, data, size, ts, ud, timeout_ud);
 		}));
 }
-[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed_task(
 	std::span<std::uint8_t const> src,
 	std::chrono::milliseconds timeout) {
 	std::size_t sent = 0;
@@ -381,6 +385,11 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		}
 		sent += n;
 	}
+}
+[[nodiscard]] wroot::JoinTask<void> TcpStream::async_write_all_borrowed(
+	std::span<std::uint8_t const> src,
+	std::chrono::milliseconds timeout) {
+	return wroot::require_join(async_write_all_borrowed_task(src, timeout));
 }
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_copy(
 	std::span<std::uint8_t const> src) {
@@ -1143,7 +1152,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	co_return co_await std::move(task);
 }
-[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
+[[nodiscard]] wroot::JoinTask<UdpRecvResult> UdpSocket::async_recv_from(
 	std::span<std::uint8_t> buf) {
 	auto task_src_9 = wroot::make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = false});
 	auto task = std::move(task_src_9.first);
@@ -1173,13 +1182,13 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	if (!submit_recvmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
 		ring_->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
-	co_return co_await std::move(task);
+	return wroot::require_join(std::move(task));
 }
-[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
+[[nodiscard]] wroot::JoinTask<UdpRecvResult> UdpSocket::async_recv_from(
 	std::span<std::uint8_t> buf,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() < 0) {
-		return wroot::make_error_task<UdpRecvResult>(IoError{EINVAL, "udp: negative timeout"});
+		return wroot::require_join(wroot::make_error_task<UdpRecvResult>(IoError{EINVAL, "udp: negative timeout"}));
 	}
 	auto task_src_10 = wroot::make_shared_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation = true});
 	auto task = std::move(task_src_10.first);
@@ -1228,14 +1237,14 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	if (!submit_recvmsg_timeout_borrowed(ring_->raw(), h, &holder->msg, ts.get(), recv_ud, timeout_ud)) {
 		ring_->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 		ring_->completions().dispatch(tslot, tgen, -EBUSY, conflux::uring::CqeFlags{});
-		return task;
+		return wroot::require_join(std::move(task));
 	}
 	auto ring_ptr = ring_;
 	auto _ = shared_src->install_cancel_hook([ring_ptr, recv_ud, state](wroot::CancelReason reason) noexcept {
 		state->mark_cancel(reason);
 		submit_cancel_for_ud(ring_ptr, recv_ud);
 	});
-	return task;
+	return wroot::require_join(std::move(task));
 }
 [[nodiscard]] wroot::Task<void> async_sleep_for(
 	SocketTaskRing &ring,
