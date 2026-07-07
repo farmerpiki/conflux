@@ -585,7 +585,8 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto resp = client.post_with_content_length("/stream-upload", "", 6);
 	REQUIRE(resp.closed);
-	CHECK(resp.status == conflux::http::kHttpRequestEntityTooLarge);
+	CHECK(resp.status == 0);
+	CHECK(resp.error_code == NGHTTP2_CANCEL);
 	CHECK_FALSE(handler_started->load(std::memory_order_acquire));
 	auto const metrics = fx.metrics();
 	CHECK(metrics.uploads.canceled_by_handler == 0);
