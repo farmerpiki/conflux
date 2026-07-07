@@ -123,8 +123,48 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 	}
 }
 
+[[nodiscard]] wroot::Task<decltype(sizeof(0))> ActiveTaskCancelRelay::await_child(
+	wroot::JoinTask<decltype(sizeof(0))> child) {
+	set_active(child.control());
+	try {
+		auto out = co_await std::move(child);
+		clear_active();
+		throw_if_cancelled();
+		co_return out;
+	} catch (wroot::CancelledError const &err) {
+		clear_active();
+		if (err.reason() == wroot::CancelReason::abandoned && is_cancelled()) {
+			throw wroot::CancelledError{wroot::CancelReason::requested};
+		}
+		throw;
+	} catch (...) {
+		clear_active();
+		throw;
+	}
+}
+
 [[nodiscard]] wroot::Task<void> ActiveTaskCancelRelay::await_child(
 	wroot::Task<void> child) {
+	set_active(child.control());
+	try {
+		co_await std::move(child);
+		clear_active();
+		throw_if_cancelled();
+		co_return;
+	} catch (wroot::CancelledError const &err) {
+		clear_active();
+		if (err.reason() == wroot::CancelReason::abandoned && is_cancelled()) {
+			throw wroot::CancelledError{wroot::CancelReason::requested};
+		}
+		throw;
+	} catch (...) {
+		clear_active();
+		throw;
+	}
+}
+
+[[nodiscard]] wroot::Task<void> ActiveTaskCancelRelay::await_child(
+	wroot::JoinTask<void> child) {
 	set_active(child.control());
 	try {
 		co_await std::move(child);

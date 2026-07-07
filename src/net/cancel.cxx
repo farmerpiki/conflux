@@ -24,7 +24,9 @@ struct ActiveTaskCancelRelay {
 	void throw_if_cancelled() const;
 
 	[[nodiscard]] wroot::Task<decltype(sizeof(0))> await_child(wroot::Task<decltype(sizeof(0))> child);
+	[[nodiscard]] wroot::Task<decltype(sizeof(0))> await_child(wroot::JoinTask<decltype(sizeof(0))> child);
 	[[nodiscard]] wroot::Task<void> await_child(wroot::Task<void> child);
+	[[nodiscard]] wroot::Task<void> await_child(wroot::JoinTask<void> child);
 };
 
 } // namespace conflux::net::detail
