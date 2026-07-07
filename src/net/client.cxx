@@ -8,6 +8,7 @@ module;
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #if CONFLUX_HAS_TLS
 	#include <openssl/err.h>
@@ -330,6 +331,57 @@ bool send_all(
 	}
 	return true;
 }
+
+bool send_all_plain_iov(
+	int fd,
+	std::string_view first,
+	std::string_view second,
+	int timeout_sec) {
+	std::array<iovec, 2> iov{
+		iovec{.iov_base = const_cast<char *>(first.data()), .iov_len = first.size()},
+		iovec{.iov_base = const_cast<char *>(second.data()), .iov_len = second.size()}};
+	int iovcnt = second.empty() ? 1 : 2;
+	while (iovcnt > 0) {
+		if (!wait_fd(fd, POLLOUT, timeout_sec)) {
+			return false;
+		}
+		msghdr msg{};
+		msg.msg_iov = iov.data();
+		msg.msg_iovlen = static_cast<std::size_t>(iovcnt);
+		auto n = ::sendmsg(fd, &msg, MSG_NOSIGNAL);
+		if (n <= 0) {
+			return false;
+		}
+		while (n > 0 && iovcnt > 0) {
+			if (static_cast<std::size_t>(n) >= iov[0].iov_len) {
+				n -= static_cast<ssize_t>(iov[0].iov_len);
+				iov[0] = iov[1];
+				--iovcnt;
+				continue;
+			}
+			iov[0].iov_base = static_cast<char *>(iov[0].iov_base) + n;
+			iov[0].iov_len -= static_cast<std::size_t>(n);
+			n = 0;
+		}
+	}
+	return true;
+}
+
+bool send_blocking_http1_request_bytes(
+	Connection &conn,
+	std::string_view wire,
+	std::string_view body,
+	int write_timeout_sec) {
+#if CONFLUX_HAS_TLS
+	if (conn.use_tls) {
+		if (!send_all(conn, wire, write_timeout_sec)) {
+			return false;
+		}
+		return body.empty() || send_all(conn, body, write_timeout_sec);
+	}
+#endif
+	return send_all_plain_iov(conn.fd, wire, body, write_timeout_sec);
+}
 bool recv_some(
 	Connection &conn,
 	std::string &out,
@@ -646,24 +698,15 @@ bool recv_chunked(
 		return std::move(wire_result).error();
 	}
 	std::string const wire = std::move(*wire_result);
-	if (!send_all(conn, wire, write_timeout_sec)) {
+	auto const body = std::string_view{req.body()};
+	if (!send_blocking_http1_request_bytes(conn, wire, body, write_timeout_sec)) {
 		return HttpError{
 			.kind = HttpErrorKind::write,
 			.phase = HttpPhase::write,
 			.os_errno = errno,
-			.message = "failed to send request headers"};
+			.message = body.empty() ? "failed to send request headers" : "failed to send request"};
 	}
-	tel.bytes_sent += wire.size();
-	if (!req.body().empty()) {
-		if (!send_all(conn, req.body(), write_timeout_sec)) {
-			return HttpError{
-				.kind = HttpErrorKind::write,
-				.phase = HttpPhase::write,
-				.os_errno = errno,
-				.message = "failed to send request body"};
-		}
-		tel.bytes_sent += req.body().size();
-	}
+	tel.bytes_sent += wire.size() + body.size();
 	return std::nullopt;
 }
 
