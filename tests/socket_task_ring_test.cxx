@@ -134,6 +134,12 @@ struct RingFixture {
 		std::chrono::milliseconds budget = std::chrono::seconds{5}) {
 		return block_on_ring(&ring, completions, std::move(task), budget);
 	}
+	template<typename T>
+	T run(
+		conflux::work::root::JoinTask<T> task,
+		std::chrono::milliseconds budget = std::chrono::seconds{5}) {
+		return block_on_ring(&ring, completions, std::move(task).detach_to_task(), budget);
+	}
 };
 void dispatch_cqe(
 	RingFixture &fx,

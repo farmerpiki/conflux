@@ -235,30 +235,30 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	return state_ ? tcp_state(state_).handle.raw_fd() : -1;
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(
+[[nodiscard]] wroot::JoinTask<std::size_t> TcpStream::async_recv_borrowed(
 	std::span<std::uint8_t> dst) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
-		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
+		return wroot::require_join(wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"}));
 	}
 	OsFd const h = st.handle.get();
-	return submit_cancellable_size_io(
+	return wroot::require_join(submit_cancellable_size_io(
 		st,
 		{},
 		"tcp: recv",
 		[ring = st.ring, h, data = dst.data(), size = dst.size()](std::uint64_t ud) {
 			return submit_async_recv_borrowed(ring->raw(), h, data, size, ud);
-		});
+		}));
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::read_borrowed(
+[[nodiscard]] wroot::JoinTask<std::size_t> TcpStream::read_borrowed(
 	std::span<std::uint8_t> dst) {
 	return async_recv_borrowed(dst);
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(
+[[nodiscard]] wroot::JoinTask<std::size_t> TcpStream::async_write_borrowed(
 	std::span<std::uint8_t const> src) {
-	return do_send(src.data(), src.size(), {});
+	return wroot::require_join(do_send(src.data(), src.size(), {}));
 }
 
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_copy(
@@ -346,7 +346,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		sent += n;
 	}
 }
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(
+[[nodiscard]] wroot::JoinTask<std::size_t> TcpStream::async_write_borrowed(
 	std::span<std::uint8_t const> src,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() == 0) {
@@ -354,10 +354,10 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	}
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
-		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
+		return wroot::require_join(wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"}));
 	}
 	OsFd const h = st.handle.get();
-	return submit_cancellable_timeout_size_io(
+	return wroot::require_join(submit_cancellable_timeout_size_io(
 		st,
 		{},
 		timeout,
@@ -368,7 +368,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		 data = src.data(),
 		 size = src.size()](std::uint64_t ud, std::uint64_t timeout_ud, __kernel_timespec *ts) {
 			return submit_send_timeout_borrowed(ring->raw(), h, data, size, ts, ud, timeout_ud);
-		});
+		}));
 }
 [[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
 	std::span<std::uint8_t const> src,
@@ -443,7 +443,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		sent += n;
 	}
 }
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(
+[[nodiscard]] wroot::JoinTask<std::size_t> TcpStream::async_recv_borrowed(
 	std::span<std::uint8_t> dst,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() == 0) {
@@ -451,10 +451,10 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	}
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
-		return wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"});
+		return wroot::require_join(wroot::make_error_task<std::size_t>(IoError{EBADF, "tcp: stream closed"}));
 	}
 	OsFd const h = st.handle.get();
-	return submit_cancellable_timeout_size_io(
+	return wroot::require_join(submit_cancellable_timeout_size_io(
 		st,
 		{},
 		timeout,
@@ -465,7 +465,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		 data = dst.data(),
 		 size = dst.size()](std::uint64_t ud, std::uint64_t timeout_ud, __kernel_timespec *ts) {
 			return submit_recv_timeout_borrowed(ring->raw(), h, data, size, ts, ud, timeout_ud);
-		});
+		}));
 }
 // ─── ConnectOp ───────────────────────────────────────────────────────────────
 
@@ -1069,7 +1069,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	return UdpSocket{ring, OwnedSocketHandle::from_fd(fd)};
 }
-[[nodiscard]] wroot::Task<std::size_t> UdpSocket::async_send_to_borrowed(
+[[nodiscard]] wroot::JoinTask<std::size_t> UdpSocket::async_send_to_borrowed(
 	std::span<std::uint8_t const> data,
 	sockaddr_storage addr,
 	socklen_t addr_len) {
@@ -1103,7 +1103,7 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	if (!submit_sendmsg_borrowed(ring_->raw(), h, &holder->msg, ud)) {
 		ring_->completions().dispatch(slot, gen, -ENOSPC, conflux::uring::CqeFlags{});
 	}
-	co_return co_await std::move(task);
+	return wroot::require_join(std::move(task));
 }
 [[nodiscard]] wroot::Task<std::size_t> UdpSocket::async_send_to_copy(
 	std::span<std::uint8_t const> data,

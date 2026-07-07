@@ -17,12 +17,12 @@ class FileReader {
 public:
     root::Task<FileHandle> async_open(int dir_fd, std::string path,
                                       int flags, mode_t mode = 0);
-    root::Task<std::size_t> read_into(FileHandle const& fh,
-                                      std::uint64_t offset,
-                                      std::span<std::byte> out);
-    root::Task<std::size_t> write_into(FileHandle const& fh,
-                                       std::uint64_t offset,
-                                       std::span<std::byte const> data);
+    root::JoinTask<std::size_t> read_into(FileHandle const& fh,
+                                          std::uint64_t offset,
+                                          std::span<std::byte> out);
+    root::JoinTask<std::size_t> write_into(FileHandle const& fh,
+                                           std::uint64_t offset,
+                                           std::span<std::byte const> data);
 
     root::Task<std::size_t> async_send_zc(FileHandle const& fh,
                                           void const* buf,
@@ -34,7 +34,9 @@ public:
 
 The caller owns the ring, completion table, handles, and buffers. Buffers passed
 to read/write/socket operations must remain valid until the returned task
-resolves. `async_send_zc(...)` waits for the zero-copy notification before the
+resolves. Borrowed-buffer read/write operations return `JoinTask`, so dropping a
+live operation terminates instead of silently detaching. `async_send_zc(...)`
+waits for the zero-copy notification before the
 task resolves; `async_unsafe_send_zc_sent(...)` resolves on the first send CQE
 and requires the caller to keep storage alive by other means.
 

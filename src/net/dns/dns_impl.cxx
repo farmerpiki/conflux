@@ -584,7 +584,7 @@ struct ActiveTaskGuard {
 		{
 			std::size_t n = 0;
 			while (n < 2) {
-				root::Task<std::size_t> recv_task = stream.async_recv_borrowed(
+				auto recv_task = stream.async_recv_borrowed(
 					std::span<std::uint8_t>{len_buf.data() + n, 2 - n},
 					remaining_or_throw());
 				ActiveTaskGuard const g{*state, recv_task.control()};
@@ -604,7 +604,7 @@ struct ActiveTaskGuard {
 		{
 			std::size_t resp_n = 0;
 			while (resp_n < static_cast<std::size_t>(resp_len)) {
-				root::Task<std::size_t> recv_task = stream.async_recv_borrowed(
+				auto recv_task = stream.async_recv_borrowed(
 					std::span<std::uint8_t>{resp_buf.data() + resp_n, static_cast<std::size_t>(resp_len) - resp_n},
 					remaining_or_throw());
 				ActiveTaskGuard const g{*state, recv_task.control()};

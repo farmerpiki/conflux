@@ -58,15 +58,15 @@ public:
 	[[nodiscard]] bool valid() const noexcept;
 	[[nodiscard]] int raw_fd() const noexcept;
 
-	[[nodiscard]] wroot::Task<std::size_t> async_recv_borrowed(std::span<std::uint8_t> dst);
-	[[nodiscard]] wroot::Task<std::size_t>
+	[[nodiscard]] wroot::JoinTask<std::size_t> async_recv_borrowed(std::span<std::uint8_t> dst);
+	[[nodiscard]] wroot::JoinTask<std::size_t>
 	async_recv_borrowed(std::span<std::uint8_t> dst, std::chrono::milliseconds timeout);
-	[[deprecated("use async_recv_borrowed")]] [[nodiscard]] wroot::Task<std::size_t>
+	[[deprecated("use async_recv_borrowed")]] [[nodiscard]] wroot::JoinTask<std::size_t>
 	read_borrowed(std::span<std::uint8_t> dst);
 	[[nodiscard]] wroot::Task<std::vector<std::uint8_t>> async_recv_owned(std::size_t max_bytes);
 
-	[[nodiscard]] wroot::Task<std::size_t> async_write_borrowed(std::span<std::uint8_t const> src);
-	[[nodiscard]] wroot::Task<std::size_t>
+	[[nodiscard]] wroot::JoinTask<std::size_t> async_write_borrowed(std::span<std::uint8_t const> src);
+	[[nodiscard]] wroot::JoinTask<std::size_t>
 	async_write_borrowed(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
 	[[nodiscard]] wroot::Task<void>
 	async_write_all_borrowed(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
@@ -119,7 +119,7 @@ public:
 	// payload (std::span<std::uint8_t const>) is NOT copied — caller must keep it valid until co_await returns;
 	// if abandoned/detached/cancelled, storage must outlive the underlying io_uring op. Use async_send_to_copy
 	// otherwise.
-	[[nodiscard]] wroot::Task<std::size_t>
+	[[nodiscard]] wroot::JoinTask<std::size_t>
 	async_send_to_borrowed(std::span<std::uint8_t const> data, sockaddr_storage addr, socklen_t addr_len);
 	[[nodiscard]] wroot::Task<std::size_t>
 	async_send_to_copy(std::span<std::uint8_t const> data, sockaddr_storage addr, socklen_t addr_len);
