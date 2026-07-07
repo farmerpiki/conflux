@@ -160,7 +160,7 @@ check_pgo("pgo-use-gcc16-stdcxx", generate=False, clang=False)
 for name, preset in sorted(configure.items()):
     if preset.get("hidden"):
         continue
-    expected = f"{source_dir}/build/{name}"
+    expected = f"/tmp/conflux/{name}"
     actual = expanded_binary_dir(name)
     if actual != expected:
         errors.append(f"{name}: expected binaryDir {expected}, got {actual}")
