@@ -22,6 +22,16 @@ using conflux::uring::CompletionTable;
 using conflux::uring::IoResult;
 using namespace conflux::socket_io;
 
+static_assert(
+	std::same_as<
+		decltype(std::declval<TcpStream &>().async_write_all_borrowed(std::declval<std::span<std::uint8_t const>>())),
+		conflux::work::root::JoinTask<void>>);
+static_assert(std::same_as<
+			  decltype(std::declval<TcpStream &>().async_write_all_borrowed(
+				  std::declval<std::span<std::uint8_t const>>(),
+				  std::chrono::milliseconds{})),
+			  conflux::work::root::JoinTask<void>>);
+
 namespace {
 
 constexpr std::uint64_t pack_ud(
