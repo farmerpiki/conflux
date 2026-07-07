@@ -155,6 +155,31 @@ void Ring::handle_deferred_poll(
 			return;
 		}
 		stream_it->second.deferred_efd = -1;
+		if (ready->is_deferred()) {
+			auto nested = ready->take_deferred_response();
+			if (!nested) {
+				stream_it->second.deferred_request_storage.reset();
+				h2_submit_response(
+					conn,
+					stream_id,
+					conflux::http::Response::internal_error("empty nested deferred response"));
+				h2_do_send(conn);
+				return;
+			}
+			if (stream_it->second.deferred_request_storage) {
+				nested->keep_alive(stream_it->second.deferred_request_storage);
+			}
+			stream_it->second.deferred_efd = nested->eventfd_fd();
+			if (auto nested_ready = nested->take_ready()) {
+				stream_it->second.deferred_request_storage.reset();
+				h2_submit_response(conn, stream_id, std::move(*nested_ready));
+				h2_do_send(conn);
+				return;
+			}
+			queue_deferred_wait(fd, stream_it->second.deferred_efd, std::move(nested), stream_id);
+			return;
+		}
+		stream_it->second.deferred_request_storage.reset();
 		h2_submit_response(conn, stream_id, std::move(*ready));
 		h2_do_send(conn);
 		if (conn.h2_sse_pending_wait) {

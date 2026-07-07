@@ -233,6 +233,7 @@ struct H2Stream {
 	std::size_t response_off{};
 	conflux::http::HttpFields response_trailers{};
 	int deferred_efd{-1};
+	std::shared_ptr<void const> deferred_request_storage{};
 	// SSE streaming state (non-null → H2 SSE stream):
 	std::shared_ptr<conflux::http::SseChannel> sse_channel{};
 	std::string h2_sse_buf{}; // overflow: drained SSE data not yet framed

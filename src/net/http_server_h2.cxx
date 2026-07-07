@@ -600,6 +600,7 @@ ssize_t Ring::h2_read_cb(
 			h2_submit_response(conn, stream_id, std::move(*ready));
 			return true;
 		}
+		stream.deferred_request_storage = request_lease;
 		stream.deferred_efd = deferred_response->eventfd_fd();
 		queue_deferred_wait(conn.fd, stream.deferred_efd, resp.take_deferred_response(), stream_id);
 		return true;
@@ -843,6 +844,7 @@ int Ring::h2_on_frame_recv_cb(
 			h2_submit_response(conn, frame->hd.stream_id, std::move(*ready));
 			return 0;
 		}
+		stream.deferred_request_storage = request_lease;
 		stream.deferred_efd = deferred_response->eventfd_fd();
 		ctx->ring
 			->queue_deferred_wait(ctx->fd, stream.deferred_efd, resp.take_deferred_response(), frame->hd.stream_id);
