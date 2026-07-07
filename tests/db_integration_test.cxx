@@ -968,6 +968,56 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"db: delayed deadline cancel does not cancel the next query",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	conflux::file_io::CurrentFileReaderScope const scope{&fx->reader};
+
+	auto cancel_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+	std::atomic_bool release_cancel_pool{false};
+	std::atomic_bool blocker_started{false};
+	REQUIRE(cancel_pool->enqueue([&] {
+		blocker_started.store(true, std::memory_order_release);
+		while (!release_cancel_pool.load(std::memory_order_acquire)) {
+			std::this_thread::sleep_for(std::chrono::milliseconds{1});
+		}
+	}));
+	while (!blocker_started.load(std::memory_order_acquire)) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{1});
+	}
+
+	ConnectParams params{.conninfo = *ci, .connect_deadline = std::chrono::seconds{10}, .cancel_pool = cancel_pool};
+	auto conn = conflux::file_io::block_on(fx->reader, Connection::connect(params), std::chrono::seconds{30});
+
+	std::jthread unblocker{[&] {
+		std::this_thread::sleep_for(std::chrono::milliseconds{150});
+		release_cancel_pool.store(true, std::memory_order_release);
+	}};
+
+	QueryOptions const opts{.deadline = std::chrono::milliseconds{10}};
+	try {
+		(void)conflux::file_io::block_on(
+			fx->reader,
+			conn->query("SELECT pg_sleep(0.05)", Params{}, opts),
+			std::chrono::seconds{30});
+		FAIL("expected deadline cancellation");
+	} catch (PgError const &e) { CHECK(e.sqlstate == "57014"); }
+
+	auto r = conflux::file_io::block_on(
+		fx->reader,
+		conn->query("SELECT pg_sleep(0.2), 42::int8 AS v"),
+		std::chrono::seconds{30});
+	REQUIRE(r.ok());
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<std::int64_t>(1) == 42);
+	release_cancel_pool.store(true, std::memory_order_release);
+}
+
+TEST_CASE(
 	"db: ConnectParams can share an explicit cancel pool",
 	"[db][integration]") {
 	auto ci = conninfo();
