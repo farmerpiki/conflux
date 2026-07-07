@@ -774,6 +774,22 @@ TEST_CASE(
 	REQUIRE(resp.body == "deferred h2 ok");
 }
 TEST_CASE(
+	"h2: sync middleware over async app route completes inner deferred response") {
+	auto app = conflux::http::App::default_server();
+	app.use(
+		[](conflux::http::RequestView const &req, conflux::http::Router::Handler const &next) { return next(req); });
+	app.get(
+		"/async-through-sync",
+		[](conflux::http::RequestView const &) -> conflux::work::Task<conflux::http::Response> {
+			co_return conflux::http::Response::text("async through sync middleware");
+		});
+	conflux::tests::HttpsServerFixture const fx{std::move(conflux::http::router(app))};
+	H2Client client{fx.port()};
+	auto resp = client.get("/async-through-sync");
+	REQUIRE(resp.status == 200);
+	REQUIRE(resp.body == "async through sync middleware");
+}
+TEST_CASE(
 	"h2: SSE delivers all events over HTTP/2 before channel close") {
 	conflux::http::Router r;
 	r.get("/ping", [](conflux::http::OwnedRequest const &) { return conflux::http::Response::json(R"({"ok":true})"); });
