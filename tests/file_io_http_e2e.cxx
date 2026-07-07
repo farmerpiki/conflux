@@ -82,6 +82,39 @@ std::pair<std::string, std::string> send_get_split_body(
 	std::size_t expected_body) {
 	return send_request_split_body(port, "GET", path, "", expected_body);
 }
+std::pair<std::string, std::string> read_response_split_body(
+	int fd,
+	std::string &pending) {
+	std::array<char, 64UL * 1024> tmp{};
+	while (pending.find("\r\n\r\n") == std::string::npos) {
+		ssize_t const n = ::recv(fd, tmp.data(), tmp.size(), 0);
+		if (n <= 0) {
+			return {std::move(pending), {}};
+		}
+		pending.append(tmp.data(), static_cast<std::size_t>(n));
+	}
+	auto const hdr_end = pending.find("\r\n\r\n");
+	std::string headers = pending.substr(0, hdr_end + 4);
+	pending.erase(0, hdr_end + 4);
+	std::size_t expected_body = 0;
+	std::string_view const cl_name = "Content-Length: ";
+	if (auto const cl_pos = headers.find(cl_name); cl_pos != std::string::npos) {
+		auto const cl_start = cl_pos + cl_name.size();
+		auto const cl_end = headers.find("\r\n", cl_start);
+		auto const value = std::string_view{headers}.substr(cl_start, cl_end - cl_start);
+		auto const _ = std::from_chars(value.data(), value.data() + value.size(), expected_body);
+	}
+	while (pending.size() < expected_body) {
+		ssize_t const n = ::recv(fd, tmp.data(), tmp.size(), 0);
+		if (n <= 0) {
+			break;
+		}
+		pending.append(tmp.data(), static_cast<std::size_t>(n));
+	}
+	std::string body = pending.substr(0, expected_body);
+	pending.erase(0, std::min(pending.size(), expected_body));
+	return {std::move(headers), std::move(body)};
+}
 std::optional<std::string> header_value(
 	std::string_view headers,
 	std::string_view name) {
@@ -195,6 +228,38 @@ TEST_CASE(
 		CHECK(resp.starts_with("HTTP/1.1 206"));
 		CHECK(body.size() == 100);
 		CHECK(body == std::string(100, 'A'));
+	}
+
+	SECTION("large static response preserves pipelined follow-up request") {
+		conflux::http::Router pipelined_router;
+		pipelined_router.serve_static("/static", dir.path);
+		pipelined_router.get("/after", [](conflux::http::OwnedRequest const &) {
+			return conflux::http::Response::text("after-static");
+		});
+		ScopedTestServer const pipelined_srv{cfg, std::move(pipelined_router)};
+
+		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
+		REQUIRE(fd >= 0);
+		sockaddr_in addr{};
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(pipelined_srv.port());
+		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+		REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+		std::string const req =
+			"GET /static/big.bin HTTP/1.1\r\nHost: localhost\r\n\r\n"
+			"GET /after HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+		REQUIRE(::send(fd, req.data(), req.size(), 0) == static_cast<ssize_t>(req.size()));
+
+		std::string pending;
+		auto [first_headers, first_body] = read_response_split_body(fd, pending);
+		auto [second_headers, second_body] = read_response_split_body(fd, pending);
+		::close(fd);
+
+		REQUIRE(first_headers.starts_with("HTTP/1.1 200 OK"));
+		REQUIRE(first_headers.find(std::format("Content-Length: {}\r\n", content.size())) != std::string::npos);
+		REQUIRE(first_body == content);
+		REQUIRE(second_headers.starts_with("HTTP/1.1 200 OK"));
+		CHECK(second_body == "after-static");
 	}
 }
 TEST_CASE(

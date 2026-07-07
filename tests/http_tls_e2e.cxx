@@ -32,6 +32,25 @@ namespace chttp = conflux::http;
 #if CONFLUX_HAS_TLS
 std::uint16_t g_tls_port = 0;
 
+struct TlsStaticRoot {
+	std::string path;
+	TlsStaticRoot() {
+		path = std::format("/tmp/conflux_tls_static_{}", ::getpid());
+		std::filesystem::create_directories(path);
+		std::ofstream out{std::filesystem::path{path} / "large.txt", std::ios::binary};
+		out << std::string(256UL * 1024, 'T');
+	}
+	~TlsStaticRoot() {
+		std::error_code ec;
+		std::filesystem::remove_all(path, ec);
+	}
+};
+
+std::string const &tls_static_root() {
+	static TlsStaticRoot root;
+	return root.path;
+}
+
 void ensure_tls_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
@@ -51,6 +70,7 @@ void ensure_tls_server() {
 		router.put("/put/{id}", [](conflux::http::OwnedRequest const &req) {
 			return conflux::http::Response::json(std::format(R"({{"id":"{}"}})", req.params["id"]));
 		});
+		router.serve_static("/static", tls_static_root());
 		router.get("/notfound-test", [](conflux::http::OwnedRequest const &) -> conflux::http::Response {
 			return conflux::http::Response::not_found("notfound-test");
 		});
@@ -106,6 +126,40 @@ std::string tls_raw(
 	SSL_shutdown(ssl.get());
 	::close(fd);
 	return response;
+}
+
+std::pair<std::string, std::string> tls_read_response(
+	SSL *ssl,
+	std::string &pending) {
+	std::array<char, 4096> buf{};
+	while (pending.find("\r\n\r\n") == std::string::npos) {
+		int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
+		if (n <= 0) {
+			return {std::move(pending), {}};
+		}
+		pending.append(buf.data(), static_cast<std::size_t>(n));
+	}
+	auto const hdr_end = pending.find("\r\n\r\n");
+	std::string headers = pending.substr(0, hdr_end + 4);
+	pending.erase(0, hdr_end + 4);
+	std::size_t body_len = 0;
+	std::string_view const cl_name = "Content-Length: ";
+	if (auto const cl_pos = headers.find(cl_name); cl_pos != std::string::npos) {
+		auto const cl_start = cl_pos + cl_name.size();
+		auto const cl_end = headers.find("\r\n", cl_start);
+		auto const value = std::string_view{headers}.substr(cl_start, cl_end - cl_start);
+		auto const _ = std::from_chars(value.data(), value.data() + value.size(), body_len);
+	}
+	while (pending.size() < body_len) {
+		int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
+		if (n <= 0) {
+			break;
+		}
+		pending.append(buf.data(), static_cast<std::size_t>(n));
+	}
+	std::string body = pending.substr(0, body_len);
+	pending.erase(0, std::min(pending.size(), body_len));
+	return {std::move(headers), std::move(body)};
 }
 
 std::string tls_get(
@@ -270,6 +324,42 @@ TEST_CASE(
 	REQUIRE(resp2.starts_with("HTTP/1.1 200 OK"));
 	auto h2 = resp2.find("\r\n\r\n");
 	REQUIRE(resp2.substr(h2 + 4) == "hello pipe");
+}
+
+TEST_CASE(
+	"TLS: mapped static response preserves pipelined follow-up request") {
+	ensure_tls_server();
+	conflux::net_tls::UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
+	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
+
+	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
+	sockaddr_in addr{};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(g_tls_port);
+	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+
+	conflux::net_tls::UniqueSsl const ssl{SSL_new(ctx.get())};
+	SSL_set_fd(ssl.get(), fd);
+	REQUIRE(SSL_connect(ssl.get()) == 1);
+
+	std::string const request =
+		"GET /static/large.txt HTTP/1.1\r\nHost: localhost\r\n\r\n"
+		"GET /hello/tls-pipe HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	REQUIRE(SSL_write(ssl.get(), request.data(), static_cast<int>(request.size())) == static_cast<int>(request.size()));
+
+	std::string pending;
+	auto [first_headers, first_body] = tls_read_response(ssl.get(), pending);
+	auto [second_headers, second_body] = tls_read_response(ssl.get(), pending);
+
+	SSL_shutdown(ssl.get());
+	::close(fd);
+
+	REQUIRE(first_headers.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(first_headers.find("Content-Length: 262144\r\n") != std::string::npos);
+	REQUIRE(first_body == std::string(256UL * 1024, 'T'));
+	REQUIRE(second_headers.starts_with("HTTP/1.1 200 OK"));
+	CHECK(second_body == "hello tls-pipe");
 }
 
 TEST_CASE(
