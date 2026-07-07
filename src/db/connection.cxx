@@ -31,6 +31,7 @@ using conflux::uring::IoResult;
 using conflux::work::Cancelled;
 using conflux::work::WorkPool;
 using conflux::work::WorkPoolOptions;
+inline constexpr std::uint64_t kCancellingOperationGeneration = std::numeric_limits<std::uint64_t>::max();
 namespace detail {
 
 struct ConnectState;
@@ -323,6 +324,11 @@ private:
 		auto _ = dst->try_set_exception(std::make_exception_ptr(std::move(err)));
 	}
 	void op_done_();
+	[[nodiscard]] std::uint64_t begin_operation_() noexcept;
+	root::Task<bool> cancel_if_active_(std::uint64_t generation, WorkPool &cancel_pool);
+	root::Task<bool> cancel_if_active_(std::uint64_t generation);
+	root::Task<void> release_deadline_cancel_hold_() noexcept;
+	void deadline_cancel_done_() noexcept;
 
 	PGConnPtr conn_;
 	conflux::file_io::FileReader *reader_{nullptr};
@@ -330,6 +336,10 @@ private:
 	std::thread::id owner_{};
 	bool closed_{false};
 	bool in_flight_{false};
+	std::atomic<std::uint64_t> operation_generation_{0};
+	std::atomic<std::uint64_t> active_operation_generation_{0};
+	std::atomic<unsigned> deadline_cancel_holds_{0};
+	bool waiting_deadline_cancel_{false};
 	std::deque<std::function<void()>> queue_{};
 	std::unordered_map<std::string, std::shared_ptr<StatementCache::Entry const>> prepared_statements_{};
 	bool pipeline_mode_{false};
@@ -557,7 +567,73 @@ void Connection::start_next_() {
 	job();
 }
 void Connection::op_done_() {
+	auto const active = active_operation_generation_.exchange(0, std::memory_order_acq_rel);
+	if (active == kCancellingOperationGeneration
+		|| deadline_cancel_holds_.load(std::memory_order_acquire) != 0) {
+		waiting_deadline_cancel_ = true;
+		return;
+	}
 	start_next_();
+}
+std::uint64_t Connection::begin_operation_() noexcept {
+	auto next = operation_generation_.fetch_add(1, std::memory_order_relaxed) + 1;
+	if (next == 0 || next == kCancellingOperationGeneration) [[unlikely]] {
+		next = operation_generation_.fetch_add(1, std::memory_order_relaxed) + 1;
+	}
+	active_operation_generation_.store(next, std::memory_order_release);
+	return next;
+}
+root::Task<bool> Connection::cancel_if_active_(
+	std::uint64_t generation,
+	WorkPool &wpool) {
+	auto expected = generation;
+	if (!active_operation_generation_.compare_exchange_strong(
+			expected,
+			kCancellingOperationGeneration,
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)) {
+		co_return false;
+	}
+	deadline_cancel_holds_.fetch_add(1, std::memory_order_acq_rel);
+	try {
+		auto cancel = cancel_inflight(wpool);
+		co_await std::move(cancel);
+	} catch (...) {
+	} // NOLINT(bugprone-empty-catch): deadline cancellation cleanup is best effort.
+	co_await release_deadline_cancel_hold_();
+	co_return true;
+}
+root::Task<bool> Connection::cancel_if_active_(
+	std::uint64_t generation) {
+	if (cancel_pool_ == nullptr) {
+		cancel_pool_ = detail::make_default_cancel_pool();
+	}
+	co_return co_await cancel_if_active_(generation, *cancel_pool_);
+}
+root::Task<void> Connection::release_deadline_cancel_hold_() noexcept {
+	if (reader_ != nullptr) {
+		try {
+			co_await reader_->async_timeout(std::chrono::milliseconds{0});
+		} catch (...) {
+		} // NOLINT(bugprone-empty-catch): fallback below still releases the hold.
+	}
+	deadline_cancel_done_();
+}
+void Connection::deadline_cancel_done_() noexcept {
+	auto const prev = deadline_cancel_holds_.fetch_sub(1, std::memory_order_acq_rel);
+	if (prev <= 1) {
+		deadline_cancel_holds_.store(0, std::memory_order_release);
+		std::uint64_t expected = kCancellingOperationGeneration;
+		active_operation_generation_.compare_exchange_strong(
+			expected,
+			0,
+			std::memory_order_acq_rel,
+			std::memory_order_acquire);
+		if (waiting_deadline_cancel_) {
+			waiting_deadline_cancel_ = false;
+			start_next_();
+		}
+	}
 }
 root::Task<Result> Connection::query(
 	std::string_view sql,
@@ -871,7 +947,10 @@ void Connection::drive_consume_loop_(
 	while (::PQisBusy(conn_.get()) == 0) {
 		PGResultPtr next{::PQgetResult(conn_.get())};
 		if (!next) {
-			if (partial && *partial && partial->ok()) {
+			if (active_operation_generation_.load(std::memory_order_acquire) == kCancellingOperationGeneration) {
+				// The deadline path has claimed this operation and owns the
+				// public terminal result after cancellation cleanup.
+			} else if (partial && *partial && partial->ok()) {
 				if constexpr (std::is_void_v<T>) {
 					auto _ = dst->try_set_value(root::Success<void>{});
 				} else {
@@ -892,7 +971,9 @@ void Connection::drive_consume_loop_(
 			while (PGresult *drain = ::PQgetResult(conn_.get())) {
 				::PQclear(drain);
 			}
-			auto _ = dst->try_set_exception(std::make_exception_ptr(std::move(err)));
+			if (active_operation_generation_.load(std::memory_order_acquire) != kCancellingOperationGeneration) {
+				auto _ = dst->try_set_exception(std::make_exception_ptr(std::move(err)));
+			}
 			op_done_();
 			return;
 		}
@@ -984,34 +1065,31 @@ root::Task<Result> Connection::query(
 	auto const deadline = *opts.deadline;
 	enqueue_job_(
 		[self, sql_owned = std::string{sql}, params = std::move(params), shared_src, reader, deadline]() mutable {
+			auto const generation = self->begin_operation_();
 			self->run_query_(sql_owned, params, shared_src);
 			[](std::shared_ptr<Connection> s,
 			   std::shared_ptr<root::TaskSource<Result>> src,
+			   std::uint64_t operation_generation,
 			   root::Task<void> tt) -> root::Task<void> {
 				try {
 					co_await std::move(tt);
-					if (src->try_set_exception(
-							std::make_exception_ptr(PgError{"conflux.pg: query deadline exceeded", "57014"}))) {
-						[](std::shared_ptr<Connection> s2) -> root::Task<void> {
-							try {
-								auto cancel = s2->cancel_inflight();
-								s2.reset();
-								co_await std::move(cancel);
-							} catch (...) {} // NOLINT(bugprone-empty-catch): secondary cancellation failure must not
-											 // mask the primary query error.
-						}(s)
-																  .detach();
+					auto keep_alive = std::move(s);
+					auto cancel = keep_alive->cancel_if_active_(operation_generation);
+					if (co_await std::move(cancel)) {
+						[[maybe_unused]] auto const committed = src->try_set_exception(
+							std::make_exception_ptr(PgError{"conflux.pg: query deadline exceeded", "57014"}));
 					}
 				} catch (...) {
-				} // NOLINT(bugprone-empty-catch): async cleanup spawn is best-effort after primary error propagation.
+				} // NOLINT(bugprone-empty-catch): async cleanup is best-effort after primary error propagation.
 			}(self,
 			  shared_src,
+			  generation,
 			  conflux::uring::async_timeout(
 				  reader->ring(),
 				  *reader->completions(),
 				  [reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
 				  deadline))
-										   .detach();
+				.detach();
 		});
 	return std::move(task);
 }
